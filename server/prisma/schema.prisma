@@ -1,0 +1,36 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id       String @id @default(uuid())
+  username String @unique
+  password String
+  role     Role   @default(VIEWER)
+}
+
+model InventoryItem {
+  id          String   @id @default(uuid())
+  name        String
+  category    String
+  quantity    Int
+  location    String
+  status      Status   @default(AVAILABLE)
+  lastUpdated DateTime @updatedAt
+  createdAt   DateTime @default(now())
+}
+
+enum Role {
+  ADMIN
+  VIEWER
+}
+
+enum Status {
+  AVAILABLE
+  ISSUED
+} 

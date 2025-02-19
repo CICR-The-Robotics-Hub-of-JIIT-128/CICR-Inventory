@@ -9,13 +9,13 @@ module.exports = {
   // Hardcoded users for demonstration
   users: [
     {
-      username: 'admin',
-      password: 'admin123',
+      username: process.env.ADMIN_USERNAME,
+      password: process.env.ADMIN_PASSWORD,
       role: 'ADMIN'
     },
     {
-      username: 'viewer',
-      password: 'viewer123',
+      username: process.env.VIEWER_USERNAME,
+      password: process.env.VIEWER_PASSWORD,
       role: 'VIEWER'
     }
   ]

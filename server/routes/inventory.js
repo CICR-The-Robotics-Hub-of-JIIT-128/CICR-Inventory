@@ -2,9 +2,152 @@ const express = require('express');
 const { body, query, validationResult } = require('express-validator');
 const { PrismaClient } = require('@prisma/client');
 const { requireRole } = require('../middleware/auth.js');
+const { validate } = require('../middleware/validation.js');
 
 const router = express.Router();
 const prisma = new PrismaClient();
+
+// Get inventory statistics
+router.get('/stats', requireRole(['ADMIN', 'MANAGER']), async (req, res) => {
+  try {
+    const stats = await prisma.$transaction([
+      prisma.inventoryItem.count(),
+      prisma.inventoryItem.count({ where: { status: 'OUT_OF_STOCK' } }),
+      prisma.inventoryItem.aggregate({
+        _sum: { price: true },
+        where: { status: 'AVAILABLE' }
+      }),
+      prisma.inventoryItem.findMany({
+        where: { quantity: { lte: prisma.inventoryItem.minimumStock } }
+      })
+    ]);
+
+    res.json({
+      status: 'success',
+      data: {
+        totalItems: stats[0],
+        outOfStock: stats[1],
+        totalValue: stats[2]._sum.price || 0,
+        lowStock: stats[3]
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'error',
+      message: 'Failed to fetch inventory statistics'
+    });
+  }
+});
+
+// Add audit log
+const logAuditTrail = async (userId, itemId, action, details) => {
+  await prisma.auditLog.create({
+    data: {
+      userId,
+      itemId,
+      action,
+      details
+    }
+  });
+};
+
+// Enhanced create item endpoint
+router.post('/', [
+  requireRole(['ADMIN', 'MANAGER']),
+  body('name').notEmpty().trim(),
+  body('category').notEmpty().trim(),
+  body('quantity').isInt({ min: 0 }),
+  body('location').notEmpty().trim(),
+  body('status').isIn(['AVAILABLE', 'ISSUED', 'IN_MAINTENANCE', 'OUT_OF_STOCK', 'DISCONTINUED']),
+  body('serialNumber').optional().isString(),
+  body('manufacturer').optional().isString(),
+  body('purchaseDate').optional().isISO8601(),
+  body('warrantyExpiry').optional().isISO8601(),
+  body('minimumStock').optional().isInt({ min: 0 }),
+  body('price').optional().isFloat({ min: 0 }),
+  validate
+], async (req, res) => {
+  try {
+    const item = await prisma.inventoryItem.create({
+      data: req.body
+    });
+
+    await logAuditTrail(
+      req.user.id,
+      item.id,
+      'CREATE',
+      `Item created: ${item.name}`
+    );
+
+    res.status(201).json({
+      status: 'success',
+      data: item
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to create inventory item'
+    });
+  }
+});
+
+// Get low stock alerts
+router.get('/alerts/low-stock', requireRole(['ADMIN', 'MANAGER']), async (req, res) => {
+  try {
+    const lowStockItems = await prisma.inventoryItem.findMany({
+      where: {
+        quantity: {
+          lte: prisma.inventoryItem.minimumStock
+        }
+      }
+    });
+
+    res.json({
+      status: 'success',
+      data: lowStockItems
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch low stock alerts'
+    });
+  }
+});
+
+// Get audit logs
+router.get('/audit-logs', requireRole(['ADMIN']), async (req, res) => {
+  try {
+    const logs = await prisma.auditLog.findMany({
+      include: {
+        user: {
+          select: {
+            username: true,
+            role: true
+          }
+        },
+        item: {
+          select: {
+            name: true,
+            category: true
+          }
+        }
+      },
+      orderBy: {
+        timestamp: 'desc'
+      }
+    });
+
+    res.json({
+      status: 'success',
+      data: logs
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch audit logs'
+    });
+  }
+});
 
 // Get all inventory items with filtering and pagination
 router.get('/', [

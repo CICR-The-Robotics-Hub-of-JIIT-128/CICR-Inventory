@@ -12,6 +12,7 @@ model User {
   username String @unique
   password String
   role     Role   @default(VIEWER)
+  actions  AuditLog[]
 }
 
 model InventoryItem {
@@ -21,16 +22,39 @@ model InventoryItem {
   quantity    Int
   location    String
   status      Status   @default(AVAILABLE)
+  description String?
+  serialNumber String?  @unique
+  manufacturer String?
+  purchaseDate DateTime?
+  warrantyExpiry DateTime?
+  minimumStock Int      @default(0)
+  price       Float?
   lastUpdated DateTime @updatedAt
   createdAt   DateTime @default(now())
+  auditLogs   AuditLog[]
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String
+  details   String
+  timestamp DateTime @default(now())
+  userId    String
+  itemId    String
+  user      User     @relation(fields: [userId], references: [id])
+  item      InventoryItem @relation(fields: [itemId], references: [id])
 }
 
 enum Role {
   ADMIN
+  MANAGER
   VIEWER
 }
 
 enum Status {
   AVAILABLE
   ISSUED
-} 
+  IN_MAINTENANCE
+  OUT_OF_STOCK
+  DISCONTINUED
+}

@@ -59,34 +59,65 @@ router.post('/', [
   body('quantity').isInt({ min: 0 }),
   body('location').notEmpty().trim(),
   body('status').isIn(['AVAILABLE', 'ISSUED', 'IN_MAINTENANCE', 'OUT_OF_STOCK', 'DISCONTINUED']),
-  body('serialNumber').optional().isString(),
-  body('manufacturer').optional().isString(),
-  body('purchaseDate').optional().isISO8601(),
-  body('warrantyExpiry').optional().isISO8601(),
-  body('minimumStock').optional().isInt({ min: 0 }),
-  body('price').optional().isFloat({ min: 0 }),
+  // Make these fields truly optional
+  body('description').optional({ nullable: true }).trim(),
+  body('serialNumber').optional({ nullable: true }).trim(),
+  body('manufacturer').optional({ nullable: true }).trim(),
+  body('purchaseDate').optional({ nullable: true }),
+  body('warrantyExpiry').optional({ nullable: true }),
+  body('minimumStock').optional({ nullable: true }).isInt({ min: 0 }).toInt(),
+  body('price').optional({ nullable: true })
+    .custom((value) => {
+      if (value === '' || value === null || value === undefined) return true;
+      const floatValue = parseFloat(value);
+      if (isNaN(floatValue) || floatValue < 0) {
+        throw new Error('Price must be a positive number or empty');
+      }
+      return true;
+    }),
   validate
 ], async (req, res) => {
   try {
+    const userId = req.user.id;
+    
     const item = await prisma.inventoryItem.create({
-      data: req.body
+      data: {
+        name: req.body.name,
+        category: req.body.category,
+        quantity: parseInt(req.body.quantity),
+        location: req.body.location,
+        status: req.body.status,
+        description: req.body.description || null,
+        serialNumber: req.body.serialNumber || null,
+        manufacturer: req.body.manufacturer || null,
+        // Handle empty date strings
+        purchaseDate: req.body.purchaseDate && req.body.purchaseDate !== '' ? new Date(req.body.purchaseDate) : null,
+        warrantyExpiry: req.body.warrantyExpiry && req.body.warrantyExpiry !== '' ? new Date(req.body.warrantyExpiry) : null,
+        minimumStock: req.body.minimumStock || 0,
+        price: req.body.price ? parseFloat(req.body.price) : null,
+      }
     });
 
-    await logAuditTrail(
-      req.user.id,
-      item.id,
-      'CREATE',
-      `Item created: ${item.name}`
-    );
+    // Create audit log entry
+    await prisma.auditLog.create({
+      data: {
+        userId: userId,
+        itemId: item.id,
+        action: 'CREATE',
+        details: `Created item: ${item.name}`
+      }
+    });
 
     res.status(201).json({
       status: 'success',
       data: item
     });
   } catch (error) {
+    console.error('Error creating inventory item:', error);
     res.status(500).json({
       status: 'error',
-      message: 'Failed to create inventory item'
+      message: 'Failed to create inventory item',
+      details: error.message
     });
   }
 });

@@ -7,29 +7,36 @@ import DashboardLayout from './components/DashboardLayout';
 import InventoryTable from './components/InventoryTable';
 import ItemForm from './components/ItemForm';
 import { api } from './utils/api';
+import { toast } from 'react-toastify';
 
 const PrivateRoute = ({ children }) => {
   const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
   return isAuthenticated ? children : <Navigate to="/login" />;
 };
 
-const App = () => {
-  const [items, setItems] = useState([]);
+function App() {
+  const [items, setItems] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const fetchItems = async () => {
     try {
-      const data = await api.get('/inventory');
-      setItems(data);
+      setLoading(true);
+      const response = await api.get('/inventory');
+      setItems(response);
+      setError(null);
     } catch (error) {
       console.error('Error fetching items:', error);
+      setError(error.message);
+      toast.error('Failed to load inventory items');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (localStorage.getItem('isAuthenticated') === 'true') {
+    const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
+    if (isAuthenticated) {
       fetchItems();
     }
   }, []);
@@ -39,31 +46,44 @@ const App = () => {
       <ToastContainer />
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/" element={<Navigate to="/login" />} />
         <Route
-          path="/"
+          path="/dashboard"
           element={
             <PrivateRoute>
-              <DashboardLayout />
+              <DashboardLayout>
+                <InventoryTable 
+                  items={items} 
+                  loading={loading} 
+                  onRefresh={fetchItems}
+                />
+              </DashboardLayout>
             </PrivateRoute>
           }
-        >
-          <Route index element={<Navigate to="/dashboard" />} />
-          <Route 
-            path="dashboard" 
-            element={
-              <InventoryTable 
-                items={items} 
-                loading={loading}
-                onRefresh={fetchItems}
-              />
-            } 
-          />
-          <Route path="items/new" element={<ItemForm onSuccess={fetchItems} />} />
-          <Route path="items/:id/edit" element={<ItemForm onSuccess={fetchItems} />} />
-        </Route>
+        />
+        <Route
+          path="/items/new"
+          element={
+            <PrivateRoute>
+              <DashboardLayout>
+                <ItemForm onSuccess={fetchItems} />
+              </DashboardLayout>
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/items/:id/edit"
+          element={
+            <PrivateRoute>
+              <DashboardLayout>
+                <ItemForm onSuccess={fetchItems} />
+              </DashboardLayout>
+            </PrivateRoute>
+          }
+        />
       </Routes>
     </Router>
   );
-};
+}
 
-export default App; 
+export default App;

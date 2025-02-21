@@ -1,29 +1,51 @@
-const API_BASE_URL = '/api';
+const API_BASE_URL = 'http://localhost:5000/api';  // Update this line
 
 export const api = {
   get: async (endpoint) => {
     const token = localStorage.getItem('token');
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      headers: {
-        'Authorization': `Bearer ${token}`
+    try {
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'API request failed');
       }
-    });
-    if (!response.ok) throw new Error('API request failed');
-    return response.json();
+
+      return response.json();
+    } catch (error) {
+      console.error('API Error:', error);
+      throw error;
+    }
   },
 
   post: async (endpoint, data) => {
     const token = localStorage.getItem('token');
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(data)
-    });
-    if (!response.ok) throw new Error('API request failed');
-    return response.json();
+    try {
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'API request failed');
+      }
+
+      return response.json();
+    } catch (error) {
+      console.error('API Error:', error);
+      throw error;
+    }
   },
 
   put: async (endpoint, data) => {
@@ -51,4 +73,4 @@ export const api = {
     if (!response.ok) throw new Error('API request failed');
     return response;
   }
-}; 
+};

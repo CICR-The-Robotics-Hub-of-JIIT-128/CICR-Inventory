@@ -10,7 +10,14 @@ const ItemForm = ({ initialData, onSuccess }) => {
     category: initialData?.category || '',
     quantity: initialData?.quantity || 0,
     location: initialData?.location || '',
-    status: initialData?.status || 'AVAILABLE'
+    status: initialData?.status || 'AVAILABLE',
+    description: initialData?.description || '',
+    serialNumber: initialData?.serialNumber || '',
+    manufacturer: initialData?.manufacturer || '',
+    purchaseDate: initialData?.purchaseDate ? new Date(initialData.purchaseDate).toISOString().split('T')[0] : '',
+    warrantyExpiry: initialData?.warrantyExpiry ? new Date(initialData.warrantyExpiry).toISOString().split('T')[0] : '',
+    minimumStock: initialData?.minimumStock || 0,
+    price: initialData?.price || ''
   });
 
   const handleSubmit = async (e) => {
@@ -26,8 +33,8 @@ const ItemForm = ({ initialData, onSuccess }) => {
       onSuccess?.();
       navigate('/dashboard');
     } catch (error) {
-      toast.error(error.message || 'Failed to save item');
       console.error('Save error:', error);
+      toast.error(error.message || 'Failed to save item');
     }
   };
 
@@ -37,6 +44,7 @@ const ItemForm = ({ initialData, onSuccess }) => {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 max-w-md mx-auto mt-8">
+      {/* Existing fields */}
       <div>
         <label className="block text-sm font-medium text-gray-700">Name</label>
         <input
@@ -86,6 +94,86 @@ const ItemForm = ({ initialData, onSuccess }) => {
         />
       </div>
 
+      {/* New fields */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700">Description</label>
+        <textarea
+          name="description"
+          value={formData.description}
+          onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700">Serial Number</label>
+        <input
+          type="text"
+          name="serialNumber"
+          value={formData.serialNumber}
+          onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700">Manufacturer</label>
+        <input
+          type="text"
+          name="manufacturer"
+          value={formData.manufacturer}
+          onChange={(e) => setFormData({ ...formData, manufacturer: e.target.value })}
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700">Purchase Date</label>
+        <input
+          type="date"
+          name="purchaseDate"
+          value={formData.purchaseDate}
+          onChange={(e) => setFormData({ ...formData, purchaseDate: e.target.value })}
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700">Warranty Expiry</label>
+        <input
+          type="date"
+          name="warrantyExpiry"
+          value={formData.warrantyExpiry}
+          onChange={(e) => setFormData({ ...formData, warrantyExpiry: e.target.value })}
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700">Minimum Stock</label>
+        <input
+          type="number"
+          name="minimumStock"
+          value={formData.minimumStock}
+          onChange={(e) => setFormData({ ...formData, minimumStock: parseInt(e.target.value) || 0 })}
+          min="0"
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700">Price</label>
+        <input
+          type="number"
+          name="price"
+          value={formData.price}
+          onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
+          step="0.01"
+          min="0"
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+        />
+      </div>
+
       <div>
         <label className="block text-sm font-medium text-gray-700">Status</label>
         <select
@@ -96,6 +184,9 @@ const ItemForm = ({ initialData, onSuccess }) => {
         >
           <option value="AVAILABLE">Available</option>
           <option value="ISSUED">Issued</option>
+          <option value="IN_MAINTENANCE">In Maintenance</option>
+          <option value="OUT_OF_STOCK">Out of Stock</option>
+          <option value="DISCONTINUED">Discontinued</option>
         </select>
       </div>
 

@@ -5,17 +5,11 @@ const { jwtSecret, users } = require('../config/config');
 
 const router = express.Router();
 
-router.post('/login',
-  [
-    body('username').notEmpty().trim(),
-    body('password').notEmpty()
-  ],
-  (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-
+router.post('/login', [
+  body('username').notEmpty().trim(),
+  body('password').notEmpty()
+], async (req, res) => {
+  try {
     const { username, password } = req.body;
     const user = users.find(u => u.username === username && u.password === password);
 
@@ -24,13 +18,26 @@ router.post('/login',
     }
 
     const token = jwt.sign(
-      { username: user.username, role: user.role },
+      { 
+        id: user.id, // Include the user ID
+        username: user.username, 
+        role: user.role 
+      },
       jwtSecret,
       { expiresIn: '24h' }
     );
 
-    res.json({ token, user: { username: user.username, role: user.role } });
+    res.json({ 
+      token, 
+      user: { 
+        id: user.id,
+        username: user.username, 
+        role: user.role 
+      } 
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-);
-
-module.exports = router; 
+});
+module.exports = router;

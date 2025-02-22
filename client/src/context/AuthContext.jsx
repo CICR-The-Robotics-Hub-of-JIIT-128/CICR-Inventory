@@ -13,7 +13,6 @@ export const AuthProvider = ({ children }) => {
       try {
         const userData = JSON.parse(localStorage.getItem('user'));
         setUser(userData);
-        axios.defaults.baseURL = 'http://localhost:5000';  // Updated URL
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       } catch (error) {
         console.error('Error restoring auth state:', error);
@@ -25,9 +24,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (username, password) => {
     try {
-      axios.defaults.baseURL = 'http://localhost:5000';  // Updated URL
-      
-      const response = await axios.post('/api/auth/login', {
+      const response = await axios.post('/auth/login', {
         username,
         password
       });

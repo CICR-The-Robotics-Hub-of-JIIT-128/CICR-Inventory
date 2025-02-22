@@ -11,6 +11,10 @@ services:
     envVars:
       - key: VITE_API_URL
         value: https://cicr-inventory-api.onrender.com/api
+    headers:
+      - path: /*
+        name: Access-Control-Allow-Origin
+        value: https://www.inventory.cicr.in
 
   - type: web
     name: cicr-inventory-api

@@ -15,7 +15,12 @@ const prisma = new PrismaClient();
 
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:5173', 'https://cicr-inventory.onrender.com', 'https://inventory.cicr.in'],
+  origin: [
+    'http://localhost:5173',
+    'https://cicr-inventory.onrender.com',
+    'https://inventory.cicr.in',
+    'https://www.inventory.cicr.in'  // Add the www subdomain
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],

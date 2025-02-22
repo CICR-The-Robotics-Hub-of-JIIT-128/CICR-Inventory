@@ -1,19 +1,25 @@
 import axios from 'axios';
 
-const baseURL = 'https://cicr-inventory-api.onrender.com/api';
+const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
-axios.defaults.baseURL = baseURL;
-axios.defaults.withCredentials = true;
+const instance = axios.create({
+  baseURL,
+  withCredentials: true,
+  headers: {
+    'Content-Type': 'application/json'
+  }
+});
 
-// Add interceptors for better error handling
-axios.interceptors.response.use(
+instance.interceptors.response.use(
   response => response,
   error => {
-    if (error.response?.status === 404) {
-      console.error('API endpoint not found:', error.config.url);
-    }
+    console.error('API Error:', {
+      url: error.config?.url,
+      status: error.response?.status,
+      message: error.message
+    });
     return Promise.reject(error);
   }
 );
 
-export default axios;
+export default instance;

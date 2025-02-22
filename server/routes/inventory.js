@@ -278,23 +278,12 @@ router.put('/:id', [
     }
 
     const { id } = req.params;
-
-    const existingItem = await prisma.inventoryItem.findUnique({
+    const item = await prisma.inventoryItem.findUnique({
       where: { id }
     });
-
-    if (!existingItem) {
+    if (!item) {
       return res.status(404).json({ error: 'Item not found' });
     }
-
-    const item = await prisma.inventoryItem.update({
-      where: { id },
-      data: {
-        ...req.body,
-        lastUpdated: new Date()
-      }
-    });
-
     res.json(item);
   } catch (error) {
     console.error('Error updating inventory item:', error);
@@ -302,7 +291,107 @@ router.put('/:id', [
   }
 });
 
-// Delete item (ADMIN only)
+// Get single item by ID
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const item = await prisma.inventoryItem.findUnique({
+      where: { id }
+    });
+
+    if (!item) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Item not found'
+      });
+    }
+
+    res.json({
+      status: 'success',
+      data: item
+    });
+  } catch (error) {
+    console.error('Error fetching inventory item:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch inventory item'
+    });
+  }
+});
+
+// Create new item
+router.post('/', requireRole(['ADMIN', 'MANAGER']), validate, async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const item = await prisma.inventoryItem.create({
+      data: {
+        ...req.body,
+        lastUpdated: new Date()
+      }
+    });
+
+    res.status(201).json(item);
+  } catch (error) {
+    console.error('Error creating inventory item:', error);
+    res.status(500).json({ error: 'Failed to create inventory item' });
+  }
+});
+
+// Update item
+router.put('/:id', requireRole(['ADMIN', 'MANAGER']), validate, async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { id } = req.params;
+    const item = await prisma.inventoryItem.findUnique({
+      where: { id }
+    });
+    if (!item) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+    res.json(item);
+  } catch (error) {
+    console.error('Error updating inventory item:', error);
+    res.status(500).json({ error: 'Failed to update inventory item' });
+  }
+});
+
+// Get single item by ID
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const item = await prisma.inventoryItem.findUnique({
+      where: { id }
+    });
+
+    if (!item) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Item not found'
+      });
+    }
+
+    res.json({
+      status: 'success',
+      data: item
+    });
+  } catch (error) {
+    console.error('Error fetching inventory item:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch inventory item'
+    });
+  }
+});
+
+// Delete item - restrict to ADMIN only
 router.delete('/:id', requireRole('ADMIN'), async (req, res) => {
   try {
     const { id } = req.params;

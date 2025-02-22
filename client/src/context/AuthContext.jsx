@@ -13,12 +13,11 @@ export const AuthProvider = ({ children }) => {
       try {
         const userData = JSON.parse(localStorage.getItem('user'));
         setUser(userData);
-        // Set base URL and default headers for all axios requests
-        axios.defaults.baseURL = 'http://localhost:3000';
+        axios.defaults.baseURL = 'http://localhost:5000';  // Updated URL
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       } catch (error) {
         console.error('Error restoring auth state:', error);
-        logout(); // Use the logout function to clean up
+        logout();
       }
     }
     setLoading(false);
@@ -26,8 +25,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (username, password) => {
     try {
-      // Set base URL before making the request
-      axios.defaults.baseURL = 'http://localhost:3000';
+      axios.defaults.baseURL = 'http://localhost:5000';  // Updated URL
       
       const response = await axios.post('/api/auth/login', {
         username,

@@ -6,8 +6,11 @@ import Login from './components/Login';
 import DashboardLayout from './components/DashboardLayout';
 import InventoryTable from './components/InventoryTable';
 import ItemForm from './components/ItemForm';
+import RequestForm from './components/RequestForm';
+import RequestHistory from './components/RequestHistory';
 import { api } from './utils/api';
 import { toast } from 'react-toastify';
+import Analytics from './components/Analytics';
 
 const PrivateRoute = ({ children }) => {
   const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
@@ -18,6 +21,10 @@ function App() {
   const [items, setItems] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const isAdmin = user.role === 'ADMIN';
+  const isManager = user.role === 'MANAGER';
+  const hasElevatedPermissions = isAdmin || isManager;
 
   const fetchItems = async () => {
     try {
@@ -42,47 +49,103 @@ function App() {
   }, []);
 
   return (
-    <Router>
-      <ToastContainer />
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/" element={<Navigate to="/login" />} />
-        <Route
-          path="/dashboard"
-          element={
-            <PrivateRoute>
-              <DashboardLayout>
-                <InventoryTable 
-                  items={items} 
-                  loading={loading} 
-                  onRefresh={fetchItems}
-                />
-              </DashboardLayout>
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/items/new"
-          element={
-            <PrivateRoute>
-              <DashboardLayout>
-                <ItemForm onSuccess={fetchItems} />
-              </DashboardLayout>
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/items/:id/edit"
-          element={
-            <PrivateRoute>
-              <DashboardLayout>
-                <ItemForm onSuccess={fetchItems} />
-              </DashboardLayout>
-            </PrivateRoute>
-          }
-        />
-      </Routes>
-    </Router>
+    <div className="min-h-screen bg-background">
+      <Router>
+        <ToastContainer theme="dark" />
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/" element={<Navigate to="/login" />} />
+          <Route
+            path="/dashboard"
+            element={
+              <PrivateRoute>
+                <DashboardLayout>
+                  <InventoryTable 
+                    items={items} 
+                    loading={loading} 
+                    onRefresh={fetchItems}
+                  />
+                </DashboardLayout>
+              </PrivateRoute>
+            }
+          />
+          {isAdmin && (
+            <>
+              <Route
+                path="/items/new"
+                element={
+                  <PrivateRoute>
+                    <DashboardLayout>
+                      <ItemForm onSuccess={fetchItems} />
+                    </DashboardLayout>
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/items/:id/edit"
+                element={
+                  <PrivateRoute>
+                    <DashboardLayout>
+                      <ItemForm onSuccess={fetchItems} />
+                    </DashboardLayout>
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/requests/manage"
+                element={
+                  <PrivateRoute>
+                    <DashboardLayout>
+                      <RequestHistory isAdmin={hasElevatedPermissions} />
+                    </DashboardLayout>
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/analytics"
+                element={
+                  <PrivateRoute>
+                    <DashboardLayout>
+                      <Analytics />
+                    </DashboardLayout>
+                  </PrivateRoute>
+                }
+              />
+            </>
+          )}
+          <Route
+            path="/requests/new/:itemId"
+            element={
+              <PrivateRoute>
+                <DashboardLayout>
+                  <RequestForm />
+                </DashboardLayout>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/requests/manage"
+            element={
+              <PrivateRoute>
+                <DashboardLayout>
+                  <RequestHistory isAdmin={true} />
+                </DashboardLayout>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/requests/history"
+            element={
+              <PrivateRoute>
+                <DashboardLayout>
+                  <RequestHistory isAdmin={false} />
+                </DashboardLayout>
+              </PrivateRoute>
+            }
+          />
+        </Routes>
+      </Router>
+    </div>
   );
 }
 

@@ -5,6 +5,7 @@ const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
 const authRoutes = require('./routes/auth.js');
 const inventoryRoutes = require('./routes/inventory.js');
+const requestsRouter = require('./routes/requests.js');  // Keep consistent naming
 const { auth } = require('./middleware/auth.js');
 const { requestLogger, logger } = require('./middleware/logging.js');
 const { port } = require('./config/config.js');
@@ -14,7 +15,7 @@ const prisma = new PrismaClient();
 
 // Middleware
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: ['http://localhost:5173', 'http://localhost:5174'], // Allow both ports
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -32,6 +33,7 @@ app.use(limiter);
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/inventory', auth, inventoryRoutes);
+app.use('/api/requests', auth, requestsRouter);  // Route for equipment requests
 
 // Error handling
 app.use((err, req, res, next) => {

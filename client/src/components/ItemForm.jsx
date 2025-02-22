@@ -2,6 +2,13 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { api } from '../utils/api';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import { Save, X } from "lucide-react";
 
 const ItemForm = ({ initialData, onSuccess }) => {
   const navigate = useNavigate();
@@ -43,169 +50,127 @@ const ItemForm = ({ initialData, onSuccess }) => {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 max-w-md mx-auto mt-8">
-      {/* Existing fields */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Name</label>
-        <input
-          type="text"
-          name="name"
-          value={formData.name}
-          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-          required
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-        />
-      </div>
+    <Card className="max-w-2xl mx-auto mt-8 bg-zinc-900/50 border-white/10 backdrop-blur-md">
+      <CardHeader>
+        <CardTitle className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-cyan-400">
+          {initialData ? 'Edit' : 'Add New'} Item
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <Label className="text-white/70">Name</Label>
+              <Input
+                type="text"
+                name="name"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                required
+                className="bg-zinc-800/50 border-white/10 text-white/90 focus:ring-purple-500/30"
+              />
+            </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Category</label>
-        <input
-          type="text"
-          name="category"
-          value={formData.category}
-          onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-          required
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-        />
-      </div>
+            <div className="space-y-2">
+              <Label className="text-white/70">Category</Label>
+              <Input
+                type="text"
+                name="category"
+                value={formData.category}
+                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                required
+                className="bg-zinc-800/50 border-white/10 text-white/90"
+              />
+            </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Quantity</label>
-        <input
-          type="number"
-          name="quantity"
-          value={formData.quantity}
-          onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 0 })}
-          required
-          min="0"
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-        />
-      </div>
+            <div className="space-y-2">
+              <Label className="text-white/70">Quantity</Label>
+              <Input
+                type="number"
+                name="quantity"
+                value={formData.quantity}
+                onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 0 })}
+                required
+                min="0"
+                className="bg-zinc-800/50 border-white/10 text-white/90"
+              />
+            </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Location</label>
-        <input
-          type="text"
-          name="location"
-          value={formData.location}
-          onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-          required
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-        />
-      </div>
+            <div className="space-y-2">
+              <Label className="text-white/70">Status</Label>
+              <Select 
+                value={formData.status}
+                onValueChange={(value) => setFormData({ ...formData, status: value })}
+              >
+                <SelectTrigger className="bg-zinc-800/50 border-white/10 text-white/90">
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent className="bg-zinc-800 border-white/10">
+                  <SelectItem value="AVAILABLE">Available</SelectItem>
+                  <SelectItem value="ISSUED">Issued</SelectItem>
+                  <SelectItem value="IN_MAINTENANCE">In Maintenance</SelectItem>
+                  <SelectItem value="OUT_OF_STOCK">Out of Stock</SelectItem>
+                  <SelectItem value="DISCONTINUED">Discontinued</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-      {/* New fields */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Description</label>
-        <textarea
-          name="description"
-          value={formData.description}
-          onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-        />
-      </div>
+            <div className="space-y-2">
+              <Label className="text-white/70">Location</Label>
+              <Input
+                type="text"
+                name="location"
+                value={formData.location}
+                onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                required
+                className="bg-zinc-800/50 border-white/10 text-white/90"
+              />
+            </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Serial Number</label>
-        <input
-          type="text"
-          name="serialNumber"
-          value={formData.serialNumber}
-          onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-        />
-      </div>
+            <div className="space-y-2">
+              <Label className="text-white/70">Price</Label>
+              <Input
+                type="number"
+                name="price"
+                value={formData.price}
+                onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
+                step="0.01"
+                min="0"
+                className="bg-zinc-800/50 border-white/10 text-white/90"
+              />
+            </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Manufacturer</label>
-        <input
-          type="text"
-          name="manufacturer"
-          value={formData.manufacturer}
-          onChange={(e) => setFormData({ ...formData, manufacturer: e.target.value })}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Purchase Date</label>
-        <input
-          type="date"
-          name="purchaseDate"
-          value={formData.purchaseDate}
-          onChange={(e) => setFormData({ ...formData, purchaseDate: e.target.value })}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Warranty Expiry</label>
-        <input
-          type="date"
-          name="warrantyExpiry"
-          value={formData.warrantyExpiry}
-          onChange={(e) => setFormData({ ...formData, warrantyExpiry: e.target.value })}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Minimum Stock</label>
-        <input
-          type="number"
-          name="minimumStock"
-          value={formData.minimumStock}
-          onChange={(e) => setFormData({ ...formData, minimumStock: parseInt(e.target.value) || 0 })}
-          min="0"
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Price</label>
-        <input
-          type="number"
-          name="price"
-          value={formData.price}
-          onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
-          step="0.01"
-          min="0"
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Status</label>
-        <select
-          name="status"
-          value={formData.status}
-          onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-        >
-          <option value="AVAILABLE">Available</option>
-          <option value="ISSUED">Issued</option>
-          <option value="IN_MAINTENANCE">In Maintenance</option>
-          <option value="OUT_OF_STOCK">Out of Stock</option>
-          <option value="DISCONTINUED">Discontinued</option>
-        </select>
-      </div>
-
-      <div className="flex justify-end space-x-3">
-        <button
-          type="button"
-          onClick={handleCancel}
-          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-md hover:bg-indigo-700"
-        >
-          {initialData ? 'Update' : 'Create'} Item
-        </button>
-      </div>
-    </form>
+            <div className="col-span-2 space-y-2">
+              <Label className="text-white/70">Description</Label>
+              <Textarea
+                name="description"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                className="bg-zinc-800/50 border-white/10 text-white/90 min-h-[100px]"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end space-x-3 pt-6">
+            <Button
+              type="button"
+              onClick={handleCancel}
+              variant="outline"
+              className="border-white/10 text-white/70 hover:bg-white/5"
+            >
+              <X className="w-4 h-4 mr-2" />
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              className="bg-gradient-to-r from-purple-500 to-cyan-500 text-white hover:opacity-90"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              {initialData ? 'Update' : 'Create'} Item
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 };
 

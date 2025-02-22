@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LogIn } from "lucide-react";
+import axios from '../axios';  // Import the configured axios instance
 
 const Login = () => {
   const [credentials, setCredentials] = useState({ username: '', password: '' });
@@ -13,26 +14,18 @@ const Login = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('http://localhost:5000/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(credentials),
-      });
+      const response = await axios.post('/auth/login', credentials);
       
-      if (response.ok) {
-        const { token, user } = await response.json();
+      if (response.data) {
+        const { token, user } = response.data;
         localStorage.setItem('token', token);
         localStorage.setItem('isAuthenticated', 'true');
         localStorage.setItem('user', JSON.stringify(user));
         toast.success('Login successful!');
         navigate('/dashboard');
-      } else {
-        throw new Error('Invalid credentials');
       }
     } catch (error) {
-      toast.error(error.message || 'Login failed');
+      toast.error(error.response?.data?.error || 'Login failed');
       console.error('Login failed:', error);
     }
   };

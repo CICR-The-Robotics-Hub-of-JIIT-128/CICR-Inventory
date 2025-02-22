@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: cicr-inventory-client
+    env: static
+    buildCommand: cd client && npm install && npm run build
+    staticPublishPath: ./client/dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://cicr-inventory-api.onrender.com
+
+  - type: web
+    name: cicr-inventory-api
+    env: node
+    buildCommand: cd server && npm install && npx prisma generate
+    startCommand: cd server && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CLIENT_URL
+        value: https://cicr-inventory.onrender.com

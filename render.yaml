@@ -15,6 +15,18 @@ services:
       - path: /*
         name: Access-Control-Allow-Origin
         value: https://www.inventory.cicr.in
+      - path: /*
+        name: Cache-Control
+        value: public, max-age=0, must-revalidate
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-XSS-Protection
+        value: 1; mode=block
 
   - type: web
     name: cicr-inventory-api
@@ -29,4 +41,6 @@ services:
       - key: JWT_SECRET
         sync: false
       - key: CLIENT_URL
+        value: https://cicr-inventory.onrender.com
+      - key: CORS_ORIGIN
         value: https://cicr-inventory.onrender.com

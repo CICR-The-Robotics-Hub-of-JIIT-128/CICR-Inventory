@@ -438,4 +438,38 @@ router.get('/export', requireRole('ADMIN'), async (req, res) => {
   }
 });
 
+// Lookup item by barcode
+router.get('/barcode/:barcode', async (req, res) => {
+  try {
+    const { barcode } = req.params;
+    
+    const item = await prisma.inventoryItem.findFirst({
+      where: { 
+        OR: [
+          { barcode: barcode },
+          { serialNumber: barcode }
+        ]
+      }
+    });
+
+    if (!item) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'No item found with this barcode'
+      });
+    }
+
+    res.json({
+      status: 'success',
+      data: item
+    });
+  } catch (error) {
+    console.error('Error looking up item by barcode:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to lookup item by barcode'
+    });
+  }
+});
+
 module.exports = router;

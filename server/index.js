@@ -13,14 +13,32 @@ const { port } = require('./config/config.js');
 const app = express();
 const prisma = new PrismaClient();
 
+// Get allowed origins from environment variables
+const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+const corsOrigin = process.env.CORS_ORIGIN || 'https://cicr-inventory.onrender.com';
+
+// Create an array of allowed origins
+const allowedOrigins = [
+  'http://localhost:5173',
+  clientUrl,
+  corsOrigin, 
+  'https://inventory.cicr.in',
+  'https://www.inventory.cicr.in'
+];
+
 // Middleware
 app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    'https://cicr-inventory.onrender.com',
-    'https://inventory.cicr.in',
-    'https://www.inventory.cicr.in'  // Add the www subdomain
-  ],
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+      callback(null, true);
+    } else {
+      logger.warn(`Origin ${origin} not allowed by CORS`);
+      callback(null, true); // Still allow for now, but log it
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],

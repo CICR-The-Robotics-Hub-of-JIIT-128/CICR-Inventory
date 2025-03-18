@@ -46,7 +46,51 @@ This is a simple yet robust inventory management system built for CICR. It allow
 - Low stock alerts: Highlight items with low quantity (e.g., less than 5).
 - Activity log: Track changes to inventory items (e.g., who updated an item and when).
 
+<<<<<<< HEAD
 ## Tech Stack
+=======
+## Enhanced Features
+
+The application includes several advanced features:
+
+1. **Data Export**: Export inventory data to CSV or JSON formats
+2. **Low Stock Notifications**: Automatic alerts when items fall below minimum stock level
+3. **Barcode Scanning**: Scan product barcodes to quickly locate inventory items
+
+## Required Dependencies
+
+### Client Dependencies
+```bash
+# Core Dependencies
+npm install react react-dom react-router-dom
+
+# UI Components
+npm install @radix-ui/react-dialog @radix-ui/react-dropdown-menu @radix-ui/react-label @radix-ui/react-select
+npm install tailwind-merge clsx lucide-react
+npm install react-toastify
+
+# Optional Dependencies for Barcode Scanning (Production)
+npm install quagga zxing-js-library
+
+# Development Dependencies
+npm install -D tailwindcss postcss autoprefixer
+```
+
+### Server Dependencies
+```bash
+npm install express cors prisma jsonwebtoken bcrypt dotenv winston express-rate-limit
+npm install -D nodemon
+```
+
+## Deployment
+
+The application is deployed on [Render](https://render.com) with the following configuration:
+
+- Client: Static site with SPA routing
+- Server: Node.js web service with PostgreSQL database
+
+---
+>>>>>>> 637c7c1 (bud fix)
 
 ### Frontend
 - React.js (Vite)

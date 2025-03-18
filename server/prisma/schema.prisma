@@ -25,6 +25,7 @@ model InventoryItem {
   status            Status             @default(AVAILABLE)
   description       String?
   serialNumber      String?            @unique
+  barcode           String?            @unique
   manufacturer      String?
   purchaseDate      DateTime?
   warrantyExpiry    DateTime?

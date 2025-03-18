@@ -7,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { BarChart3, ShoppingCart, AlertCircle, DollarSign } from "lucide-react";
 
 export default function Analytics() {
   const [stats, setStats] = useState({
@@ -47,7 +48,8 @@ export default function Analytics() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-cyan-400">
+      <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-cyan-400 flex items-center">
+        <BarChart3 className="h-6 w-6 mr-2 text-purple-400" />
         Inventory Analytics
       </h2>
       
@@ -55,6 +57,7 @@ export default function Analytics() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Items</CardTitle>
+            <ShoppingCart className="h-4 w-4 text-purple-400" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalItems}</div>
@@ -64,6 +67,7 @@ export default function Analytics() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Out of Stock</CardTitle>
+            <AlertCircle className="h-4 w-4 text-red-400" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-500">{stats.outOfStock}</div>
@@ -73,6 +77,7 @@ export default function Analytics() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Value</CardTitle>
+            <DollarSign className="h-4 w-4 text-green-400" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">₹{stats.totalValue.toLocaleString()}</div>

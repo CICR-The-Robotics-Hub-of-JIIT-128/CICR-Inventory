@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build && cp public/_redirects dist/ && cp public/_headers dist/",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "predeploy": "npm install --production=false && npm run build"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.0",

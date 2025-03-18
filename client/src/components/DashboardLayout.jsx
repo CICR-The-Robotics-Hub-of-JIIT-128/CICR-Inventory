@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Database, LogOut, Plus, Settings, ClipboardList, History, Bell, X } from "lucide-react";
+import { Database, LogOut, Plus, Settings, ClipboardList, History, Bell, X, BarChart3 } from "lucide-react";
 import { api } from '../utils/api';
 import { toast } from 'react-toastify';
 

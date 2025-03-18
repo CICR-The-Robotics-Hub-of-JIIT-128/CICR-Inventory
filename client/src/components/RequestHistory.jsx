@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
 import axios from '../axios';
 import { toast } from 'react-hot-toast';
+import { Check, X, Clock, Archive, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function RequestHistory({ isAdmin }) {
   const [requests, setRequests] = useState([]);

@@ -20,6 +20,7 @@ const ItemForm = ({ initialData, onSuccess }) => {
     status: initialData?.status || 'AVAILABLE',
     description: initialData?.description || '',
     serialNumber: initialData?.serialNumber || '',
+    barcode: initialData?.barcode || '',
     manufacturer: initialData?.manufacturer || '',
     purchaseDate: initialData?.purchaseDate ? new Date(initialData.purchaseDate).toISOString().split('T')[0] : '',
     warrantyExpiry: initialData?.warrantyExpiry ? new Date(initialData.warrantyExpiry).toISOString().split('T')[0] : '',
@@ -147,6 +148,86 @@ const ItemForm = ({ initialData, onSuccess }) => {
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 className="bg-zinc-800/50 border-white/10 text-white/90 min-h-[100px]"
+              />
+            </div>
+          </div>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="serialNumber" className="text-right text-white/70">
+                Serial Number
+              </Label>
+              <Input
+                id="serialNumber"
+                name="serialNumber"
+                value={formData.serialNumber}
+                onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
+                className="col-span-3 bg-zinc-900/50 border-white/10 text-white/90"
+              />
+            </div>
+            
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="barcode" className="text-right text-white/70">
+                Barcode
+              </Label>
+              <Input
+                id="barcode"
+                name="barcode"
+                value={formData.barcode}
+                onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+                className="col-span-3 bg-zinc-900/50 border-white/10 text-white/90"
+                placeholder="Enter product barcode"
+              />
+            </div>
+            
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="manufacturer" className="text-right text-white/70">
+                Manufacturer
+              </Label>
+              <Input
+                id="manufacturer"
+                name="manufacturer"
+                value={formData.manufacturer}
+                onChange={(e) => setFormData({ ...formData, manufacturer: e.target.value })}
+                className="col-span-3 bg-zinc-900/50 border-white/10 text-white/90"
+              />
+            </div>
+            
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="purchaseDate" className="text-right text-white/70">
+                Purchase Date
+              </Label>
+              <Input
+                id="purchaseDate"
+                name="purchaseDate"
+                value={formData.purchaseDate}
+                onChange={(e) => setFormData({ ...formData, purchaseDate: e.target.value })}
+                className="col-span-3 bg-zinc-900/50 border-white/10 text-white/90"
+              />
+            </div>
+            
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="warrantyExpiry" className="text-right text-white/70">
+                Warranty Expiry
+              </Label>
+              <Input
+                id="warrantyExpiry"
+                name="warrantyExpiry"
+                value={formData.warrantyExpiry}
+                onChange={(e) => setFormData({ ...formData, warrantyExpiry: e.target.value })}
+                className="col-span-3 bg-zinc-900/50 border-white/10 text-white/90"
+              />
+            </div>
+            
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="minimumStock" className="text-right text-white/70">
+                Minimum Stock
+              </Label>
+              <Input
+                id="minimumStock"
+                name="minimumStock"
+                value={formData.minimumStock}
+                onChange={(e) => setFormData({ ...formData, minimumStock: parseInt(e.target.value) || 0 })}
+                className="col-span-3 bg-zinc-900/50 border-white/10 text-white/90"
               />
             </div>
           </div>

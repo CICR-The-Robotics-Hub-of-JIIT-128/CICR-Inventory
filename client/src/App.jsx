@@ -8,6 +8,7 @@ import InventoryTable from './components/InventoryTable';
 import ItemForm from './components/ItemForm';
 import RequestForm from './components/RequestForm';
 import RequestHistory from './components/RequestHistory';
+import NotFound from './components/NotFound';
 import { api } from './utils/api';
 import { toast } from 'react-toastify';
 import Analytics from './components/Analytics';
@@ -143,6 +144,8 @@ function App() {
               </PrivateRoute>
             }
           />
+          {/* Catch-all route for 404 errors */}
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </Router>
     </div>

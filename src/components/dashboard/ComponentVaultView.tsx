@@ -147,9 +147,6 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
         <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
           Component Vault
         </h1>
-        <p className="text-xs text-slate-600 dark:text-zinc-400 mt-1">
-          Explore laboratory components, inspect real-time capacity, and stage equipment for requisition clearance.
-        </p>
       </div>
 
       {/* Search Bar & Category Filter Tabs */}

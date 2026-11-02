@@ -134,11 +134,6 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
               ? 'Requisition & Return Approval Portal (Admin Clearance)'
               : 'My Hardware Requisitions & Issues'}
           </h2>
-          <p className="text-xs text-slate-600 dark:text-zinc-400 mt-1">
-            {isLeadOrAdmin
-              ? 'Authorize hardware requisitions and inspect returned equipment. Hardware can only be issued and returned after administrator clearance.'
-              : 'Track requisition status. Components must be approved by an administrator before issuing and returning.'}
-          </p>
         </div>
 
         {!isLeadOrAdmin && (

@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.22] : 2026-11-03
+
+### Changed
+* **Clean Domain URL Routing (`UserDashboard.tsx`)**:
+  - Removed all `#hash` fragments (`#inventory`, `#team`, `#developer`, `#requests`, `#management`, `#profile`) from the browser address bar.
+  - The URL now stays strictly clean as `https://cicr-inventory.vercel.app` (or `/`) throughout all navigation actions.
+  - Initial URLs containing legacy `#hashes` are automatically cleaned up on page load via `window.history.replaceState`.
+  - Maintained complete back navigation functionality (phone hardware back, swipe gestures, browser back, double-back to exit on Home, and modal dismissal) using clean HTML5 History API state routing.
+* **Top Navbar & Visual Header Cleanup (`TopNavbar.tsx`, `ComponentVaultView.tsx`, `RequisitionsView.tsx`, `AdminHubView.tsx`)**:
+  - Removed the on-screen `← Back` button per user request, while keeping all back navigation mechanics active via device/browser back button.
+  - Removed duplicate header subtitle paragraphs across Component Vault, Clearance Portal / Requisitions, and Management Hub views for a cleaner, modern layout.
+* **Operator Profile Redesign (`OperatorProfileView.tsx`)**:
+  - Transformed the Operator Profile view into an "Under Construction" showcase featuring the CICR Robotics logo, amber active construction indicator badge, system explanation message, active operator session card, and password reset capability.
+
+---
+
 ## [2.18.21] : 2026-11-03
 
 ### Added

@@ -134,6 +134,7 @@ export const UserDashboard: React.FC = () => {
   const activeViewRef = useRef<ActiveView>(activeView);
   const viewHistoryRef = useRef<ActiveView[]>([]);
   const lastBackPressTimeRef = useRef<number>(0);
+  const isProgrammaticModalCloseRef = useRef<boolean>(false);
 
   useEffect(() => {
     isAnyModalOpenRef.current = isAnyModalOpen;
@@ -143,22 +144,37 @@ export const UserDashboard: React.FC = () => {
     activeViewRef.current = activeView;
   }, [activeView]);
 
-  // Mobile & Browser History Navigation (prevents single back press from exiting the website)
+  // Clean Address Bar & Mobile/Browser History Navigation:
+  // Keeps the address bar strictly clean (https://cicr-inventory.vercel.app without #inventory, #team, etc.)
+  // while preserving full phone hardware back, gesture swipe, and browser back navigation.
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+
     const currentHash = window.location.hash;
     const initialView = HASH_TO_VIEW[currentHash] || 'dashboard';
     setActiveView(initialView);
     viewHistoryRef.current = initialView === 'dashboard' ? ['dashboard'] : ['dashboard', initialView];
 
-    // Seed a base guard history entry so hardware/gesture Back on mobile never abruptly kills the site
-    window.history.replaceState({ cicrApp: true, view: 'dashboard', guard: true }, '', '#dashboard');
+    const cleanPath = window.location.pathname || '/';
+
+    // 1. Seed root guard at history entry 0 (protects mobile users from abruptly exiting)
+    // Strip any hash that might have been present in the initial URL
+    window.history.replaceState({ cicrApp: true, view: 'dashboard', root: true }, '', cleanPath);
+
+    // 2. Push active view entry at history entry 1 without any #hash in the address bar
     window.history.pushState(
       { cicrApp: true, view: initialView, depth: viewHistoryRef.current.length },
       '',
-      VIEW_TO_HASH[initialView] || '#dashboard'
+      cleanPath
     );
 
     const handlePopState = (e: PopStateEvent) => {
+      // If modal was closed programmatically (e.g. by clicking 'X' or Cancel button), ignore this popstate
+      if (isProgrammaticModalCloseRef.current) {
+        isProgrammaticModalCloseRef.current = false;
+        return;
+      }
+
       // 1. If any modal is open, pressing back closes the modal and stays in the active view
       if (isAnyModalOpenRef.current) {
         setCartModalOpen(false);
@@ -167,12 +183,6 @@ export const UserDashboard: React.FC = () => {
         setEditingItem(null);
         setSelectedItem(null);
         setSelectedIssuePassReq(null);
-        // Push state back so the history guard remains intact
-        window.history.pushState(
-          { cicrApp: true, view: activeViewRef.current, depth: viewHistoryRef.current.length },
-          '',
-          VIEW_TO_HASH[activeViewRef.current] || '#dashboard'
-        );
         return;
       }
 
@@ -188,11 +198,10 @@ export const UserDashboard: React.FC = () => {
           }
         }
         setActiveView(prevView);
-        const targetHash = VIEW_TO_HASH[prevView] || '#dashboard';
         window.history.pushState(
           { cicrApp: true, view: prevView, depth: viewHistoryRef.current.length },
           '',
-          targetHash
+          cleanPath
         );
         return;
       }
@@ -213,7 +222,7 @@ export const UserDashboard: React.FC = () => {
       window.history.pushState(
         { cicrApp: true, view: 'dashboard', depth: 0 },
         '',
-        '#dashboard'
+        cleanPath
       );
     };
 
@@ -226,26 +235,32 @@ export const UserDashboard: React.FC = () => {
   const handleNavigateView = useCallback((newView: ActiveView) => {
     if (newView === activeViewRef.current) return;
     viewHistoryRef.current.push(newView);
-    const targetHash = VIEW_TO_HASH[newView] || '#dashboard';
+    const cleanPath = typeof window !== 'undefined' ? (window.location.pathname || '/') : '/';
+    // Push new view with clean address bar (no #hash)
     window.history.pushState(
       { cicrApp: true, view: newView, depth: viewHistoryRef.current.length },
       '',
-      targetHash
+      cleanPath
     );
     setActiveView(newView);
   }, []);
 
   // Modal open & close helpers that integrate with the browser history stack
   const openModalWithHistory = useCallback((modalName: string) => {
+    const cleanPath = typeof window !== 'undefined' ? (window.location.pathname || '/') : '/';
     window.history.pushState(
       { cicrApp: true, view: activeViewRef.current, modal: modalName, depth: viewHistoryRef.current.length },
       '',
-      window.location.hash || '#dashboard'
+      cleanPath
     );
   }, []);
 
   const closeModalWithHistory = useCallback((closeAction: () => void) => {
     closeAction();
+    if (typeof window !== 'undefined' && window.history.state?.modal) {
+      isProgrammaticModalCloseRef.current = true;
+      window.history.back();
+    }
   }, []);
 
   const handleOpenCart = () => {

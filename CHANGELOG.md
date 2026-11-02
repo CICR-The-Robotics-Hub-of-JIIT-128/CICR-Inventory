@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.21] : 2026-11-03
+
+### Added
+* **Official PDF Requisition Gate Pass (`payment-status.tsx`)**:
+  - Replaced plain `.txt` downloads with official formatted A5 PDF gate passes using `jsPDF`.
+  - Includes CICR Robotics & Embedded Systems Lab brand header, authorized clearance badge, requisition metadata grid, itemized hardware table, and administrator clearance signature block.
+* **Mobile History Routing & Double-Back Protection (`UserDashboard.tsx`)**:
+  - Pushed root-guard history entries to prevent accidental single-back website closures on Android/iOS.
+  - Implemented standard "Press back again to exit" toast prompt on the Home Dashboard.
+  - Sub-views (Inventory, Requests, Management, Developers, Profile) seamlessly navigate back to previous views or the Home Dashboard.
+  - Open modals (Cart, Item Details, Add/Edit Component, Issue Pass, Change Password) close immediately on hardware back press or swipe gesture without navigating away.
+  - Added dedicated on-screen `Back` button in the TopNavbar breadcrumb capsule.
+* **Instant 0ms Inventory Cache & Skeleton Loader (`InventoryContext.tsx`, `ComponentVaultView.tsx`)**:
+  - Cached inventory and borrow requests in `localStorage` to eliminate the 1-second flash of 0 components and empty state boxes on page refresh.
+  - Added smooth pulsing skeleton cards in the component vault grid while initial network data resolves.
+
+### Fixed
+* **Cart Toast Duplicate Popups (`UserDashboard.tsx`, `Toast.tsx`)**:
+  - Moved `showToast` side-effects outside of the `setCart` state updater, eliminating duplicate notifications under React StrictMode.
+  - Added 800ms debounce deduplication in `ToastProvider` to guarantee single notification delivery.
+* **Liquid Theme Toggle Text Removal (`liquid-toggle.tsx`)**:
+  - Removed underlying "ON" and "OFF" track labels for a sleek, clean gliding knob.
+* **Notification Dismissal & Clear All Persistence (`notification-bell.tsx`, `UserDashboard.tsx`)**:
+  - Added `dismissedNotifIds` in `localStorage` so dismissed alerts and cleared notifications stay dismissed across re-renders and refreshes.
+  - Added `onTouchStart`, `onPointerDown`, and `e.stopPropagation()` with enlarged touch targets on mobile for the trash and cross dismiss buttons.
+
+---
+
 ## [2.18.17] : 2026-11-01
 
 ### Added

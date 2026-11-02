@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useInventory } from '../../context/InventoryContext';
 import { BottomNavbar, ActiveView } from '../layout/BottomNavbar';
@@ -25,6 +25,29 @@ const isLowReserveItem = (i: InventoryItem): boolean => {
   return (i.available_qty / i.total_qty) < 0.5;
 };
 
+const VIEW_TO_HASH: Record<ActiveView, string> = {
+  dashboard: '#dashboard',
+  inventory: '#inventory',
+  'review-requests': '#requests',
+  logs: '#management',
+  developers: '#team',
+  profile: '#profile',
+};
+
+const HASH_TO_VIEW: Record<string, ActiveView> = {
+  '': 'dashboard',
+  '#': 'dashboard',
+  '#dashboard': 'dashboard',
+  '#inventory': 'inventory',
+  '#requests': 'review-requests',
+  '#review-requests': 'review-requests',
+  '#logs': 'logs',
+  '#management': 'logs',
+  '#developers': 'developers',
+  '#team': 'developers',
+  '#profile': 'profile',
+};
+
 export const UserDashboard: React.FC = () => {
   const {
     user,
@@ -37,10 +60,15 @@ export const UserDashboard: React.FC = () => {
     updateUserRole,
   } = useAuth();
   const isAdmin = profile?.role === 'admin' || user?.user_metadata?.role === 'admin';
-  const { items, requests, logs, deleteItem, updateBorrowStatus, refreshData } = useInventory();
+  const { items, requests, logs, loading, deleteItem, updateBorrowStatus, refreshData } = useInventory();
   const { showToast } = useToast();
 
-  const [activeView, setActiveView] = useState<ActiveView>('dashboard');
+  const [activeView, setActiveView] = useState<ActiveView>(() => {
+    if (typeof window !== 'undefined') {
+      return HASH_TO_VIEW[window.location.hash] || 'dashboard';
+    }
+    return 'dashboard';
+  });
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartModalOpen, setCartModalOpen] = useState(false);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
@@ -71,7 +99,6 @@ export const UserDashboard: React.FC = () => {
   const [allMembers, setAllMembers] = useState<any[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
 
-  // Notifications
   // Notifications with persistent read status in localStorage
   const [readNotifIds, setReadNotifIds] = useState<Set<string>>(() => {
     try {
@@ -82,7 +109,204 @@ export const UserDashboard: React.FC = () => {
     }
   });
 
+  // Notifications with persistent dismissed status in localStorage
+  const [dismissedNotifIds, setDismissedNotifIds] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem('cicr-dismissed-notifications');
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
   const [notifications, setNotifications] = useState<Notification[]>([]);
+
+  // Track open modal status and active view in refs so popstate listener always has fresh state
+  const isAnyModalOpen =
+    cartModalOpen ||
+    changePasswordOpen ||
+    addItemModalOpen ||
+    editingItem !== null ||
+    selectedItem !== null ||
+    selectedIssuePassReq !== null;
+
+  const isAnyModalOpenRef = useRef(isAnyModalOpen);
+  const activeViewRef = useRef<ActiveView>(activeView);
+  const viewHistoryRef = useRef<ActiveView[]>([]);
+  const lastBackPressTimeRef = useRef<number>(0);
+
+  useEffect(() => {
+    isAnyModalOpenRef.current = isAnyModalOpen;
+  }, [isAnyModalOpen]);
+
+  useEffect(() => {
+    activeViewRef.current = activeView;
+  }, [activeView]);
+
+  // Mobile & Browser History Navigation (prevents single back press from exiting the website)
+  useEffect(() => {
+    const currentHash = window.location.hash;
+    const initialView = HASH_TO_VIEW[currentHash] || 'dashboard';
+    setActiveView(initialView);
+    viewHistoryRef.current = initialView === 'dashboard' ? ['dashboard'] : ['dashboard', initialView];
+
+    // Seed a base guard history entry so hardware/gesture Back on mobile never abruptly kills the site
+    window.history.replaceState({ cicrApp: true, view: 'dashboard', guard: true }, '', '#dashboard');
+    window.history.pushState(
+      { cicrApp: true, view: initialView, depth: viewHistoryRef.current.length },
+      '',
+      VIEW_TO_HASH[initialView] || '#dashboard'
+    );
+
+    const handlePopState = (e: PopStateEvent) => {
+      // 1. If any modal is open, pressing back closes the modal and stays in the active view
+      if (isAnyModalOpenRef.current) {
+        setCartModalOpen(false);
+        setChangePasswordOpen(false);
+        setAddItemModalOpen(false);
+        setEditingItem(null);
+        setSelectedItem(null);
+        setSelectedIssuePassReq(null);
+        // Push state back so the history guard remains intact
+        window.history.pushState(
+          { cicrApp: true, view: activeViewRef.current, depth: viewHistoryRef.current.length },
+          '',
+          VIEW_TO_HASH[activeViewRef.current] || '#dashboard'
+        );
+        return;
+      }
+
+      // 2. If user is on a sub-view (inventory, requests, management, developers, profile):
+      //    Take them back to previous view or Home Dashboard instead of exiting!
+      if (activeViewRef.current !== 'dashboard') {
+        let prevView: ActiveView = 'dashboard';
+        while (viewHistoryRef.current.length > 0) {
+          const last = viewHistoryRef.current.pop();
+          if (last && last !== activeViewRef.current) {
+            prevView = last;
+            break;
+          }
+        }
+        setActiveView(prevView);
+        const targetHash = VIEW_TO_HASH[prevView] || '#dashboard';
+        window.history.pushState(
+          { cicrApp: true, view: prevView, depth: viewHistoryRef.current.length },
+          '',
+          targetHash
+        );
+        return;
+      }
+
+      // 3. User is on the Home Dashboard and pressed Back on phone:
+      //    Require a double back-press within 2 seconds to exit, preventing accidental closing!
+      const now = Date.now();
+      if (now - lastBackPressTimeRef.current < 2000) {
+        // Double back pressed within 2s: allow normal exit from site
+        window.history.back();
+        return;
+      }
+
+      lastBackPressTimeRef.current = now;
+      showToast('info', 'Press back again to exit', 'Tap back once more to leave the app.');
+
+      // Push Dashboard state back so the web app stays open on phone
+      window.history.pushState(
+        { cicrApp: true, view: 'dashboard', depth: 0 },
+        '',
+        '#dashboard'
+      );
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  const handleNavigateView = useCallback((newView: ActiveView) => {
+    if (newView === activeViewRef.current) return;
+    viewHistoryRef.current.push(newView);
+    const targetHash = VIEW_TO_HASH[newView] || '#dashboard';
+    window.history.pushState(
+      { cicrApp: true, view: newView, depth: viewHistoryRef.current.length },
+      '',
+      targetHash
+    );
+    setActiveView(newView);
+  }, []);
+
+  // Modal open & close helpers that integrate with the browser history stack
+  const openModalWithHistory = useCallback((modalName: string) => {
+    window.history.pushState(
+      { cicrApp: true, view: activeViewRef.current, modal: modalName, depth: viewHistoryRef.current.length },
+      '',
+      window.location.hash || '#dashboard'
+    );
+  }, []);
+
+  const closeModalWithHistory = useCallback((closeAction: () => void) => {
+    closeAction();
+  }, []);
+
+  const handleOpenCart = () => {
+    openModalWithHistory('cart');
+    setCartModalOpen(true);
+  };
+
+  const handleCloseCart = () => {
+    closeModalWithHistory(() => setCartModalOpen(false));
+  };
+
+  const handleOpenChangePassword = () => {
+    openModalWithHistory('change-password');
+    setChangePasswordOpen(true);
+  };
+
+  const handleCloseChangePassword = () => {
+    closeModalWithHistory(() => setChangePasswordOpen(false));
+  };
+
+  const handleOpenAddItem = () => {
+    setEditingItem(null);
+    openModalWithHistory('add-item');
+    setAddItemModalOpen(true);
+  };
+
+  const handleOpenEditItem = (item: InventoryItem) => {
+    if (!isAdmin) {
+      showToast('error', 'Admin Clearance Required', 'Only administrators can edit components.');
+      return;
+    }
+    setEditingItem(item);
+    setSelectedItem(null);
+    openModalWithHistory('edit-item');
+    setAddItemModalOpen(true);
+  };
+
+  const handleCloseAddEditItem = () => {
+    closeModalWithHistory(() => {
+      setAddItemModalOpen(false);
+      setEditingItem(null);
+    });
+  };
+
+  const handleSelectItem = (item: InventoryItem) => {
+    openModalWithHistory('item-detail');
+    setSelectedItem(item);
+  };
+
+  const handleCloseItemDetail = () => {
+    closeModalWithHistory(() => setSelectedItem(null));
+  };
+
+  const handleOpenIssuePass = (req: BorrowRequest) => {
+    openModalWithHistory('issue-pass');
+    setSelectedIssuePassReq(req);
+  };
+
+  const handleCloseIssuePass = () => {
+    closeModalWithHistory(() => setSelectedIssuePassReq(null));
+  };
 
   const handleMarkNotificationRead = (id: string) => {
     setReadNotifIds((prev) => {
@@ -108,12 +332,25 @@ export const UserDashboard: React.FC = () => {
   };
 
   const handleClearNotifications = () => {
-    handleMarkAllNotificationsRead();
+    setDismissedNotifIds((prev) => {
+      const next = new Set(prev);
+      notifications.forEach((n) => next.add(n.id));
+      try {
+        localStorage.setItem('cicr-dismissed-notifications', JSON.stringify(Array.from(next)));
+      } catch {}
+      return next;
+    });
     setNotifications([]);
   };
 
   const handleDismissNotification = (id: string) => {
-    handleMarkNotificationRead(id);
+    setDismissedNotifIds((prev) => {
+      const next = new Set(prev).add(id);
+      try {
+        localStorage.setItem('cicr-dismissed-notifications', JSON.stringify(Array.from(next)));
+      } catch {}
+      return next;
+    });
     setNotifications((prev) => prev.filter((n) => n.id !== id));
   };
 
@@ -265,57 +502,65 @@ export const UserDashboard: React.FC = () => {
       const lowItems = items.filter((i) => isLowReserveItem(i));
       lowItems.forEach((it) => {
         const notifId = `low-${it.id}`;
-        list.push({
-          id: notifId,
-          title: `Low Reserve: ${it.name}`,
-          message: `Only ${it.available_qty} units left in stock.`,
-          type: 'warning',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          read: readNotifIds.has(notifId),
-          action: () => setActiveView('inventory'),
-        });
+        if (!dismissedNotifIds.has(notifId)) {
+          list.push({
+            id: notifId,
+            title: `Low Reserve: ${it.name}`,
+            message: `Only ${it.available_qty} units left in stock.`,
+            type: 'warning',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            read: readNotifIds.has(notifId),
+            action: () => handleNavigateView('inventory'),
+          });
+        }
       });
     }
 
     const pendingReqs = requests.filter((r) => r.status === 'pending');
     if (isLeadOrAdmin && pendingReqs.length > 0) {
-      const notifId = 'pending-reqs-alert';
-      list.push({
-        id: notifId,
-        title: `${pendingReqs.length} Requisition(s) Pending`,
-        message: 'Members have requested hardware awaiting admin authorization.',
-        type: 'info',
-        timestamp: 'Real-time',
-        read: readNotifIds.has(notifId),
-        action: () => setActiveView('review-requests'),
-      });
+      const notifId = `pending-reqs-alert-${pendingReqs.map((r) => r.id).join('_')}`;
+      if (!dismissedNotifIds.has(notifId) && !dismissedNotifIds.has('pending-reqs-alert')) {
+        list.push({
+          id: notifId,
+          title: `${pendingReqs.length} Requisition(s) Pending`,
+          message: 'Members have requested hardware awaiting admin authorization.',
+          type: 'info',
+          timestamp: 'Real-time',
+          read: readNotifIds.has(notifId),
+          action: () => handleNavigateView('review-requests'),
+        });
+      }
     }
 
     const returnReqs = requests.filter((r) => isReturnRequested(r));
     if (isLeadOrAdmin && returnReqs.length > 0) {
-      const notifId = 'pending-returns-alert';
-      list.push({
-        id: notifId,
-        title: `${returnReqs.length} Return Clearance(s) Pending`,
-        message: 'Members have submitted hardware for return awaiting admin check-in.',
-        type: 'warning',
-        timestamp: 'Real-time',
-        read: readNotifIds.has(notifId),
-        action: () => setActiveView('review-requests'),
-      });
+      const notifId = `pending-returns-alert-${returnReqs.map((r) => r.id).join('_')}`;
+      if (!dismissedNotifIds.has(notifId) && !dismissedNotifIds.has('pending-returns-alert')) {
+        list.push({
+          id: notifId,
+          title: `${returnReqs.length} Return Clearance(s) Pending`,
+          message: 'Members have submitted hardware for return awaiting admin check-in.',
+          type: 'warning',
+          timestamp: 'Real-time',
+          read: readNotifIds.has(notifId),
+          action: () => handleNavigateView('review-requests'),
+        });
+      }
     }
 
     if (isAdmin && pendingAccounts.length > 0) {
-      const notifId = 'pending-accounts-alert';
-      list.push({
-        id: notifId,
-        title: `${pendingAccounts.length} Registration(s) Pending`,
-        message: 'New user account requests are awaiting admin verification in Management Hub.',
-        type: 'info',
-        timestamp: 'Pending Review',
-        read: readNotifIds.has(notifId),
-        action: () => setActiveView('logs'),
-      });
+      const notifId = `pending-accounts-alert-${pendingAccounts.map((a) => a.id).join('_')}`;
+      if (!dismissedNotifIds.has(notifId) && !dismissedNotifIds.has('pending-accounts-alert')) {
+        list.push({
+          id: notifId,
+          title: `${pendingAccounts.length} Registration(s) Pending`,
+          message: 'New user account requests are awaiting admin verification in Management Hub.',
+          type: 'info',
+          timestamp: 'Pending Review',
+          read: readNotifIds.has(notifId),
+          action: () => handleNavigateView('logs'),
+        });
+      }
     }
 
     // Member-specific requisition updates
@@ -324,82 +569,91 @@ export const UserDashboard: React.FC = () => {
         (r) => (r.user_email?.toLowerCase() === user.email?.toLowerCase() || r.user_id === user.id) && r.status === 'approved'
       );
       if (myApproved.length > 0) {
-        const notifId = 'my-approved-requisitions';
-        list.push({
-          id: notifId,
-          title: `${myApproved.length} Requisition(s) Cleared`,
-          message: 'Admin has authorized your hardware pass. Tap to view and collect hardware.',
-          type: 'success',
-          timestamp: 'Authorized',
-          read: readNotifIds.has(notifId),
-          action: () => setActiveView('review-requests'),
-        });
+        const notifId = `my-approved-${myApproved.map((r) => r.id).join('_')}`;
+        if (!dismissedNotifIds.has(notifId) && !dismissedNotifIds.has('my-approved-requisitions')) {
+          list.push({
+            id: notifId,
+            title: `${myApproved.length} Requisition(s) Cleared`,
+            message: 'Admin has authorized your hardware pass. Tap to view and collect hardware.',
+            type: 'success',
+            timestamp: 'Authorized',
+            read: readNotifIds.has(notifId),
+            action: () => handleNavigateView('review-requests'),
+          });
+        }
       }
 
       const myRejected = requests.filter(
         (r) => (r.user_email?.toLowerCase() === user.email?.toLowerCase() || r.user_id === user.id) && r.status === 'rejected'
       );
       if (myRejected.length > 0) {
-        const notifId = 'my-rejected-requisitions';
-        list.push({
-          id: notifId,
-          title: `${myRejected.length} Requisition(s) Declined`,
-          message: 'An administrator has reviewed and declined your requisition request.',
-          type: 'error',
-          timestamp: 'Reviewed',
-          read: readNotifIds.has(notifId),
-          action: () => setActiveView('review-requests'),
-        });
+        const notifId = `my-rejected-${myRejected.map((r) => r.id).join('_')}`;
+        if (!dismissedNotifIds.has(notifId) && !dismissedNotifIds.has('my-rejected-requisitions')) {
+          list.push({
+            id: notifId,
+            title: `${myRejected.length} Requisition(s) Declined`,
+            message: 'An administrator has reviewed and declined your requisition request.',
+            type: 'error',
+            timestamp: 'Reviewed',
+            read: readNotifIds.has(notifId),
+            action: () => handleNavigateView('review-requests'),
+          });
+        }
       }
 
       const myReturnPending = requests.filter(
         (r) => (r.user_email?.toLowerCase() === user.email?.toLowerCase() || r.user_id === user.id) && isReturnRequested(r)
       );
       if (myReturnPending.length > 0) {
-        const notifId = 'my-return-pending';
-        list.push({
-          id: notifId,
-          title: `${myReturnPending.length} Return Clearance(s) Pending`,
-          message: 'Your hardware return request is submitted and awaiting admin inspection & approval.',
-          type: 'info',
-          timestamp: 'In Review',
-          read: readNotifIds.has(notifId),
-          action: () => setActiveView('review-requests'),
-        });
+        const notifId = `my-return-${myReturnPending.map((r) => r.id).join('_')}`;
+        if (!dismissedNotifIds.has(notifId) && !dismissedNotifIds.has('my-return-pending')) {
+          list.push({
+            id: notifId,
+            title: `${myReturnPending.length} Return Clearance(s) Pending`,
+            message: 'Your hardware return request is submitted and awaiting admin inspection & approval.',
+            type: 'info',
+            timestamp: 'In Review',
+            read: readNotifIds.has(notifId),
+            action: () => handleNavigateView('review-requests'),
+          });
+        }
       }
     }
 
     setNotifications(list);
-  }, [items, requests, isLeadOrAdmin, isAdmin, user, readNotifIds]);
+  }, [items, requests, isLeadOrAdmin, isAdmin, user, readNotifIds, dismissedNotifIds, handleNavigateView]);
 
   // Cart operations
   const handleAddToCart = (item: InventoryItem) => {
-    setCart((prev) => {
-      const existing = prev.find((c) => c.item.id === item.id);
-      if (existing) {
-        if (existing.quantity >= item.available_qty) {
-          showToast('warning', 'Max Units Added', `Only ${item.available_qty} items available in vault.`);
-          return prev;
-        }
-        showToast('info', 'Cart Updated', `Increased ${item.name} quantity.`);
-        return prev.map((c) => (c.item.id === item.id ? { ...c, quantity: c.quantity + 1 } : c));
+    const existing = cart.find((c) => c.item.id === item.id);
+    if (existing) {
+      if (existing.quantity >= item.available_qty) {
+        showToast('warning', 'Max Units Added', `Only ${item.available_qty} items available in vault.`);
+        return;
       }
-      showToast('success', 'Staged in Cart', `${item.name} staged for requisition dispatch.`);
-      return [...prev, { item, quantity: 1 }];
-    });
+      showToast('info', 'Cart Updated', `Increased ${item.name} quantity.`);
+      setCart((prev) =>
+        prev.map((c) => (c.item.id === item.id ? { ...c, quantity: c.quantity + 1 } : c))
+      );
+      return;
+    }
+    showToast('success', 'Staged in Cart', `${item.name} staged for requisition dispatch.`);
+    setCart((prev) => [...prev, { item, quantity: 1 }]);
   };
 
   const handleUpdateCartQuantity = (itemId: string, delta: number) => {
+    const existing = cart.find((c) => c.item.id === itemId);
+    if (!existing) return;
+    const newQty = existing.quantity + delta;
+    if (newQty > existing.item.available_qty) {
+      showToast('warning', 'Limit Reached', `Only ${existing.item.available_qty} units available.`);
+      return;
+    }
     setCart((prev) =>
       prev
         .map((c) => {
           if (c.item.id === itemId) {
-            const newQty = c.quantity + delta;
             if (newQty <= 0) return null;
-            if (newQty > c.item.available_qty) {
-              showToast('warning', 'Limit Reached', `Only ${c.item.available_qty} units available.`);
-              return c;
-            }
             return { ...c, quantity: newQty };
           }
           return c;
@@ -496,16 +750,6 @@ export const UserDashboard: React.FC = () => {
     }
   };
 
-  const handleOpenEditItem = (item: InventoryItem) => {
-    if (!isAdmin) {
-      showToast('error', 'Admin Clearance Required', 'Only administrators can edit components.');
-      return;
-    }
-    setEditingItem(item);
-    setSelectedItem(null);
-    setAddItemModalOpen(true);
-  };
-
   const handleDeleteItem = async (id: string, name: string) => {
     if (window.confirm(`Delete "${name}" from inventory?`)) {
       const res = await deleteItem(id);
@@ -544,11 +788,11 @@ export const UserDashboard: React.FC = () => {
       {/* 1. Top Floating Header Bar */}
       <TopNavbar
         activeView={activeView}
-        setActiveView={setActiveView}
+        setActiveView={handleNavigateView}
         isAdmin={isAdmin}
         isLeadOrAdmin={isLeadOrAdmin}
         cartCount={cart.reduce((s, c) => s + c.quantity, 0)}
-        onOpenCart={() => setCartModalOpen(true)}
+        onOpenCart={handleOpenCart}
         notifications={notifications}
         onMarkNotificationRead={handleMarkNotificationRead}
         onMarkAllNotificationsRead={handleMarkAllNotificationsRead}
@@ -564,7 +808,7 @@ export const UserDashboard: React.FC = () => {
           <DashboardOverview
             userName={userName}
             roleName={roleName}
-            setActiveView={setActiveView}
+            setActiveView={handleNavigateView}
           />
         )}
 
@@ -584,15 +828,13 @@ export const UserDashboard: React.FC = () => {
             statusFilter={statusFilter}
             setStatusFilter={setStatusFilter}
             onAddToCart={handleAddToCart}
-            onOpenAddItem={() => {
-              setEditingItem(null);
-              setAddItemModalOpen(true);
-            }}
+            onOpenAddItem={handleOpenAddItem}
             onEditItem={handleOpenEditItem}
             onDeleteItem={handleDeleteItem}
-            onSelectItem={(it) => setSelectedItem(it)}
+            onSelectItem={handleSelectItem}
             cartCount={cart.reduce((s, c) => s + c.quantity, 0)}
-            onOpenCart={() => setCartModalOpen(true)}
+            onOpenCart={handleOpenCart}
+            loading={loading}
           />
         )}
 
@@ -604,9 +846,9 @@ export const UserDashboard: React.FC = () => {
             isLeadOrAdmin={isLeadOrAdmin}
             userEmail={user?.email}
             userId={user?.id}
-            onNavigateToVault={() => setActiveView('inventory')}
+            onNavigateToVault={() => handleNavigateView('inventory')}
             onBorrowAction={handleBorrowAction}
-            onOpenIssuePass={(req) => setSelectedIssuePassReq(req)}
+            onOpenIssuePass={handleOpenIssuePass}
           />
         )}
 
@@ -650,7 +892,7 @@ export const UserDashboard: React.FC = () => {
             setEditAvatarUrl={setEditAvatarUrl}
             savingProfile={savingProfile}
             onSaveProfile={handleSaveProfile}
-            onOpenChangePassword={() => setChangePasswordOpen(true)}
+            onOpenChangePassword={handleOpenChangePassword}
             onRemoveAvatar={() => setEditAvatarUrl('')}
           />
         )}
@@ -659,17 +901,17 @@ export const UserDashboard: React.FC = () => {
       {/* 3. Modern Bottom Docked Navbar */}
       <BottomNavbar
         activeView={activeView}
-        setActiveView={setActiveView}
+        setActiveView={handleNavigateView}
         activeCategory={categoryFilter}
         onSelectCategory={(cat) => setCategoryFilter(cat)}
-        onOpenChangePassword={() => setChangePasswordOpen(true)}
+        onOpenChangePassword={handleOpenChangePassword}
         pendingAccountsCount={pendingAccounts.length}
       />
 
       {/* 4. Modals */}
       <RequestCartModal
         isOpen={cartModalOpen}
-        onClose={() => setCartModalOpen(false)}
+        onClose={handleCloseCart}
         cart={cart}
         onUpdateQuantity={handleUpdateCartQuantity}
         onRemoveItem={handleRemoveFromCart}
@@ -678,15 +920,12 @@ export const UserDashboard: React.FC = () => {
 
       <ChangePasswordModal
         isOpen={changePasswordOpen}
-        onClose={() => setChangePasswordOpen(false)}
+        onClose={handleCloseChangePassword}
       />
 
       <AddEditItemModal
         isOpen={addItemModalOpen}
-        onClose={() => {
-          setAddItemModalOpen(false);
-          setEditingItem(null);
-        }}
+        onClose={handleCloseAddEditItem}
         initialItem={editingItem}
       />
 
@@ -694,17 +933,17 @@ export const UserDashboard: React.FC = () => {
         item={selectedItem}
         isAdmin={isAdmin}
         onEdit={handleOpenEditItem}
-        onClose={() => setSelectedItem(null)}
+        onClose={handleCloseItemDetail}
         onBorrow={(it) => {
           handleAddToCart(it);
-          setSelectedItem(null);
+          handleCloseItemDetail();
         }}
       />
 
       <IssuePassModal
         request={selectedIssuePassReq}
         item={items.find((i) => i.id === selectedIssuePassReq?.item_id)}
-        onClose={() => setSelectedIssuePassReq(null)}
+        onClose={handleCloseIssuePass}
       />
     </div>
   );

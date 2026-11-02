@@ -39,6 +39,7 @@ interface ComponentVaultViewProps {
   onSelectItem: (item: InventoryItem) => void;
   cartCount?: number;
   onOpenCart?: () => void;
+  loading?: boolean;
 }
 
 const isLowReserveItem = (i: InventoryItem): boolean => {
@@ -67,6 +68,7 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
   onSelectItem,
   cartCount,
   onOpenCart,
+  loading = false,
 }) => {
   // Active loans calculation:
   // For administrators: displays active loans across all members.
@@ -318,7 +320,30 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
       </div>
 
       {/* Component Cards Grid */}
-      {filteredItems.length === 0 ? (
+      {loading && filteredItems.length === 0 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 sm:gap-5">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div
+              key={i}
+              className="p-5 rounded-3xl bg-white dark:bg-[#0f0f15] border-2 border-slate-200 dark:border-[#20202c] flex flex-col justify-between space-y-4 shadow-sm animate-pulse"
+            >
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="h-4 w-16 bg-slate-200 dark:bg-zinc-800 rounded-md" />
+                  <div className="h-4 w-20 bg-slate-200 dark:bg-zinc-800 rounded-md" />
+                </div>
+                <div className="h-5 w-3/4 bg-slate-200 dark:bg-zinc-800 rounded-md" />
+                <div className="h-3.5 w-full bg-slate-100 dark:bg-zinc-800/60 rounded-md" />
+                <div className="h-3.5 w-5/6 bg-slate-100 dark:bg-zinc-800/60 rounded-md" />
+              </div>
+              <div className="pt-3 border-t border-slate-100 dark:border-zinc-800/80 space-y-2">
+                <div className="h-3 w-1/2 bg-slate-200 dark:bg-zinc-800 rounded-md" />
+                <div className="h-8 w-full bg-slate-200 dark:bg-zinc-800 rounded-xl" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : filteredItems.length === 0 ? (
         <div className="py-16 text-center text-xs text-zinc-500 space-y-2 bg-[#0f0f15] border border-zinc-800 rounded-3xl p-8">
           <Boxes className="w-10 h-10 text-zinc-700 mx-auto" />
           <p className="text-zinc-300 font-bold text-sm">No components found</p>

@@ -116,9 +116,6 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
             <ScrollText className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600 dark:text-purple-400" />
             CICR Management Hub &amp; Activity Logs
           </h2>
-          <p className="text-xs text-slate-600 dark:text-zinc-400 mt-1">
-            Club member directory, laboratory activity history, and user registration approvals
-          </p>
         </div>
 
         <button

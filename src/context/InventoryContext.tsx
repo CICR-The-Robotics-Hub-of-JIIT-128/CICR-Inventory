@@ -35,8 +35,22 @@ const InventoryContext = createContext<InventoryContextType | undefined>(undefin
 
 export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, profile } = useAuth();
-  const [items, setItems] = useState<InventoryItem[]>([]);
-  const [requests, setRequests] = useState<BorrowRequest[]>([]);
+  const [items, setItems] = useState<InventoryItem[]>(() => {
+    try {
+      const cached = localStorage.getItem('cicr-cached-inventory');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [requests, setRequests] = useState<BorrowRequest[]>(() => {
+    try {
+      const cached = localStorage.getItem('cicr-cached-requests');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [isLiveDatabase, setIsLiveDatabase] = useState<boolean>(false);
@@ -69,6 +83,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           available_qty: Number(item.available_qty ?? item.available_quantity ?? item.total_qty ?? item.quantity ?? 1),
         }));
         setItems(normalizedItems);
+        try {
+          localStorage.setItem('cicr-cached-inventory', JSON.stringify(normalizedItems));
+        } catch {}
 
         // 2. Fetch real borrow requests from Supabase
         const { data: dbRequests } = await supabaseAdmin
@@ -78,6 +95,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
         if (dbRequests) {
           setRequests(dbRequests as BorrowRequest[]);
+          try {
+            localStorage.setItem('cicr-cached-requests', JSON.stringify(dbRequests));
+          } catch {}
         }
 
         // 3. Fetch real activity logs (full multi-day audit history via supabaseAdmin)

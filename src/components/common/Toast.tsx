@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import { CheckCircle2, AlertTriangle, XCircle, Info, X } from 'lucide-react';
 
 type ToastType = 'success' | 'error' | 'warning' | 'info';
@@ -18,6 +18,7 @@ const ToastContext = createContext<ToastContextType | undefined>(undefined);
 
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const lastToastRef = useRef<{ title: string; message?: string; time: number } | null>(null);
 
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -25,6 +26,18 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const showToast = useCallback(
     (type: ToastType, title: string, message?: string) => {
+      const now = Date.now();
+      // Deduplicate identical toasts fired within 800ms
+      if (
+        lastToastRef.current &&
+        lastToastRef.current.title === title &&
+        lastToastRef.current.message === message &&
+        now - lastToastRef.current.time < 800
+      ) {
+        return;
+      }
+      lastToastRef.current = { title, message, time: now };
+
       const id = 'toast-' + Math.random().toString(36).substring(2, 9);
       const newToast: Toast = { id, type, title, message };
       setToasts((prev) => [...prev, newToast]);

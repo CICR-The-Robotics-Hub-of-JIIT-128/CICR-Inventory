@@ -123,7 +123,7 @@ export const LiquidToggle: React.FC<LiquidToggleProps> = ({
   onLabel = 'On',
   accentColor,
   className,
-  showLabels = true,
+  showLabels = false,
   width = 56,
   height = 32,
 }) => {
@@ -265,26 +265,6 @@ export const LiquidToggle: React.FC<LiquidToggleProps> = ({
       <span id={labelId} className="sr-only">
         {stateLabel}
       </span>
-
-      {/* Off/On labels inside the track */}
-      {showLabels && (
-        <div className="absolute inset-0 flex items-center justify-between px-2.5 text-[10px] font-medium pointer-events-none">
-          <motion.span
-            animate={{ opacity: isOn ? 0 : 0.6 }}
-            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-            className="text-text-muted dark:text-[#6B6B6B]"
-          >
-            OFF
-          </motion.span>
-          <motion.span
-            animate={{ opacity: isOn ? 0.7 : 0 }}
-            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-            className="text-text-secondary dark:text-[#A1A1A1] ml-auto"
-          >
-            ON
-          </motion.span>
-        </div>
-      )}
 
       {/* The blob — single morphing path. */}
       <svg

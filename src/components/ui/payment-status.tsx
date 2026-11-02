@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { jsPDF } from 'jspdf';
 import {
   Check,
   AlertCircle,
@@ -165,25 +166,173 @@ export const PaymentStatus: React.FC<PaymentStatusProps> = ({
   const handleDownload = () => {
     if (onDownloadReceipt) {
       onDownloadReceipt();
-    } else {
-      const receiptText = `===========================================
-CICR ROBOTICS LAB / REQUISITION PASS
-===========================================
-Requisition ID : ${transactionId}
-Date & Time    : ${formattedDate}
-Borrower       : ${paymentMethod}
-Status         : ${status.toUpperCase()}
-Total Units    : ${resolvedAmount}
+      return;
+    }
 
-ITEMIZED HARDWARE LIST:
--------------------------------------------
-${items.map((i) => `• ${i.name} (Qty: ${i.quantity || 1})`).join('\n')}
+    try {
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a5',
+      });
 
-===========================================
-Lab Storage Bay: Main Cabinet / Lab 2
-Please return all hardware in original condition.
-===========================================`;
+      const pageWidth = 148;
 
+      // 1. Top Decorative Brand Bar
+      doc.setFillColor(37, 99, 235); // Blue #2563EB
+      doc.rect(0, 0, pageWidth, 12, 'F');
+
+      // 2. Organization Header
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(15, 23, 42); // Slate-900
+      doc.text('CICR ROBOTICS & EMBEDDED SYSTEMS LAB', pageWidth / 2, 22, { align: 'center' });
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(79, 70, 229); // Indigo-600
+      doc.text('OFFICIAL HARDWARE REQUISITION GATE PASS', pageWidth / 2, 28, { align: 'center' });
+
+      // Subtle Divider
+      doc.setDrawColor(226, 232, 240); // Slate-200
+      doc.setLineWidth(0.4);
+      doc.line(14, 32, pageWidth - 14, 32);
+
+      // 3. Status Badge Box
+      doc.setFillColor(240, 253, 244); // Green-50
+      doc.setDrawColor(34, 197, 94); // Green-500
+      doc.roundedRect(14, 36, pageWidth - 28, 14, 2, 2, 'FD');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(22, 101, 52); // Green-800
+      doc.text('CLEARANCE STATUS: AUTHORIZED & VERIFIED', 20, 44);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(21, 128, 61);
+      doc.text(type === 'loan' ? 'Component Loan Issued' : 'Requisition Cleared', pageWidth - 20, 44, { align: 'right' });
+
+      // 4. Requisition Information Block
+      doc.setFillColor(248, 250, 252); // Slate-50
+      doc.setDrawColor(226, 232, 240); // Slate-200
+      doc.roundedRect(14, 54, pageWidth - 28, 38, 2, 2, 'FD');
+
+      const leftX = 20;
+      const rightX = pageWidth / 2 + 6;
+      let curY = 62;
+
+      // Row 1: Pass ID & Date
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(100, 116, 139); // Slate-500
+      doc.text('REQUISITION ID', leftX, curY);
+      doc.text('ISSUE DATE & TIME', rightX, curY);
+
+      curY += 5;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(15, 23, 42); // Slate-900
+      doc.text(transactionId, leftX, curY);
+      doc.text(formattedDate, rightX, curY);
+
+      // Row 2: Borrower & Total Units
+      curY += 9;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text('AUTHORIZED BORROWER', leftX, curY);
+      doc.text('TOTAL HARDWARE UNITS', rightX, curY);
+
+      curY += 5;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(15, 23, 42);
+      doc.text(paymentMethod || 'Authorized Member', leftX, curY);
+      doc.text(String(resolvedAmount || '1 Unit'), rightX, curY);
+
+      // 5. Itemized Hardware Table
+      curY = 100;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(15, 23, 42);
+      doc.text('ITEMIZED HARDWARE CLEARANCE', 14, curY);
+
+      curY += 4;
+      // Table Header Row
+      doc.setFillColor(241, 245, 249); // Slate-100
+      doc.rect(14, curY, pageWidth - 28, 7, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(71, 85, 105);
+      doc.text('COMPONENT DESCRIPTION', 18, curY + 5);
+      doc.text('QTY', pageWidth - 20, curY + 5, { align: 'right' });
+
+      curY += 7;
+
+      // Table Rows
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      items.forEach((item, idx) => {
+        const rowBg = idx % 2 === 0 ? 255 : 250;
+        doc.setFillColor(rowBg, rowBg, rowBg);
+        doc.rect(14, curY, pageWidth - 28, 8, 'F');
+
+        doc.setDrawColor(241, 245, 249);
+        doc.line(14, curY + 8, pageWidth - 14, curY + 8);
+
+        doc.setTextColor(15, 23, 42);
+        doc.text(item.name, 18, curY + 5.5);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(37, 99, 235);
+        doc.text(`${item.quantity || 1} unit(s)`, pageWidth - 20, curY + 5.5, { align: 'right' });
+        doc.setFont('helvetica', 'normal');
+
+        curY += 8;
+      });
+
+      // 6. Storage Bay & Instructions Box
+      curY += 6;
+      doc.setFillColor(254, 252, 232); // Amber-50
+      doc.setDrawColor(251, 191, 36); // Amber-400
+      doc.roundedRect(14, curY, pageWidth - 28, 18, 2, 2, 'FD');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(180, 83, 9); // Amber-700
+      doc.text('LAB DISPATCH & STORAGE BAY LOCATION:', 18, curY + 6);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(146, 64, 14);
+      doc.text('Main Component Cabinet / Lab 2 Shelf Area', 18, curY + 11);
+      doc.text('Please verify component status and return in original condition.', 18, curY + 15);
+
+      // 7. Footer Official Authorization
+      curY += 24;
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineDashPattern([1.5, 1.5], 0);
+      doc.line(pageWidth - 65, curY, pageWidth - 14, curY);
+      doc.setLineDashPattern([], 0);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text('Authorized Lab Administrator', pageWidth - 14, curY + 4, { align: 'right' });
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(148, 163, 184);
+      doc.text('CICR Laboratory Automation Portal - Verified Digital Clearance', 14, curY + 12);
+
+      // Save PDF file
+      doc.save(`requisition-${transactionId}.pdf`);
+    } catch (err) {
+      console.error('Error generating PDF receipt:', err);
+      // Fallback in case of unexpected environment issue
+      const receiptText = `CICR ROBOTICS LAB / REQUISITION PASS\nRequisition ID: ${transactionId}\nBorrower: ${paymentMethod}\nStatus: ${status}\nItems:\n${items.map((i) => `- ${i.name} (x${i.quantity || 1})`).join('\n')}`;
       const blob = new Blob([receiptText], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

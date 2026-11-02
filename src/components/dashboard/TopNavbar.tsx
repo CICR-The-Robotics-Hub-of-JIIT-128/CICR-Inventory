@@ -3,7 +3,7 @@ import { CicrLogo } from '../common/CicrLogo';
 import { NotificationBell, Notification } from '../ui/notification-bell';
 import { LiquidToggle } from '../ui/liquid-toggle';
 import { ActiveView } from '../layout/BottomNavbar';
-import { AlertTriangle, ShoppingBag } from 'lucide-react';
+import { AlertTriangle, ShoppingBag, ArrowLeft } from 'lucide-react';
 
 interface TopNavbarProps {
   activeView: ActiveView;
@@ -72,8 +72,26 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
             </div>
           </button>
 
-          {/* Breadcrumb Capsule */}
+          {/* Breadcrumb Capsule with Back button when not on dashboard */}
           <div className="px-2.5 sm:px-4 py-1 sm:py-1.5 rounded-full bg-slate-100 dark:bg-[#151520] border border-slate-200 dark:border-zinc-800 flex items-center gap-1 sm:gap-1.5 text-[11px] sm:text-xs font-bold text-slate-600 dark:text-zinc-400 min-w-0">
+            {activeView !== 'dashboard' && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.history.length > 1) {
+                    window.history.back();
+                  } else {
+                    setActiveView('dashboard');
+                  }
+                }}
+                className="flex items-center gap-1 text-slate-700 dark:text-zinc-300 hover:text-blue-600 dark:hover:text-purple-400 pr-1.5 border-r border-slate-300 dark:border-zinc-700 transition-colors cursor-pointer shrink-0"
+                title="Go back"
+                aria-label="Go back to previous page"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Back</span>
+              </button>
+            )}
             <span
               className="hidden sm:inline text-zinc-500 hover:text-zinc-300 cursor-pointer transition-colors"
               onClick={() => setActiveView('dashboard')}

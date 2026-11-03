@@ -319,7 +319,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       details: `Account for ${fullName} was ${status}.`,
     }]);
     requireDatabaseSuccess(actionLogError, 'Account action logging');
-    if (email) await sendAccountEmail(action === 'approve' ? 'account_approved' : 'account_rejected', email, { name: fullName, email, role: details?.role, status });
+    if (email) { void sendAccountEmail(action === 'approve' ? 'account_approved' : 'account_rejected', email, { name: fullName, email, role: details?.role, status }).catch(err => console.warn('Background email notice:', err)); }
     return response(res, 200, { success: true });
   } catch (error) {
     console.error('Account operation failed:', error);

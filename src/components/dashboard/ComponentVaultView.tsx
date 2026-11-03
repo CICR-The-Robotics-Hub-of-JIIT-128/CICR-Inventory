@@ -312,7 +312,7 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
         {/* Total Assets */}
         <div
           onClick={() => setStatusFilter('all')}
-          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-all shadow-sm ${
+          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-colors duration-150 shadow-sm ${
             statusFilter === 'all' ? 'border-slate-800 dark:border-zinc-700' : 'border-slate-200 dark:border-[#20202c] hover:border-slate-400'
           }`}
         >
@@ -329,7 +329,7 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
         {/* Available */}
         <div
           onClick={() => setStatusFilter(statusFilter === 'available' ? 'all' : 'available')}
-          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-all shadow-sm ${
+          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-colors duration-150 shadow-sm ${
             statusFilter === 'available'
               ? 'border-blue-600 dark:border-purple-600 bg-blue-50 dark:bg-purple-950/30 text-blue-900 dark:text-white'
               : 'border-slate-200 dark:border-[#20202c] hover:border-slate-400'
@@ -348,9 +348,9 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
         {/* Active Loans */}
         <div
           onClick={() => setStatusFilter(statusFilter === 'loans' ? 'all' : 'loans')}
-          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-all shadow-sm ${
+          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-colors duration-150 shadow-sm ${
             statusFilter === 'loans'
-              ? 'border-slate-800 bg-slate-100 dark:bg-slate-900'
+              ? 'border-cyan-600 dark:border-cyan-500 bg-cyan-50 dark:bg-cyan-950/30 text-cyan-900 dark:text-white'
               : 'border-slate-200 dark:border-[#20202c] hover:border-slate-400'
           }`}
         >
@@ -367,9 +367,9 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
         {/* Low Reserves */}
         <div
           onClick={() => setStatusFilter(statusFilter === 'low' ? 'all' : 'low')}
-          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-all shadow-sm ${
+          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-colors duration-150 shadow-sm ${
             statusFilter === 'low'
-              ? 'border-amber-500/60 bg-amber-950/20'
+              ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-white'
               : 'border-slate-200 dark:border-[#20202c] hover:border-slate-400'
           }`}
         >
@@ -386,7 +386,7 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
         {/* Depleted */}
         <div
           onClick={() => setStatusFilter(statusFilter === 'depleted' ? 'all' : 'depleted')}
-          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-all col-span-2 sm:col-span-1 shadow-sm ${
+          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-colors duration-150 col-span-2 sm:col-span-1 shadow-sm ${
             statusFilter === 'depleted'
               ? 'border-red-600 bg-red-50 dark:bg-red-950/30 text-red-900 dark:text-white'
               : 'border-slate-200 dark:border-[#20202c] hover:border-slate-400'
@@ -456,12 +456,27 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
           ))}
         </div>
       ) : filteredItems.length === 0 ? (
-        <div className="py-16 text-center text-xs text-zinc-500 space-y-2 bg-[#0f0f15] border border-zinc-800 rounded-3xl p-8">
-          <Boxes className="w-10 h-10 text-zinc-700 mx-auto" />
-          <p className="text-zinc-300 font-bold text-sm">No components found</p>
-          <p className="text-zinc-500">
+        <div className="py-16 text-center text-xs space-y-3 bg-white dark:bg-[#0f0f15] border-2 border-slate-200 dark:border-[#20202c] rounded-3xl p-8 shadow-sm">
+          <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 flex items-center justify-center mx-auto text-slate-400 dark:text-zinc-500">
+            <Boxes className="w-6 h-6" />
+          </div>
+          <p className="text-slate-800 dark:text-zinc-200 font-bold text-sm">No components found</p>
+          <p className="text-slate-500 dark:text-zinc-400 max-w-sm mx-auto">
             Try adjusting your search query or clear the active category/status filter.
           </p>
+          {(searchQuery || categoryFilter !== 'all' || statusFilter !== 'all') && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery('');
+                setCategoryFilter('all');
+                setStatusFilter('all');
+              }}
+              className="mt-2 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800/60 font-bold text-xs hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors cursor-pointer"
+            >
+              Reset Filters
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 sm:gap-5">

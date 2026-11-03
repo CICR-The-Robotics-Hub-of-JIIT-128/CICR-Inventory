@@ -6,6 +6,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.26] : 2026-11-03
+
+### Performance & Sub-Second Account Approvals
+* **Instant Optimistic Account Approval & Rejection (`UserDashboard.tsx`, `AuthContext.tsx`, `api/accounts.ts`)**:
+  - Implemented 0ms optimistic UI update: approved or rejected accounts immediately disappear from the review roster and toast notification fires instantly with zero blocking delay.
+  - Eliminated redundant sequential database fallbacks and log loops in `AuthContext.tsx` on successful server API response.
+  - Offloaded SMTP email notifications to non-blocking background dispatch (`sendAccountEmail(...).catch(...)`), eliminating 4.5-second blocking timeouts.
+
+### Dock Capsule Cleanup
+* **Removed Downward Drop Shadow on Collapsed Dock Tabs (`BottomNavbar.tsx`)**:
+  - Replaced downward offset drop shadow on active buttons with `shadow-none` across all views (`Dashboard`, `Inventory`, `Requests`, `Management`, `Team`, `Profile`).
+  - Completely eliminated downward glow bleeding onto the dark dock capsule background, giving buttons a crisp, modern, centered aesthetic.
+  - Unified "Approve Account" button in `AdminHubView.tsx` to signature purple (`bg-purple-600 hover:bg-purple-700`).
+
+---
+
+## [2.18.25] : 2026-11-03
+
+### Light Theme Consistency & Empty State Theming
+* **Eliminated Pitch-Black Container in Light Mode (`ComponentVaultView.tsx`, `InventoryList.tsx`, `RequestsList.tsx`)**:
+  - Fixed hardcoded `#0f0f15` dark background on the "No components found" empty state card to be fully responsive to themes (`bg-white dark:bg-[#0f0f15] border-2 border-slate-200 dark:border-[#20202c] shadow-sm`).
+  - Standardized empty state typography and icons across both themes (`text-slate-800 dark:text-zinc-200` headline, `text-slate-500 dark:text-zinc-400` subtitle).
+  - Integrated one-click "Reset Filters" action button to easily restore full catalog view when 0 results match active filters.
+  - Corrected active filter styling for "Active Loans" (`border-cyan-600 dark:border-cyan-500 bg-cyan-50 dark:bg-cyan-950/30 text-cyan-900`) and "Low Reserves" (`border-amber-500 bg-amber-50 dark:bg-amber-950/30 text-amber-900`) to eliminate black borders in light mode.
+
+### Floating Bottom Dock Alignment & Shadow Geometry
+* **Perfect Mathematical Centering for All Dock Tabs in Both Themes (`BottomNavbar.tsx`)**:
+  - Eliminated phantom flex gaps when collapsed by setting `gap-0` and applying `overflow-visible` to active tabs while hiding inactive tabs from flex layout calculations (`hidden`).
+  - Symmetrized dock container padding (`p-1 sm:p-1.5`) so every tab (`Dashboard`, `Inventory`, `Requests`, `Management`, `Team`, `Profile`) sits dead-center inside the dock capsule in both light and dark themes.
+  - Replaced clipped box-shadows with unclipped diffuse purple glow `shadow-[0_3px_10px_rgba(147,51,234,0.35)] dark:shadow-[0_3px_10px_rgba(147,51,234,0.45)]` by enabling `overflow-visible` on the collapsed dock capsule and active tab wrapper.
+
+---
+
+## [2.18.24] : 2026-11-03
+
+### Performance & Zero-Flicker Architecture
+* **Eliminated UI Blinking, Flickering & CPU Lag (`InventoryContext.tsx`, `ComponentVaultView.tsx`, `UserDashboard.tsx`)**:
+  - Replaced aggressive 1.2-second polling with a smooth 25-second background fallback combined with sub-50ms instant event triggers via Supabase Realtime Broadcast.
+  - Implemented referential stability guards (`areItemsEqual`, `areRequestsEqual`, `areLogsEqual`) inside `refreshData()`, ensuring React never triggers unneeded re-renders when data hasn't changed.
+  - Replaced `transition-all` on inventory metric cards with `transition-colors duration-150` to eliminate visual element blinking on value recalculations.
+  - Optimized `setNotifications` in `UserDashboard.tsx` to memoize notification lists and avoid top navbar re-render cycles.
+
+### Full Laboratory Vault Restocking
+* **Restocked 100% of Inventory Assets to Vault**:
+  - Cleared all active borrow requests across every user in the platform (`status = 'returned'`, with return clearance date and audit log).
+  - Restocked all 53 components back to maximum capacity: **172 total assets / 172 available stock** (0 depleted items, 0 active loans).
+  - Synchronized across both Supabase and Neon PostgreSQL backends with real-time broadcast.
+
+---
+
 ## [2.18.23] : 2026-11-03
 
 ### Real-Time Live Sync & Notifications (<1s)

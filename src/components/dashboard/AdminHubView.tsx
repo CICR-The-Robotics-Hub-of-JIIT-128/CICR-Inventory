@@ -833,7 +833,7 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
                       type="button"
                       disabled={processingUserId === account.id}
                       onClick={() => onApproveAccount(account.id, account.full_name || account.email, account.email)}
-                      className="flex-1 sm:flex-none px-4 py-2 sm:py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-purple-600 dark:hover:bg-purple-700 text-white text-xs font-bold transition-all cursor-pointer shadow-md disabled:opacity-50 text-center"
+                      className="flex-1 sm:flex-none px-4 py-2 sm:py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition-all cursor-pointer shadow-md disabled:opacity-50 text-center"
                     >
                       {processingUserId === account.id ? 'Approving...' : 'Approve Account'}
                     </button>

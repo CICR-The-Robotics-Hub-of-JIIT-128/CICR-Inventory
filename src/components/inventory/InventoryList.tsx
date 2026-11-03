@@ -107,12 +107,12 @@ export const InventoryList: React.FC<InventoryListProps> = ({
 
       {/* Content Rendering: Empty State, Grid, or Table */}
       {filteredItems.length === 0 ? (
-        <div className="p-12 text-center rounded-2xl bg-slate-900/40 border border-slate-800 space-y-3">
+        <div className="p-12 text-center rounded-2xl bg-white dark:bg-slate-900/40 border-2 border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
           <div className="w-12 h-12 rounded-2xl bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
             <Boxes className="w-6 h-6" />
           </div>
-          <h4 className="text-base font-semibold text-white">No items found</h4>
-          <p className="text-xs text-slate-400 max-w-sm mx-auto">
+          <h4 className="text-base font-semibold text-slate-900 dark:text-white">No items found</h4>
+          <p className="text-xs text-slate-600 dark:text-slate-400 max-w-sm mx-auto">
             No equipment matches your current filters. Try resetting your search query or category filter.
           </p>
           <button

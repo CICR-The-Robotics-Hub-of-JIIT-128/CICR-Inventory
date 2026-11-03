@@ -188,10 +188,10 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                       <motion.span
                         layoutId="easyui-pill-cat-indicator"
                         transition={motionTransitions.springMorph}
-                        className="absolute inset-0 rounded-full bg-blue-600 dark:bg-purple-600 shadow-sm"
+                        className="absolute inset-0 rounded-full bg-purple-600 shadow-sm"
                       />
                     )}
-                    <Icon className={`relative z-10 w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-white' : 'text-blue-600 dark:text-purple-400'}`} />
+                    <Icon className={`relative z-10 w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-white' : 'text-purple-600 dark:text-purple-400'}`} />
                     <span className="relative z-10">{cat.label}</span>
                   </motion.button>
                 );
@@ -209,16 +209,18 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
               setMobileExpanded(true);
             }
           }}
-          className="pointer-events-auto relative inline-flex items-center px-2 py-1 sm:px-3 sm:py-1.5 rounded-full bg-white/95 dark:bg-[#0c0c14]/95 backdrop-blur-2xl border-2 border-slate-200/90 dark:border-[#252538] shadow-[0_12px_36px_-6px_rgba(15,23,42,0.18)] dark:shadow-[0_10px_35px_-5px_rgba(0,0,0,0.85)] max-w-[calc(100vw-1rem)] sm:max-w-max transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] select-none will-change-[width,max-width,transform] cursor-pointer overflow-x-auto no-scrollbar"
+          className={`pointer-events-auto relative inline-flex items-center justify-center rounded-full bg-white/95 dark:bg-[#0c0c14]/95 backdrop-blur-2xl border-2 border-slate-200/90 dark:border-[#252538] shadow-[0_12px_36px_-6px_rgba(15,23,42,0.18)] dark:shadow-[0_10px_35px_-5px_rgba(0,0,0,0.85)] max-w-[calc(100vw-1rem)] sm:max-w-max transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] select-none will-change-[width,max-width,transform] cursor-pointer ${isExpanded ? "px-2 py-1 sm:px-3 sm:py-1.5 overflow-x-auto no-scrollbar" : "p-1 sm:p-1.5 overflow-visible"}`}
         >
           {/* Main Segmented Pill Tabs */}
-          <div role="tablist" className="flex items-center shrink-0 gap-0.5 sm:gap-1">
+          <div role="tablist" className={`flex items-center shrink-0 ${isExpanded ? "gap-0.5 sm:gap-1" : ""}`}>
             {/* 1. Dashboard Tab */}
             <div
-              className={`overflow-hidden shrink-0 flex items-center transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-                isExpanded || activeView === 'dashboard'
-                  ? 'max-w-[170px] opacity-100 pointer-events-auto scale-100'
-                  : 'max-w-0 opacity-0 pointer-events-none scale-90'
+              className={`shrink-0 flex items-center transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+                isExpanded
+                  ? 'max-w-[170px] opacity-100 pointer-events-auto scale-100 overflow-hidden'
+                  : activeView === 'dashboard'
+                  ? 'opacity-100 pointer-events-auto scale-100 overflow-visible'
+                  : 'hidden'
               }`}
             >
               <button
@@ -243,7 +245,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                 }}
                 className={`relative flex items-center justify-center gap-1 sm:gap-2 ${
                   activeView === 'dashboard'
-                    ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-blue-600 dark:bg-purple-600 text-white shadow-md shadow-blue-600/30 dark:shadow-purple-900/40'
+                    ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-purple-600 hover:bg-purple-700 text-white shadow-[0_3px_10px_rgba(147,51,234,0.35)] dark:shadow-[0_3px_10px_rgba(147,51,234,0.45)]'
                     : 'w-7 h-7 sm:w-auto sm:h-auto p-0 sm:px-3.5 sm:py-2 text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800/60'
                 } rounded-full text-xs font-bold transition-all duration-200 cursor-pointer shrink-0 whitespace-nowrap select-none active:scale-95`}
               >
@@ -254,10 +256,12 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
 
             {/* 2. Inventory Tab with Submenu Indicator */}
             <div
-              className={`overflow-hidden shrink-0 flex items-center transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-                isExpanded || activeView === 'inventory'
-                  ? 'max-w-[180px] opacity-100 pointer-events-auto scale-100'
-                  : 'max-w-0 opacity-0 pointer-events-none scale-90'
+              className={`shrink-0 flex items-center transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+                isExpanded
+                  ? 'max-w-[180px] opacity-100 pointer-events-auto scale-100 overflow-hidden'
+                  : activeView === 'inventory'
+                  ? 'opacity-100 pointer-events-auto scale-100 overflow-visible'
+                  : 'hidden'
               }`}
             >
               <button
@@ -281,7 +285,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                 }}
                 className={`relative flex items-center justify-center gap-1 sm:gap-2 ${
                   activeView === 'inventory'
-                    ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-blue-600 dark:bg-purple-600 text-white shadow-md shadow-blue-600/30 dark:shadow-purple-900/40'
+                    ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-purple-600 hover:bg-purple-700 text-white shadow-[0_3px_10px_rgba(147,51,234,0.35)] dark:shadow-[0_3px_10px_rgba(147,51,234,0.45)]'
                     : 'w-7 h-7 sm:w-auto sm:h-auto p-0 sm:px-3.5 sm:py-2 text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800/60'
                 } rounded-full text-xs font-bold transition-all duration-200 cursor-pointer shrink-0 whitespace-nowrap select-none active:scale-95`}
               >
@@ -297,10 +301,12 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
 
             {/* 3. Requests Tab */}
             <div
-              className={`overflow-hidden shrink-0 flex items-center transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-                isExpanded || activeView === 'review-requests'
-                  ? 'max-w-[170px] opacity-100 pointer-events-auto scale-100'
-                  : 'max-w-0 opacity-0 pointer-events-none scale-90'
+              className={`shrink-0 flex items-center transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+                isExpanded
+                  ? 'max-w-[170px] opacity-100 pointer-events-auto scale-100 overflow-hidden'
+                  : activeView === 'review-requests'
+                  ? 'opacity-100 pointer-events-auto scale-100 overflow-visible'
+                  : 'hidden'
               }`}
             >
               <button
@@ -325,7 +331,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                 }}
                 className={`relative flex items-center justify-center gap-1 sm:gap-2 ${
                   activeView === 'review-requests'
-                    ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-blue-600 dark:bg-purple-600 text-white shadow-md shadow-blue-600/30 dark:shadow-purple-900/40'
+                    ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-purple-600 hover:bg-purple-700 text-white shadow-[0_3px_10px_rgba(147,51,234,0.35)] dark:shadow-[0_3px_10px_rgba(147,51,234,0.45)]'
                     : 'w-7 h-7 sm:w-auto sm:h-auto p-0 sm:px-3.5 sm:py-2 text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800/60'
                 } rounded-full text-xs font-bold transition-all duration-200 cursor-pointer shrink-0 whitespace-nowrap select-none active:scale-95`}
               >
@@ -335,8 +341,8 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                   <span
                     className={`px-1 py-0.1 sm:px-1.5 sm:py-0.2 rounded-full font-black text-[9px] sm:text-[10px] ${
                       activeView === 'review-requests'
-                        ? 'bg-white text-blue-600 dark:text-purple-600'
-                        : 'bg-blue-600 dark:bg-purple-600 text-white'
+                        ? 'bg-white text-purple-600'
+                        : 'bg-purple-600 text-white'
                     }`}
                   >
                     {pendingCount}
@@ -348,11 +354,13 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
             {/* 4. Management Tab (Admin Only) */}
             {isAdmin && (
               <div
-                className={`overflow-hidden shrink-0 flex items-center transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-                  isExpanded || activeView === 'logs'
-                    ? 'max-w-[190px] opacity-100 pointer-events-auto scale-100'
-                    : 'max-w-0 opacity-0 pointer-events-none scale-90'
-                }`}
+                className={`shrink-0 flex items-center transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+                isExpanded
+                  ? 'max-w-[190px] opacity-100 pointer-events-auto scale-100 overflow-hidden'
+                  : activeView === 'logs'
+                  ? 'opacity-100 pointer-events-auto scale-100 overflow-visible'
+                  : 'hidden'
+              }`}
               >
                 <button
                   type="button"
@@ -376,7 +384,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                   }}
                   className={`relative flex items-center justify-center gap-1 sm:gap-2 ${
                     activeView === 'logs'
-                      ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-blue-600 dark:bg-purple-600 text-white shadow-md shadow-blue-600/30 dark:shadow-purple-900/40'
+                      ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-purple-600 hover:bg-purple-700 text-white shadow-[0_3px_10px_rgba(147,51,234,0.35)] dark:shadow-[0_3px_10px_rgba(147,51,234,0.45)]'
                       : 'w-7 h-7 sm:w-auto sm:h-auto p-0 sm:px-3.5 sm:py-2 text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800/60'
                   } rounded-full text-xs font-bold transition-all duration-200 cursor-pointer shrink-0 whitespace-nowrap select-none active:scale-95`}
                 >
@@ -393,10 +401,12 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
 
             {/* 5. Team (Meet Developers) Tab */}
             <div
-              className={`overflow-hidden shrink-0 flex items-center transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-                isExpanded || activeView === 'developers'
-                  ? 'max-w-[160px] opacity-100 pointer-events-auto scale-100'
-                  : 'max-w-0 opacity-0 pointer-events-none scale-90'
+              className={`shrink-0 flex items-center transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+                isExpanded
+                  ? 'max-w-[160px] opacity-100 pointer-events-auto scale-100 overflow-hidden'
+                  : activeView === 'developers'
+                  ? 'opacity-100 pointer-events-auto scale-100 overflow-visible'
+                  : 'hidden'
               }`}
             >
               <button
@@ -421,7 +431,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                 }}
                 className={`relative flex items-center justify-center gap-1 sm:gap-2 ${
                   activeView === 'developers'
-                    ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-blue-600 dark:bg-purple-600 text-white shadow-md shadow-blue-600/30 dark:shadow-purple-900/40'
+                    ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-purple-600 hover:bg-purple-700 text-white shadow-[0_3px_10px_rgba(147,51,234,0.35)] dark:shadow-[0_3px_10px_rgba(147,51,234,0.45)]'
                     : 'w-7 h-7 sm:w-auto sm:h-auto p-0 sm:px-3.5 sm:py-2 text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800/60'
                 } rounded-full text-xs font-bold transition-all duration-200 cursor-pointer shrink-0 whitespace-nowrap select-none active:scale-95`}
               >
@@ -433,10 +443,10 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
             {/* 6. Profile Page Tab (if currently active on profile view and collapsed) */}
             {activeView === 'profile' && (
               <div
-                className={`overflow-hidden shrink-0 flex items-center transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+                className={`shrink-0 flex items-center transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
                   !isExpanded
-                    ? 'max-w-[160px] opacity-100 pointer-events-auto scale-100'
-                    : 'max-w-0 opacity-0 pointer-events-none scale-90'
+                    ? 'opacity-100 pointer-events-auto scale-100 overflow-visible'
+                    : 'hidden'
                 }`}
               >
                 <button
@@ -452,7 +462,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                       setIsHovered(false);
                     }
                   }}
-                  className="relative flex items-center justify-center gap-1 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-full text-xs font-bold transition-all duration-200 cursor-pointer shrink-0 whitespace-nowrap select-none active:scale-95 bg-blue-600 dark:bg-purple-600 text-white shadow-md shadow-blue-600/30 dark:shadow-purple-900/40"
+                  className="relative flex items-center justify-center gap-1 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-full text-xs font-bold transition-all duration-200 cursor-pointer shrink-0 whitespace-nowrap select-none active:scale-95 bg-purple-600 hover:bg-purple-700 text-white shadow-[0_3px_10px_rgba(147,51,234,0.35)] dark:shadow-[0_3px_10px_rgba(147,51,234,0.45)]"
                 >
                   <User className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                   <span className="inline">Profile</span>
@@ -463,10 +473,10 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
 
           {/* Right Section: Divider & User Profile Capsule (Revealed on hover/expand) */}
           <div
-            className={`overflow-hidden shrink-0 flex items-center transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+            className={`shrink-0 flex items-center transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
               isExpanded
-                ? 'max-w-[280px] opacity-100 pointer-events-auto scale-100 mx-0.5'
-                : 'max-w-0 opacity-0 pointer-events-none scale-90 mx-0'
+                ? 'max-w-[280px] opacity-100 pointer-events-auto scale-100 mx-0.5 overflow-hidden'
+                : 'hidden'
             }`}
           >
             <div className="flex items-center gap-0.5 sm:gap-1.5 shrink-0 pl-0.5 pr-1 sm:pr-1.5 whitespace-nowrap min-w-max select-none">
@@ -486,12 +496,12 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                     profileMenuOpen
                       ? 'bg-slate-100 dark:bg-zinc-800 border-slate-300 dark:border-zinc-700'
                       : activeView === 'profile'
-                      ? 'bg-blue-50 dark:bg-purple-950/40 border-blue-500/50 dark:border-purple-500/50'
+                      ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-500/50 dark:border-purple-500/50'
                       : 'hover:bg-slate-100 dark:hover:bg-zinc-800/60 border-transparent hover:border-slate-300 dark:hover:border-zinc-700'
                   }`}
                   title="Account Settings & Quick Actions"
                 >
-                  <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-blue-600 dark:bg-purple-600 text-white flex items-center justify-center font-black text-xs shrink-0 overflow-hidden shadow-sm">
+                  <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-purple-600 text-white flex items-center justify-center font-black text-xs shrink-0 overflow-hidden shadow-sm">
                     {profile?.avatar_url &&
                     (profile.avatar_url.startsWith('data:image') || profile.avatar_url.startsWith('http')) ? (
                       <img src={profile.avatar_url} alt={displayName} className="w-full h-full object-cover" />
@@ -503,7 +513,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                     <span className="block text-xs font-bold text-slate-900 dark:text-white leading-tight whitespace-nowrap">
                       {displayName}
                     </span>
-                    <span className="text-[9px] font-black text-blue-600 dark:text-purple-400 uppercase tracking-wider block whitespace-nowrap">
+                    <span className="text-[9px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-wider block whitespace-nowrap">
                       {roleName}
                     </span>
                   </div>
@@ -521,7 +531,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                     >
                       {/* Header */}
                       <div className="px-3 py-2.5 border-b border-slate-200 dark:border-zinc-800/80 flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-blue-600 dark:bg-purple-600 text-white font-black text-xs flex items-center justify-center shrink-0">
+                        <div className="w-8 h-8 rounded-full bg-purple-600 text-white font-black text-xs flex items-center justify-center shrink-0">
                           {profile?.avatar_url ? (
                             <img src={profile.avatar_url} alt={displayName} className="w-full h-full object-cover rounded-full" />
                           ) : (
@@ -530,7 +540,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                         </div>
                         <div className="min-w-0">
                           <p className="font-bold text-xs truncate text-slate-900 dark:text-white">{displayName}</p>
-                          <span className="text-[10px] font-black text-blue-600 dark:text-purple-400 uppercase tracking-wider block">
+                          <span className="text-[10px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-wider block">
                             {roleName}
                           </span>
                         </div>
@@ -549,7 +559,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                           }}
                           className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-200 transition-colors text-left cursor-pointer"
                         >
-                          <User className="w-4 h-4 text-blue-600 dark:text-purple-400" />
+                          <User className="w-4 h-4 text-purple-600 dark:text-purple-400" />
                           <span>My Profile & Stats</span>
                         </button>
 

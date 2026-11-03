@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.25] : 2026-11-03
+
+### Light Theme Consistency & Empty State Theming
+* **Eliminated Pitch-Black Container in Light Mode (`ComponentVaultView.tsx`, `InventoryList.tsx`, `RequestsList.tsx`)**:
+  - Fixed hardcoded `#0f0f15` dark background on the "No components found" empty state card to be fully responsive to themes (`bg-white dark:bg-[#0f0f15] border-2 border-slate-200 dark:border-[#20202c] shadow-sm`).
+  - Standardized empty state typography and icons across both themes (`text-slate-800 dark:text-zinc-200` headline, `text-slate-500 dark:text-zinc-400` subtitle).
+  - Integrated one-click "Reset Filters" action button to easily restore full catalog view when 0 results match active filters.
+  - Corrected active filter styling for "Active Loans" (`border-cyan-600 dark:border-cyan-500 bg-cyan-50 dark:bg-cyan-950/30 text-cyan-900`) and "Low Reserves" (`border-amber-500 bg-amber-50 dark:bg-amber-950/30 text-amber-900`) to eliminate black borders in light mode.
+
+### Floating Bottom Dock Alignment & Shadow Geometry
+* **Perfect Mathematical Centering for All Dock Tabs in Both Themes (`BottomNavbar.tsx`)**:
+  - Eliminated phantom flex gaps when collapsed by setting `gap-0` and applying `overflow-visible` to active tabs while hiding inactive tabs from flex layout calculations (`hidden`).
+  - Symmetrized dock container padding (`p-1 sm:p-1.5`) so every tab (`Dashboard`, `Inventory`, `Requests`, `Management`, `Team`, `Profile`) sits dead-center inside the dock capsule in both light and dark themes.
+  - Replaced clipped box-shadows with unclipped diffuse purple glow `shadow-[0_3px_10px_rgba(147,51,234,0.35)] dark:shadow-[0_3px_10px_rgba(147,51,234,0.45)]` by enabling `overflow-visible` on the collapsed dock capsule and active tab wrapper.
+
+---
+
 ## [2.18.24] : 2026-11-03
 
 ### Performance & Zero-Flicker Architecture

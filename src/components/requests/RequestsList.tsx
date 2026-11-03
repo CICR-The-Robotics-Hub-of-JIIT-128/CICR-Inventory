@@ -67,7 +67,7 @@ export const RequestsList: React.FC = () => {
               <ClipboardList className="w-5 h-5 text-cyan-400" />
               Equipment Borrowing Queue
             </h2>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-600 dark:text-slate-400">
               Manage member checkouts, approvals, and component return verification
             </p>
           </div>
@@ -111,10 +111,10 @@ export const RequestsList: React.FC = () => {
 
       {/* Requests Feed */}
       {filteredRequests.length === 0 ? (
-        <div className="p-12 text-center rounded-2xl bg-slate-900/40 border border-slate-800 space-y-2">
+        <div className="p-12 text-center rounded-2xl bg-white dark:bg-slate-900/40 border-2 border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
           <Clock className="w-8 h-8 text-slate-500 mx-auto" />
-          <p className="text-sm font-semibold text-white">No borrow requests found</p>
-          <p className="text-xs text-slate-400">
+          <p className="text-sm font-semibold text-slate-900 dark:text-white">No borrow requests found</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400">
             {filterStatus === 'all'
               ? 'No borrow requests have been made yet.'
               : `No requests with status "${filterStatus}".`}
@@ -143,7 +143,7 @@ export const RequestsList: React.FC = () => {
                     <BorrowStatusBadge status={req.status} adminNotes={req.admin_notes} />
                   </div>
 
-                  <div className="flex items-center gap-3 text-xs text-slate-400">
+                  <div className="flex items-center gap-3 text-xs text-slate-600 dark:text-slate-400">
                     <div className="flex items-center gap-1">
                       <Calendar className="w-3.5 h-3.5 text-cyan-400" />
                       <span>Return by: <strong className="text-slate-200">{req.expected_return_date}</strong></span>

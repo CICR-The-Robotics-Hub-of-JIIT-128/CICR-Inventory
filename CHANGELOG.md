@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.27] : 2026-11-03
+
+### Form Security & Duplicate Prevention
+* **Single Request Submission Guard (`SignupForm.tsx`, `AuthContext.tsx`, `api/accounts.ts`)**:
+  - Disabled registration submit button immediately upon click (`isSubmitting || loading`), with active feedback (`"Submitting Request..."`) to prevent rapid double-clicks and repeated requests.
+  - Added pre-submission verification in `AuthContext.tsx` and `api/accounts.ts`: checks for existing pending or approved profiles and `ACCOUNT_REQUEST` logs before creating accounts, returning clean 409 error messages.
+  - Cleaned up 43 duplicate `ACCOUNT_REQUEST` activity logs in Supabase, restoring clean single-entry logs for all applicants.
+
+### Request Guard & Duplicate Borrow Protection
+* **Single Pending Borrow Requisition Per Component (`InventoryContext.tsx`)**:
+  - Prevented redundant checkout requisitions: checks existing requests and blocks submitting multiple pending requisitions for the same item by the same member until previous requests are cleared.
+
+### Hardware Request Cart Modal UX & Typography
+* **Scrollbar Breathing Room & Non-Cluttered Layout (`RequestCartModal.tsx`, `src/index.css`)**:
+  - Added `.modal-scrollbar` utility and right padding (`pr-3 sm:pr-4`), establishing 12px–16px of clear buffer space between the cart scrollbar and content cards/inputs.
+  - Redesigned staged hardware item cards: full component name with graceful wrapping, category and vault stock badges, and clean quantity stepper alignment.
+  - Resolved Borrower Identity text collision (`BorrowerVardaan Saxena` -> cleanly structured Borrower Identity header and formatted user details).
+  - Expanded Purpose / Technical Scope textarea to `rows={3}`, ensuring placeholder and typed text are never vertically clipped.
+
+---
+
 ## [2.18.26] : 2026-11-03
 
 ### Performance & Sub-Second Account Approvals

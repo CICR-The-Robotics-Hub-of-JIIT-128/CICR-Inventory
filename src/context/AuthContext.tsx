@@ -458,6 +458,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
       const enforcedRole = isMasterAdminEmail ? 'admin' : 'member';
       const initialStatus = isMasterAdminEmail ? 'approved' : 'pending';
+      // 0. Check if this email or roll number has already submitted a registration request
+      try {
+        const { data: existingProfiles } = await supabaseAdmin
+          .from('profiles')
+          .select('id, email, status, roll_number')
+          .ilike('email', emailToRegister)
+          .limit(1);
+
+        if (existingProfiles && existingProfiles.length > 0) {
+          const ep = existingProfiles[0];
+          if (ep.status === 'pending') {
+            return {
+              success: false,
+              error: 'A registration request for this college email has already been submitted and is awaiting administrator approval.',
+            };
+          }
+          return {
+            success: false,
+            error: 'An account with this college email already exists. Please sign in.',
+          };
+        }
+
+        // Also check activity_logs to ensure no pending ACCOUNT_REQUEST exists
+        const { data: existingLogs } = await supabaseAdmin
+          .from('activity_logs')
+          .select('id, details')
+          .eq('action', 'ACCOUNT_REQUEST')
+          .limit(50);
+
+        for (const log of existingLogs || []) {
+          let d: any = {};
+          try {
+            d = typeof log.details === 'string' ? JSON.parse(log.details) : log.details || {};
+          } catch {}
+          if ((d?.email || '').toLowerCase().trim() === emailToRegister.toLowerCase().trim()) {
+            if (d?.status !== 'approved' && d?.status !== 'rejected') {
+              return {
+                success: false,
+                error: 'Your registration request has already been submitted and is awaiting administrator approval.',
+              };
+            }
+          }
+        }
+      } catch (checkErr) {
+        console.warn('Pre-registration check notice:', checkErr);
+      }
+
       let registeredViaApi = false;
       try {
         const accountResponse = await fetch('/api/accounts', {

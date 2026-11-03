@@ -584,6 +584,20 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (item.available_qty < data.quantity) {
       return { success: false, error: `Only ${item.available_qty} items available in stock` };
     }
+    // Prevent duplicate pending borrow request for the same item by the same member
+    const existingPending = requests.find(
+      (r) =>
+        r.item_id === item.id &&
+        (r.user_id === user?.id || (user?.email && r.user_email?.toLowerCase() === user?.email?.toLowerCase())) &&
+        r.status === 'pending'
+    );
+    if (existingPending) {
+      return {
+        success: false,
+        error: `You already have an active pending request for "${item.name}". Please wait for administrator clearance before submitting another request for this item.`,
+      };
+    }
+
 
     try {
       const { data: dbData, error } = await supabaseAdmin

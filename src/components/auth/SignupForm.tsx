@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../common/Toast';
+import { requestDeviceNotificationPermission, notifySignUp } from '../../utils/deviceNotification';
 import { User, Mail, Lock, Phone, Hash, ShieldCheck, Eye, EyeOff, LogIn, Camera, AlertCircle, Info, X } from 'lucide-react';
 import { AnimatedFileUpload } from '../ui/animated-file-upload';
 
@@ -35,6 +36,7 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSwitchToLogin }) => {
   const [contactNumber, setContactNumber] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState('');
   const [showDropZone, setShowDropZone] = useState(false);
 
@@ -74,6 +76,7 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSwitchToLogin }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return; // Prevent multiple simultaneous submissions
     setErrorMsg('');
 
     if (!fullName.trim() || !collegeEmail.trim() || !password.trim() || !confirmPassword.trim()) {
@@ -91,30 +94,39 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSwitchToLogin }) => {
       return;
     }
 
-    const emailTrimmed = collegeEmail.trim().toLowerCase();
-    const res = await signUp({
-      full_name: fullName.trim(),
-      email: emailTrimmed,
-      password: password,
-      enrollment_no: enrollmentNo.trim() || undefined,
-      phone: contactNumber.trim() || undefined,
-      avatar_url: avatarUrl || undefined,
-    });
-
-    if (res.success) {
-      setSubmittedData({
-        fullName: fullName.trim(),
+    setIsSubmitting(true);
+    try {
+      const emailTrimmed = collegeEmail.trim().toLowerCase();
+      const res = await signUp({
+        full_name: fullName.trim(),
         email: emailTrimmed,
-        enrollmentNo: enrollmentNo.trim() || undefined,
+        password: password,
+        enrollment_no: enrollmentNo.trim() || undefined,
+        phone: contactNumber.trim() || undefined,
+        avatar_url: avatarUrl || undefined,
       });
-      setShowReviewPopup(true);
-      showToast(
-        'success',
-        'Request Sent to Admin Portal',
-        'Your registration request has been sent to the Admin Portal for administrator approval.'
-      );
-    } else {
-      setErrorMsg(res.error || 'Registration failed.');
+
+      if (res.success) {
+        setSubmittedData({
+          fullName: fullName.trim(),
+          email: emailTrimmed,
+          enrollmentNo: enrollmentNo.trim() || undefined,
+        });
+        setShowReviewPopup(true);
+        showToast(
+          'success',
+          'Request Sent to Admin Portal',
+          'Your registration request has been sent to the Admin Portal for administrator approval.'
+        );
+        // Push outside the web to native device notification panel
+        requestDeviceNotificationPermission().then(() => {
+          notifySignUp(fullName.trim());
+        }).catch(() => {});
+      } else {
+        setErrorMsg(res.error || 'Registration failed.');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -347,11 +359,11 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSwitchToLogin }) => {
         {/* Submit */}
         <button
           type="submit"
-          disabled={loading}
+          disabled={isSubmitting || loading}
           className="w-full py-3 px-4 rounded-xl font-bold text-xs bg-blue-600 hover:bg-blue-700 dark:bg-purple-600 dark:hover:bg-purple-700 dark:bg-purple-600 dark:hover:bg-purple-700 text-white shadow-md shadow-blue-600/25 dark:shadow-purple-950/40 flex items-center justify-center gap-2 mt-1 cursor-pointer disabled:opacity-50 transition-all"
         >
           <span className="text-sm font-light leading-none">+</span>
-          <span>{loading ? 'Submitting Request...' : 'Submit Registration Request'}</span>
+          <span>{isSubmitting || loading ? 'Submitting Request...' : 'Submit Registration Request'}</span>
         </button>
       </form>
 

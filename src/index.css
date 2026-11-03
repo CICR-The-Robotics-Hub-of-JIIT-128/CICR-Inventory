@@ -41,6 +41,31 @@
 }
 
 @layer utilities {
+  /* Modal scrollbar with generous breathing room */
+  .modal-scrollbar {
+    scrollbar-gutter: stable;
+  }
+  .modal-scrollbar::-webkit-scrollbar {
+    width: 6px !important;
+  }
+  .modal-scrollbar::-webkit-scrollbar-track {
+    background: transparent !important;
+    margin: 8px 0 !important;
+  }
+  .modal-scrollbar::-webkit-scrollbar-thumb {
+    background: #cbd5e1 !important;
+    border-radius: 9999px !important;
+  }
+  .dark .modal-scrollbar::-webkit-scrollbar-thumb {
+    background: #27272a !important;
+  }
+  .modal-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8 !important;
+  }
+  .dark .modal-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #3f3f46 !important;
+  }
+
   .scrollbar-none::-webkit-scrollbar,
   .no-scrollbar::-webkit-scrollbar,
   ::-webkit-scrollbar:horizontal {

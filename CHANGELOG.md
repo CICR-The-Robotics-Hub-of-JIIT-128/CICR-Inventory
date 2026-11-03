@@ -6,6 +6,60 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.28] : 2026-11-03
+
+### User Account Administration
+* **Direct Password Reset for Kushagra Garg (`supabase.auth.admin`)**:
+  - Successfully updated password for Kushagra Garg (`992501030406@mail.jiit.ac.in`) to `KushagraGarg@123` via administrative API.
+  - Synchronized user metadata and profile record in Supabase.
+
+### Native Device Push Notifications Outside the Web
+* **OS & Device Notification Panel Integration (`deviceNotification.ts`, `sw.js`, `Toast.tsx`)**:
+  - Implemented Web Notification API and native Service Worker (`/sw.js`) to push alerts outside the web browser directly into the device's native notification panel (Windows Action Center, macOS Notification Center, Android Notification Drawer, iOS Web Push).
+  - Wired device notification triggers across key lifecycle events:
+    * **Sign In (`LoginForm.tsx`)**: Native banner welcoming the user with active session details.
+    * **Sign Up (`SignupForm.tsx`)**: Native alert confirming account requisition delivered to Admin Portal.
+    * **Account Request Accepted / Rejected (`UserDashboard.tsx`, `InventoryContext.tsx`)**: Real-time broadcast triggers instant native notifications (`"🎉 Account Approved!"` / `"Account Registration Update"`).
+    * **Requisition Staged & Submitted (`RequestCartModal.tsx`)**: Native alert confirming dispatched requisition.
+    * **Hardware Requisition Accepted / Rejected (`InventoryContext.tsx`)**: Real-time push (`"🎉 Requisition Approved!"` / `"❌ Requisition Declined"`).
+    * **Return Clearance & Alerts (`InventoryContext.tsx`)**: Native alerts for return inspections and restock clearance.
+  - Linked `showToast` in `Toast.tsx` to automatically mirror application toasts to the device notification panel when push permissions are active.
+  - Integrated 1-click device push toggle and active status indicator directly inside `NotificationBell`.
+
+### Inventory Stock Restock & Active Loan Clearance
+* **Full Restock & Returned Components Clearance (`supabaseAdmin`)**:
+  - Restocked all depleted and loaned components back to 100% capacity in Supabase (`available_qty = total_qty`, `status = 'In Stock'`).
+  - Closed all active borrow requests to `status = 'returned'`, clearing loans to 0.
+
+### Activity Logs & Notification UI Polish
+* **Unstuck Activity Logs Count (`InventoryContext.tsx`)**:
+  - Removed artificial `.limit(250)` on activity logs telemetry queries, restoring live dynamic counts across all ranges (344+ records).
+* **Removed Cluttered "Open View" Indicator (`notification-bell.tsx`)**:
+  - Removed redundant `<span>Open View</span>` pill from notification cards, preserving clean, direct whole-card tap interactions.
+
+---
+
+## [2.18.27] : 2026-11-03
+
+### Form Security & Duplicate Prevention
+* **Single Request Submission Guard (`SignupForm.tsx`, `AuthContext.tsx`, `api/accounts.ts`)**:
+  - Disabled registration submit button immediately upon click (`isSubmitting || loading`), with active feedback (`"Submitting Request..."`) to prevent rapid double-clicks and repeated requests.
+  - Added pre-submission verification in `AuthContext.tsx` and `api/accounts.ts`: checks for existing pending or approved profiles and `ACCOUNT_REQUEST` logs before creating accounts, returning clean 409 error messages.
+  - Cleaned up 43 duplicate `ACCOUNT_REQUEST` activity logs in Supabase, restoring clean single-entry logs for all applicants.
+
+### Request Guard & Duplicate Borrow Protection
+* **Single Pending Borrow Requisition Per Component (`InventoryContext.tsx`)**:
+  - Prevented redundant checkout requisitions: checks existing requests and blocks submitting multiple pending requisitions for the same item by the same member until previous requests are cleared.
+
+### Hardware Request Cart Modal UX & Typography
+* **Scrollbar Breathing Room & Non-Cluttered Layout (`RequestCartModal.tsx`, `src/index.css`)**:
+  - Added `.modal-scrollbar` utility and right padding (`pr-3 sm:pr-4`), establishing 12px–16px of clear buffer space between the cart scrollbar and content cards/inputs.
+  - Redesigned staged hardware item cards: full component name with graceful wrapping, category and vault stock badges, and clean quantity stepper alignment.
+  - Resolved Borrower Identity text collision (`BorrowerVardaan Saxena` -> cleanly structured Borrower Identity header and formatted user details).
+  - Expanded Purpose / Technical Scope textarea to `rows={3}`, ensuring placeholder and typed text are never vertically clipped.
+
+---
+
 ## [2.18.26] : 2026-11-03
 
 ### Performance & Sub-Second Account Approvals

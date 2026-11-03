@@ -172,6 +172,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const role = typeof body?.role === 'string' ? body.role : 'member';
       const avatarUrl = typeof body?.avatar_url === 'string' ? body.avatar_url : '';
       if (!email || !password || !fullName) return response(res, 400, { error: 'Name, email, and password are required.' });
+      // Check if user or pending request already exists
+      const { data: existingProfiles } = await supabase
+        .from('profiles')
+        .select('id, email, status')
+        .ilike('email', email)
+        .limit(1);
+
+      if (existingProfiles && existingProfiles.length > 0) {
+        const ep = existingProfiles[0];
+        if (ep.status === 'pending') {
+          return response(res, 409, { error: 'A registration request for this email has already been submitted and is awaiting approval.' });
+        }
+        return response(res, 409, { error: 'An account with this email already exists. Please sign in.' });
+      }
+
 
       const { data: created, error: createError } = await supabase.auth.admin.createUser({
         email,

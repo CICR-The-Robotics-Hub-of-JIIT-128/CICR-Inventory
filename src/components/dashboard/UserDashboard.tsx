@@ -11,6 +11,7 @@ import { InventoryItem, BorrowRequest, isReturnRequested } from '../../types/inv
 import { supabase, supabaseAdmin } from '../../lib/supabase';
 import { useToast } from '../common/Toast';
 import { Notification } from '../ui/notification-bell';
+import { notifyAccountApproved, notifyAccountRejected, requestDeviceNotificationPermission } from '../../utils/deviceNotification';
 
 // Code-split heavy sub-views and modals on-demand so initial page load is 0ms instant and smooth
 const RequisitionsView = lazy(() =>
@@ -79,7 +80,7 @@ export const UserDashboard: React.FC = () => {
     updateUserRole,
   } = useAuth();
   const isAdmin = profile?.role === 'admin' || user?.user_metadata?.role === 'admin';
-  const { items, requests, logs, loading, deleteItem, updateBorrowStatus, refreshData } = useInventory();
+  const { items, requests, logs, loading, deleteItem, updateBorrowStatus, refreshData, broadcastAccountStatus } = useInventory();
   const { showToast } = useToast();
 
   const [activeView, setActiveView] = useState<ActiveView>(() => {
@@ -775,6 +776,8 @@ export const UserDashboard: React.FC = () => {
       prev.filter((a) => a.id !== targetUserId && (!targetEmail || a.email?.toLowerCase() !== targetEmail.toLowerCase()))
     );
     showToast('success', 'Account Approved', `${targetName} can now sign in.`);
+    notifyAccountApproved(targetName, false);
+    broadcastAccountStatus?.(targetUserId, targetEmail || '', targetName, 'approved');
 
     setProcessingUserId(targetUserId);
     try {
@@ -801,6 +804,8 @@ export const UserDashboard: React.FC = () => {
       prev.filter((a) => a.id !== targetUserId && (!targetEmail || a.email?.toLowerCase() !== targetEmail.toLowerCase()))
     );
     showToast('warning', 'Request Rejected', `Account registration for ${targetName} was rejected.`);
+    notifyAccountRejected(targetName, false);
+    broadcastAccountStatus?.(targetUserId, targetEmail || '', targetName, 'rejected');
 
     setProcessingUserId(targetUserId);
     try {

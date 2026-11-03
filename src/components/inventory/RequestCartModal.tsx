@@ -3,6 +3,7 @@ import { InventoryItem } from '../../types/inventory';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../common/Toast';
+import { notifyRequisitionSubmitted } from '../../utils/deviceNotification';
 import { DragToConfirm } from '../ui/drag-to-confirm';
 import { PaymentStatus, PaymentReceiptItem } from '../ui/payment-status';
 import {
@@ -62,6 +63,7 @@ export const RequestCartModal: React.FC<RequestCartModalProps> = ({
 
   const handleDispatch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (isSubmitting) return;
     setErrorMsg('');
 
     if (cart.length === 0) {
@@ -102,6 +104,8 @@ export const RequestCartModal: React.FC<RequestCartModalProps> = ({
           items: receiptItems,
           totalUnits,
         });
+        // Push to device notification panel
+        notifyRequisitionSubmitted(totalUnits, projectName.trim());
       } else {
         showToast(
           'warning',
@@ -172,7 +176,7 @@ export const RequestCartModal: React.FC<RequestCartModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto py-4 space-y-5 scrollbar-thin">
+        <div className="flex-1 overflow-y-auto py-4 pr-3 sm:pr-4 space-y-5 modal-scrollbar">
           {errorMsg && (
             <div className="p-3 rounded-2xl bg-red-50 dark:bg-rose-500/10 border-2 border-red-500 text-red-900 dark:text-rose-300 text-xs font-semibold">
               {errorMsg}
@@ -203,39 +207,42 @@ export const RequestCartModal: React.FC<RequestCartModalProps> = ({
               {cart.map(({ item, quantity }) => (
                 <div
                   key={item.id}
-                  className="p-3.5 rounded-2xl bg-slate-50 dark:bg-[#14141c] border-2 border-slate-200 dark:border-zinc-800 flex items-center justify-between gap-3 text-xs"
+                  className="p-3.5 sm:p-4 rounded-2xl bg-slate-50 dark:bg-[#14141c] border-2 border-slate-200 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 font-bold">
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 font-bold whitespace-nowrap">
                         {item.category}
                       </span>
-                      <span className="text-[10px] text-blue-600 dark:text-purple-400 font-black">
-                        {item.available_qty} In Vault
+                      <span className="text-[10px] text-purple-600 dark:text-purple-400 font-black whitespace-nowrap">
+                        {item.available_qty} in Vault
                       </span>
                     </div>
-                    <h4 className="font-bold text-slate-900 dark:text-white text-sm truncate">{item.name}</h4>
-                    
+                    <h4 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base leading-snug break-words">
+                      {item.name}
+                    </h4>
                   </div>
 
-                  {/* Quantity Stepper */}
-                  <div className="flex items-center gap-2 shrink-0">
-                    <div className="flex items-center rounded-xl bg-white dark:bg-zinc-900 border-2 border-slate-300 dark:border-zinc-800 p-1">
+                  {/* Quantity Stepper & Delete */}
+                  <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200/60 dark:border-zinc-800/60">
+                    <div className="flex items-center rounded-xl bg-white dark:bg-zinc-900 border-2 border-slate-300 dark:border-zinc-800 p-1 shadow-xs">
                       <button
                         type="button"
                         onClick={() => onUpdateQuantity(item.id, -1)}
-                        className="w-6 h-6 flex items-center justify-center rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-800 transition-colors"
+                        className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                        title="Decrease quantity"
                       >
                         <Minus className="w-3.5 h-3.5" />
                       </button>
-                      <span className="w-8 text-center font-black text-slate-900 dark:text-white text-xs">
+                      <span className="w-9 text-center font-black text-slate-900 dark:text-white text-xs sm:text-sm font-mono">
                         {quantity}
                       </span>
                       <button
                         type="button"
                         disabled={quantity >= item.available_qty}
                         onClick={() => onUpdateQuantity(item.id, 1)}
-                        className="w-6 h-6 flex items-center justify-center rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-800 disabled:opacity-30 transition-colors"
+                        className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-800 disabled:opacity-30 transition-colors cursor-pointer"
+                        title="Increase quantity"
                       >
                         <Plus className="w-3.5 h-3.5" />
                       </button>
@@ -244,7 +251,7 @@ export const RequestCartModal: React.FC<RequestCartModalProps> = ({
                     <button
                       type="button"
                       onClick={() => onRemoveItem(item.id)}
-                      className="p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
+                      className="p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors cursor-pointer shrink-0"
                       title="Remove from cart"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -291,7 +298,7 @@ export const RequestCartModal: React.FC<RequestCartModalProps> = ({
                     Purpose / Technical Scope <span className="text-red-600 font-bold">*</span>
                   </label>
                   <textarea
-                    rows={2}
+                    rows={3}
                     required
                     value={purpose}
                     onChange={(e) => setPurpose(e.target.value)}
@@ -300,11 +307,16 @@ export const RequestCartModal: React.FC<RequestCartModalProps> = ({
                   />
                 </div>
 
-                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-[#14141c] border-2 border-slate-200 dark:border-zinc-800 flex items-center justify-between text-xs text-slate-700 dark:text-zinc-400">
-                  <span>Borrower Identity:</span>
-                  <strong className="text-slate-900 dark:text-white font-bold">
-                    {profile?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Member'} ({user?.email})
-                  </strong>
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-[#14141c] border-2 border-slate-200 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-3 text-xs">
+                  <span className="text-slate-500 dark:text-zinc-400 font-bold shrink-0">Borrower Identity</span>
+                  <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                    <span className="text-slate-900 dark:text-white font-bold">
+                      {profile?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Member'}
+                    </span>
+                    <span className="text-slate-500 dark:text-zinc-400 font-mono text-[11px] truncate">
+                      ({user?.email})
+                    </span>
+                  </div>
                 </div>
 
                 <div className="pt-4 flex justify-center items-center w-full">

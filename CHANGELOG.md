@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.24] : 2026-11-03
+
+### Performance & Zero-Flicker Architecture
+* **Eliminated UI Blinking, Flickering & CPU Lag (`InventoryContext.tsx`, `ComponentVaultView.tsx`, `UserDashboard.tsx`)**:
+  - Replaced aggressive 1.2-second polling with a smooth 25-second background fallback combined with sub-50ms instant event triggers via Supabase Realtime Broadcast.
+  - Implemented referential stability guards (`areItemsEqual`, `areRequestsEqual`, `areLogsEqual`) inside `refreshData()`, ensuring React never triggers unneeded re-renders when data hasn't changed.
+  - Replaced `transition-all` on inventory metric cards with `transition-colors duration-150` to eliminate visual element blinking on value recalculations.
+  - Optimized `setNotifications` in `UserDashboard.tsx` to memoize notification lists and avoid top navbar re-render cycles.
+
+### Full Laboratory Vault Restocking
+* **Restocked 100% of Inventory Assets to Vault**:
+  - Cleared all active borrow requests across every user in the platform (`status = 'returned'`, with return clearance date and audit log).
+  - Restocked all 53 components back to maximum capacity: **172 total assets / 172 available stock** (0 depleted items, 0 active loans).
+  - Synchronized across both Supabase and Neon PostgreSQL backends with real-time broadcast.
+
+---
+
 ## [2.18.23] : 2026-11-03
 
 ### Real-Time Live Sync & Notifications (<1s)

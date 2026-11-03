@@ -665,7 +665,15 @@ export const UserDashboard: React.FC = () => {
       }
     }
 
-    setNotifications(list);
+    setNotifications((prev) => {
+      if (
+        prev.length === list.length &&
+        prev.every((n, i) => n.id === list[i].id && n.read === list[i].read)
+      ) {
+        return prev;
+      }
+      return list;
+    });
   }, [items, requests, isLeadOrAdmin, isAdmin, user, readNotifIds, dismissedNotifIds, handleNavigateView]);
 
   // Cart operations

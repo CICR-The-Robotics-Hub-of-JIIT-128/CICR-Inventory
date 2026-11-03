@@ -29,6 +29,47 @@ const playNotificationChime = (tone: 'up' | 'down') => {
   } catch {}
 };
 
+function areItemsEqual(a: InventoryItem[], b: InventoryItem[]): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (
+      a[i].id !== b[i].id ||
+      a[i].available_qty !== b[i].available_qty ||
+      a[i].total_qty !== b[i].total_qty ||
+      a[i].status !== b[i].status ||
+      a[i].name !== b[i].name ||
+      a[i].updated_at !== b[i].updated_at
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areRequestsEqual(a: BorrowRequest[], b: BorrowRequest[]): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (
+      a[i].id !== b[i].id ||
+      a[i].status !== b[i].status ||
+      a[i].quantity !== b[i].quantity ||
+      a[i].admin_notes !== b[i].admin_notes ||
+      a[i].updated_at !== b[i].updated_at
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areLogsEqual(a: ActivityLog[], b: ActivityLog[]): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a[0]?.id === b[0]?.id && a.length === b.length;
+}
+
 interface InventoryContextType {
   items: InventoryItem[];
   requests: BorrowRequest[];
@@ -233,17 +274,17 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           total_qty: Number(item.total_qty ?? item.quantity ?? 1),
           available_qty: Number(item.available_qty ?? item.available_quantity ?? item.total_qty ?? item.quantity ?? 1),
         }));
-        setItems(normalizedItems);
-        try {
-          localStorage.setItem('cicr-cached-inventory', JSON.stringify(normalizedItems));
-        } catch {}
+
+        setItems((prev) => {
+          if (areItemsEqual(prev, normalizedItems)) return prev;
+          try {
+            localStorage.setItem('cicr-cached-inventory', JSON.stringify(normalizedItems));
+          } catch {}
+          return normalizedItems;
+        });
 
         if (requestsRes.data) {
           const newReqs = requestsRes.data as BorrowRequest[];
-          setRequests(newReqs);
-          try {
-            localStorage.setItem('cicr-cached-requests', JSON.stringify(newReqs));
-          } catch {}
 
           // Sub-second status change detection
           if (hasInitializedRef.current) {
@@ -270,13 +311,25 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           newReqs.forEach((r) => newMap.set(r.id, r));
           prevRequestsMapRef.current = newMap;
           hasInitializedRef.current = true;
+
+          setRequests((prev) => {
+            if (areRequestsEqual(prev, newReqs)) return prev;
+            try {
+              localStorage.setItem('cicr-cached-requests', JSON.stringify(newReqs));
+            } catch {}
+            return newReqs;
+          });
         }
 
         if (logsRes.data) {
-          setLogs(logsRes.data as ActivityLog[]);
-          try {
-            localStorage.setItem('cicr-cached-logs', JSON.stringify(logsRes.data));
-          } catch {}
+          const newLogs = logsRes.data as ActivityLog[];
+          setLogs((prev) => {
+            if (areLogsEqual(prev, newLogs)) return prev;
+            try {
+              localStorage.setItem('cicr-cached-logs', JSON.stringify(newLogs));
+            } catch {}
+            return newLogs;
+          });
         }
       }
     } catch {
@@ -309,12 +362,12 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       })
       .subscribe();
 
-    // Fast 1.2s background auto-poll sync when window is visible (guarantees update within 1 sec flat)
+    // Gentle 25s background sync fallback (instant real-time updates are pushed via Supabase Realtime Broadcast)
     const timer = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         refreshData();
       }
-    }, 1200);
+    }, 25000);
 
     const handleFocus = () => {
       refreshData();

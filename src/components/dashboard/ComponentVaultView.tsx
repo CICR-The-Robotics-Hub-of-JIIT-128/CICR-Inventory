@@ -312,7 +312,7 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
         {/* Total Assets */}
         <div
           onClick={() => setStatusFilter('all')}
-          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-all shadow-sm ${
+          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-colors duration-150 shadow-sm ${
             statusFilter === 'all' ? 'border-slate-800 dark:border-zinc-700' : 'border-slate-200 dark:border-[#20202c] hover:border-slate-400'
           }`}
         >
@@ -329,7 +329,7 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
         {/* Available */}
         <div
           onClick={() => setStatusFilter(statusFilter === 'available' ? 'all' : 'available')}
-          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-all shadow-sm ${
+          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-colors duration-150 shadow-sm ${
             statusFilter === 'available'
               ? 'border-blue-600 dark:border-purple-600 bg-blue-50 dark:bg-purple-950/30 text-blue-900 dark:text-white'
               : 'border-slate-200 dark:border-[#20202c] hover:border-slate-400'
@@ -348,7 +348,7 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
         {/* Active Loans */}
         <div
           onClick={() => setStatusFilter(statusFilter === 'loans' ? 'all' : 'loans')}
-          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-all shadow-sm ${
+          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-colors duration-150 shadow-sm ${
             statusFilter === 'loans'
               ? 'border-slate-800 bg-slate-100 dark:bg-slate-900'
               : 'border-slate-200 dark:border-[#20202c] hover:border-slate-400'
@@ -367,7 +367,7 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
         {/* Low Reserves */}
         <div
           onClick={() => setStatusFilter(statusFilter === 'low' ? 'all' : 'low')}
-          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-all shadow-sm ${
+          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-colors duration-150 shadow-sm ${
             statusFilter === 'low'
               ? 'border-amber-500/60 bg-amber-950/20'
               : 'border-slate-200 dark:border-[#20202c] hover:border-slate-400'
@@ -386,7 +386,7 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
         {/* Depleted */}
         <div
           onClick={() => setStatusFilter(statusFilter === 'depleted' ? 'all' : 'depleted')}
-          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-all col-span-2 sm:col-span-1 shadow-sm ${
+          className={`p-4 rounded-2xl bg-white dark:bg-[#0f0f15] border-2 cursor-pointer transition-colors duration-150 col-span-2 sm:col-span-1 shadow-sm ${
             statusFilter === 'depleted'
               ? 'border-red-600 bg-red-50 dark:bg-red-950/30 text-red-900 dark:text-white'
               : 'border-slate-200 dark:border-[#20202c] hover:border-slate-400'

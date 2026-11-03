@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.26] : 2026-11-03
+
+### Performance & Sub-Second Account Approvals
+* **Instant Optimistic Account Approval & Rejection (`UserDashboard.tsx`, `AuthContext.tsx`, `api/accounts.ts`)**:
+  - Implemented 0ms optimistic UI update: approved or rejected accounts immediately disappear from the review roster and toast notification fires instantly with zero blocking delay.
+  - Eliminated redundant sequential database fallbacks and log loops in `AuthContext.tsx` on successful server API response.
+  - Offloaded SMTP email notifications to non-blocking background dispatch (`sendAccountEmail(...).catch(...)`), eliminating 4.5-second blocking timeouts.
+
+### Dock Capsule Cleanup
+* **Removed Downward Drop Shadow on Collapsed Dock Tabs (`BottomNavbar.tsx`)**:
+  - Replaced downward offset drop shadow on active buttons with `shadow-none` across all views (`Dashboard`, `Inventory`, `Requests`, `Management`, `Team`, `Profile`).
+  - Completely eliminated downward glow bleeding onto the dark dock capsule background, giving buttons a crisp, modern, centered aesthetic.
+  - Unified "Approve Account" button in `AdminHubView.tsx` to signature purple (`bg-purple-600 hover:bg-purple-700`).
+
+---
+
 ## [2.18.25] : 2026-11-03
 
 ### Light Theme Consistency & Empty State Theming

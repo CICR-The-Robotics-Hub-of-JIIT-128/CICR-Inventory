@@ -769,32 +769,53 @@ export const UserDashboard: React.FC = () => {
   };
 
   const handleApproveAccount = async (targetUserId: string, targetName: string, targetEmail?: string) => {
+    // Instant Optimistic UI Update (0ms)
+    const previousPending = pendingAccounts;
+    setPendingAccounts((prev) =>
+      prev.filter((a) => a.id !== targetUserId && (!targetEmail || a.email?.toLowerCase() !== targetEmail.toLowerCase()))
+    );
+    showToast('success', 'Account Approved', `${targetName} can now sign in.`);
+
     setProcessingUserId(targetUserId);
-    const res = await approveUserAccount(targetUserId, targetEmail);
-    setProcessingUserId(null);
-    if (res.success) {
-      showToast('success', 'Account Approved', `${targetName} can now sign in.`);
-      setPendingAccounts((prev) =>
-        prev.filter((a) => a.id !== targetUserId && (!targetEmail || a.email?.toLowerCase() !== targetEmail.toLowerCase()))
-      );
-      await Promise.all([refreshData(), syncAdminHubData()]);
-    } else {
-      showToast('error', 'Approval Failed', res.error || 'Could not approve account');
+    try {
+      const res = await approveUserAccount(targetUserId, targetEmail);
+      if (!res.success) {
+        // Rollback if approval failed
+        setPendingAccounts(previousPending);
+        showToast('error', 'Approval Failed', res.error || 'Could not approve account');
+      } else {
+        syncAdminHubData().catch(() => {});
+      }
+    } catch {
+      setPendingAccounts(previousPending);
+      showToast('error', 'Approval Failed', 'Network or server error during approval');
+    } finally {
+      setProcessingUserId(null);
     }
   };
 
   const handleRejectAccount = async (targetUserId: string, targetName: string, targetEmail?: string) => {
+    // Instant Optimistic UI Update (0ms)
+    const previousPending = pendingAccounts;
+    setPendingAccounts((prev) =>
+      prev.filter((a) => a.id !== targetUserId && (!targetEmail || a.email?.toLowerCase() !== targetEmail.toLowerCase()))
+    );
+    showToast('warning', 'Request Rejected', `Account registration for ${targetName} was rejected.`);
+
     setProcessingUserId(targetUserId);
-    const res = await rejectUserAccount(targetUserId, targetEmail);
-    setProcessingUserId(null);
-    if (res.success) {
-      showToast('warning', 'Request Rejected', `Account registration for ${targetName} was rejected.`);
-      setPendingAccounts((prev) =>
-        prev.filter((a) => a.id !== targetUserId && (!targetEmail || a.email?.toLowerCase() !== targetEmail.toLowerCase()))
-      );
-      await Promise.all([refreshData(), syncAdminHubData()]);
-    } else {
-      showToast('error', 'Rejection Failed', res.error || 'Could not reject account');
+    try {
+      const res = await rejectUserAccount(targetUserId, targetEmail);
+      if (!res.success) {
+        setPendingAccounts(previousPending);
+        showToast('error', 'Rejection Failed', res.error || 'Could not reject account');
+      } else {
+        syncAdminHubData().catch(() => {});
+      }
+    } catch {
+      setPendingAccounts(previousPending);
+      showToast('error', 'Rejection Failed', 'Network or server error during rejection');
+    } finally {
+      setProcessingUserId(null);
     }
   };
 

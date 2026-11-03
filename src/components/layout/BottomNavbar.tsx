@@ -245,7 +245,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                 }}
                 className={`relative flex items-center justify-center gap-1 sm:gap-2 ${
                   activeView === 'dashboard'
-                    ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-purple-600 hover:bg-purple-700 text-white shadow-[0_3px_10px_rgba(147,51,234,0.35)] dark:shadow-[0_3px_10px_rgba(147,51,234,0.45)]'
+                    ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-purple-600 hover:bg-purple-700 text-white shadow-none'
                     : 'w-7 h-7 sm:w-auto sm:h-auto p-0 sm:px-3.5 sm:py-2 text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800/60'
                 } rounded-full text-xs font-bold transition-all duration-200 cursor-pointer shrink-0 whitespace-nowrap select-none active:scale-95`}
               >
@@ -285,7 +285,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                 }}
                 className={`relative flex items-center justify-center gap-1 sm:gap-2 ${
                   activeView === 'inventory'
-                    ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-purple-600 hover:bg-purple-700 text-white shadow-[0_3px_10px_rgba(147,51,234,0.35)] dark:shadow-[0_3px_10px_rgba(147,51,234,0.45)]'
+                    ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-purple-600 hover:bg-purple-700 text-white shadow-none'
                     : 'w-7 h-7 sm:w-auto sm:h-auto p-0 sm:px-3.5 sm:py-2 text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800/60'
                 } rounded-full text-xs font-bold transition-all duration-200 cursor-pointer shrink-0 whitespace-nowrap select-none active:scale-95`}
               >
@@ -331,7 +331,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                 }}
                 className={`relative flex items-center justify-center gap-1 sm:gap-2 ${
                   activeView === 'review-requests'
-                    ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-purple-600 hover:bg-purple-700 text-white shadow-[0_3px_10px_rgba(147,51,234,0.35)] dark:shadow-[0_3px_10px_rgba(147,51,234,0.45)]'
+                    ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-purple-600 hover:bg-purple-700 text-white shadow-none'
                     : 'w-7 h-7 sm:w-auto sm:h-auto p-0 sm:px-3.5 sm:py-2 text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800/60'
                 } rounded-full text-xs font-bold transition-all duration-200 cursor-pointer shrink-0 whitespace-nowrap select-none active:scale-95`}
               >
@@ -384,7 +384,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                   }}
                   className={`relative flex items-center justify-center gap-1 sm:gap-2 ${
                     activeView === 'logs'
-                      ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-purple-600 hover:bg-purple-700 text-white shadow-[0_3px_10px_rgba(147,51,234,0.35)] dark:shadow-[0_3px_10px_rgba(147,51,234,0.45)]'
+                      ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-purple-600 hover:bg-purple-700 text-white shadow-none'
                       : 'w-7 h-7 sm:w-auto sm:h-auto p-0 sm:px-3.5 sm:py-2 text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800/60'
                   } rounded-full text-xs font-bold transition-all duration-200 cursor-pointer shrink-0 whitespace-nowrap select-none active:scale-95`}
                 >
@@ -431,7 +431,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                 }}
                 className={`relative flex items-center justify-center gap-1 sm:gap-2 ${
                   activeView === 'developers'
-                    ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-purple-600 hover:bg-purple-700 text-white shadow-[0_3px_10px_rgba(147,51,234,0.35)] dark:shadow-[0_3px_10px_rgba(147,51,234,0.45)]'
+                    ? 'px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-purple-600 hover:bg-purple-700 text-white shadow-none'
                     : 'w-7 h-7 sm:w-auto sm:h-auto p-0 sm:px-3.5 sm:py-2 text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800/60'
                 } rounded-full text-xs font-bold transition-all duration-200 cursor-pointer shrink-0 whitespace-nowrap select-none active:scale-95`}
               >
@@ -462,7 +462,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                       setIsHovered(false);
                     }
                   }}
-                  className="relative flex items-center justify-center gap-1 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-full text-xs font-bold transition-all duration-200 cursor-pointer shrink-0 whitespace-nowrap select-none active:scale-95 bg-purple-600 hover:bg-purple-700 text-white shadow-[0_3px_10px_rgba(147,51,234,0.35)] dark:shadow-[0_3px_10px_rgba(147,51,234,0.45)]"
+                  className="relative flex items-center justify-center gap-1 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-full text-xs font-bold transition-all duration-200 cursor-pointer shrink-0 whitespace-nowrap select-none active:scale-95 bg-purple-600 hover:bg-purple-700 text-white shadow-none"
                 >
                   <User className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                   <span className="inline">Profile</span>

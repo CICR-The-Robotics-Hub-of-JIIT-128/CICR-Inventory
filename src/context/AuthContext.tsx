@@ -587,7 +587,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, error: 'Unauthorized: Administrative privileges required.' };
       }
 
-      let apiSuccess = false;
+      // 1. Call server API
       try {
         const response = await fetch('/api/accounts', {
           method: 'POST',
@@ -598,58 +598,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           body: JSON.stringify({ action: 'approve', target_id: targetId, email }),
         });
         if (response.ok) {
-          apiSuccess = true;
+          // If server API succeeded, all database records & logs are already updated!
+          return { success: true };
         }
       } catch (apiErr) {
         console.warn('API approve notice:', apiErr);
       }
 
-      // Ensure database profile and activity_logs reflect approved status
+      // 2. Direct Supabase Fallback (executed in parallel)
       try {
-        await supabaseAdmin
-          .from('profiles')
-          .update({ status: 'approved', avatar_url: 'status:approved', updated_at: new Date().toISOString() })
-          .eq('id', targetId);
-
-        if (email) {
-          await supabaseAdmin
+        await Promise.all([
+          supabaseAdmin
             .from('profiles')
             .update({ status: 'approved', avatar_url: 'status:approved', updated_at: new Date().toISOString() })
-            .ilike('email', email);
-        }
-
-        try {
-          await supabaseAdmin.auth.admin.updateUserById(targetId, {
+            .eq('id', targetId),
+          email
+            ? supabaseAdmin
+                .from('profiles')
+                .update({ status: 'approved', avatar_url: 'status:approved', updated_at: new Date().toISOString() })
+                .ilike('email', email)
+            : Promise.resolve(),
+          supabaseAdmin.auth.admin.updateUserById(targetId, {
             email_confirm: true,
             user_metadata: { status: 'approved' },
-          });
-        } catch {}
-
-        const { data: logs } = await supabaseAdmin
-          .from('activity_logs')
-          .select('id, details, user_id')
-          .eq('action', 'ACCOUNT_REQUEST');
-
-        for (const log of logs || []) {
-          let details: any = {};
-          try {
-            details = typeof log.details === 'string' ? JSON.parse(log.details) : log.details;
-          } catch {}
-          const logEmail = (details?.email || '').toLowerCase();
-          if (
-            log.id === targetId ||
-            log.user_id === targetId ||
-            details?.userId === targetId ||
-            (email && logEmail === email.toLowerCase())
-          ) {
-            await supabaseAdmin
-              .from('activity_logs')
-              .update({
-                details: JSON.stringify({ ...details, status: 'approved', approved_at: new Date().toISOString() }),
-              })
-              .eq('id', log.id);
-          }
-        }
+          }).catch(() => {}),
+        ]);
       } catch (fbErr) {
         console.warn('Fallback approve sync notice:', fbErr);
       }
@@ -676,7 +649,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, error: 'Unauthorized: Administrative privileges required.' };
       }
 
-      let apiSuccess = false;
+      // 1. Call server API
       try {
         const response = await fetch('/api/accounts', {
           method: 'POST',
@@ -687,57 +660,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           body: JSON.stringify({ action: 'reject', target_id: targetId, email }),
         });
         if (response.ok) {
-          apiSuccess = true;
+          return { success: true };
         }
       } catch (apiErr) {
         console.warn('API reject notice:', apiErr);
       }
 
-      // Ensure database profile and activity_logs reflect rejected status
+      // 2. Direct Supabase Fallback (executed in parallel)
       try {
-        await supabaseAdmin
-          .from('profiles')
-          .update({ status: 'rejected', avatar_url: 'status:rejected', updated_at: new Date().toISOString() })
-          .eq('id', targetId);
-
-        if (email) {
-          await supabaseAdmin
+        await Promise.all([
+          supabaseAdmin
             .from('profiles')
             .update({ status: 'rejected', avatar_url: 'status:rejected', updated_at: new Date().toISOString() })
-            .ilike('email', email);
-        }
-
-        try {
-          await supabaseAdmin.auth.admin.updateUserById(targetId, {
+            .eq('id', targetId),
+          email
+            ? supabaseAdmin
+                .from('profiles')
+                .update({ status: 'rejected', avatar_url: 'status:rejected', updated_at: new Date().toISOString() })
+                .ilike('email', email)
+            : Promise.resolve(),
+          supabaseAdmin.auth.admin.updateUserById(targetId, {
             user_metadata: { status: 'rejected' },
-          });
-        } catch {}
-
-        const { data: logs } = await supabaseAdmin
-          .from('activity_logs')
-          .select('id, details, user_id')
-          .eq('action', 'ACCOUNT_REQUEST');
-
-        for (const log of logs || []) {
-          let details: any = {};
-          try {
-            details = typeof log.details === 'string' ? JSON.parse(log.details) : log.details;
-          } catch {}
-          const logEmail = (details?.email || '').toLowerCase();
-          if (
-            log.id === targetId ||
-            log.user_id === targetId ||
-            details?.userId === targetId ||
-            (email && logEmail === email.toLowerCase())
-          ) {
-            await supabaseAdmin
-              .from('activity_logs')
-              .update({
-                details: JSON.stringify({ ...details, status: 'rejected', rejected_at: new Date().toISOString() }),
-              })
-              .eq('id', log.id);
-          }
-        }
+          }).catch(() => {}),
+        ]);
       } catch (fbErr) {
         console.warn('Fallback reject sync notice:', fbErr);
       }

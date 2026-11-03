@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.29] : 2026-11-03
+
+### Security & Inactivity Session Management
+* **Automatic 10-Minute Inactivity Logout (`useInactivityTimeout.ts`, `App.tsx`, `LoginForm.tsx`)**:
+  - Implemented automatic session termination after 10 minutes of user inactivity (`10 * 60 * 1000` ms).
+  - Listens to all standard user interactions (`mousemove`, `mousedown`, `keydown`, `touchstart`, `scroll`, `click`) with throttled state persistence.
+  - Cross-tab & background sync via `localStorage` so user activity across multiple windows/tabs is unified.
+  - Periodic 10-second heartbeat check and immediate verification upon tab focus or system wake (`visibilitychange` / `focus`).
+  - Upon session timeout:
+    * Displays in-app warning toast: `"Session Expired: You have been logged out due to 10 minutes of inactivity."`
+    * Sends native OS push notification to the device notification panel: `"CICR Session Expired: You were logged out due to 10 minutes of inactivity."`
+    * Safely invokes `signOut()` and resets user session.
+    * Greets returning user on `LoginForm` with an amber notice explaining the inactivity logout.
+
+---
+
 ## [2.18.28] : 2026-11-03
 
 ### User Account Administration

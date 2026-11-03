@@ -6,6 +6,7 @@ import { ThemeProvider } from './lib/theme/useTheme';
 import { LoginForm } from './components/auth/LoginForm';
 import { SignupForm } from './components/auth/SignupForm';
 import { UserDashboard } from './components/dashboard/UserDashboard';
+import { useInactivityTimeout } from './hooks/useInactivityTimeout';
 import { RotateCw } from 'lucide-react';
 
 interface ErrorBoundaryProps {
@@ -68,6 +69,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
 }
 
 const AppContent: React.FC = () => {
+  useInactivityTimeout();
   const { user, profile, loading } = useAuth();
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
 

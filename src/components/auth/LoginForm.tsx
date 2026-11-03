@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../common/Toast';
 import { Lock, User, Key, Eye, EyeOff, LogIn, AlertCircle, Info } from 'lucide-react';
@@ -32,6 +32,16 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToSignup }) => {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    try {
+      const reason = localStorage.getItem('cicr_session_expired_reason');
+      if (reason === 'inactivity') {
+        localStorage.removeItem('cicr_session_expired_reason');
+        setErrorMsg('Your session expired due to 10 minutes of inactivity. Please sign in again to continue.');
+      }
+    } catch {}
+  }, []);
   const [forgotOpen, setForgotOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -98,12 +108,12 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToSignup }) => {
       {errorMsg && (
         <div
           className={`mb-4 p-3.5 rounded-2xl border-2 text-xs font-medium flex items-start gap-2.5 animate-in fade-in ${
-            errorMsg.toLowerCase().includes('admin portal') || errorMsg.toLowerCase().includes('pending')
+            errorMsg.toLowerCase().includes('admin portal') || errorMsg.toLowerCase().includes('pending') || errorMsg.toLowerCase().includes('inactivity')
               ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-500/80 text-amber-900 dark:text-amber-200'
               : 'bg-red-50 dark:bg-red-950/40 border-red-500 text-red-900 dark:text-red-200'
           }`}
         >
-          {errorMsg.toLowerCase().includes('admin portal') || errorMsg.toLowerCase().includes('pending') ? (
+          {errorMsg.toLowerCase().includes('admin portal') || errorMsg.toLowerCase().includes('pending') || errorMsg.toLowerCase().includes('inactivity') ? (
             <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
           ) : (
             <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />

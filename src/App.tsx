@@ -126,11 +126,11 @@ export function App() {
     <ErrorBoundary>
       <ThemeProvider>
         <AuthProvider>
-          <InventoryProvider>
-            <ToastProvider>
+          <ToastProvider>
+            <InventoryProvider>
               <AppContent />
-            </ToastProvider>
-          </InventoryProvider>
+            </InventoryProvider>
+          </ToastProvider>
         </AuthProvider>
       </ThemeProvider>
     </ErrorBoundary>

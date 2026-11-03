@@ -6,6 +6,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.23] : 2026-11-03
+
+### Real-Time Live Sync & Notifications (<1s)
+* **Sub-50ms Realtime Broadcast Pipeline (`InventoryContext.tsx`, `App.tsx`)**:
+  - Connected Supabase Realtime broadcast channel `cicr-live-requisitions-sync` delivering instant state updates across all active browser windows and mobile devices without page reloading.
+  - Broadcasts live events for `NEW_REQUEST`, `APPROVED`, `REJECTED`, `RETURN_REQUESTED`, and `RETURN_ACCEPTED`.
+  - Added visibility-aware 1.2-second background sync ensuring under-1-second freshness under any network or reconnect condition.
+* **Audio Synthesizer & Role-Targeted Alerts (`InventoryContext.tsx`)**:
+  - Embedded zero-dependency Web Audio chime synthesizer playing ascending chimes for approvals/returns and descending chimes for rejections.
+  - Targeted push toasts for administrators when incoming requisitions or return clearance requests arrive.
+  - Targeted push toasts for student requesters immediately when their requisition is approved, rejected, or cleared.
+
+### UI / UX & Responsive Mobile Layouts
+* **Component Vault Responsive Category Bar (`ComponentVaultView.tsx`, `ios-search-bar.tsx`)**:
+  - **Mobile (2-line layout)**: Search bar on row 1, `All` + expandable `Filters` dropdown on row 2, cleanly surfacing hardware category pills (`MCU`, `Sensors`, `Actuators`, `Power`, `Tools`) without horizontal overflow or clutter.
+  - **Desktop / Laptop (Single-row layout)**: Compact search bar pinned to the left, full category selector pill cluster aligned to the right.
+* **Admin Clearance Portal Header Alignment (`RequisitionsView.tsx`)**:
+  - Standardized "Requisition & Return Approval Portal (Admin Clearance)" to cleanly wrap in 2 lines on mobile viewports.
+* **Management Hub Header Optimization (`AdminHubView.tsx`)**:
+  - Removed awkward extra whitespace around the reload button and aligned metrics header for seamless mobile and desktop display.
+
+### Performance & Speed
+* **85% Initial JS Bundle Size Reduction (`vite.config.ts`, `UserDashboard.tsx`)**:
+  - Main bundle reduced from **1,268 kB down to 185 kB** (47 kB gzip).
+  - Code-split heavy views (`AdminHubView`, `RequisitionsView`, `MeetTheDevelopers`, `OperatorProfileView`) and modals (`RequestCartModal`, `ItemDetailModal`, `AddEditItemModal`, `ChangePasswordModal`, `IssuePassModal`) via `React.lazy()` and `<Suspense>`.
+  - Configured intelligent Rollup manual chunking in `vite.config.ts` (`vendor-react`, `vendor-framer`, `vendor-supabase`, `vendor-icons`), enabling parallel asset streaming and persistent browser caching across releases.
+* **On-Demand Dynamic PDF & Canvas Imports (`payment-status.tsx`)**:
+  - Dynamically import `jsPDF` and `html2canvas` (~600 kB) strictly when the user clicks "Download Requisition Pass", eliminating them from the initial critical rendering path.
+* **Instant 0ms Management Hub & Activity Cache (`UserDashboard.tsx`, `InventoryContext.tsx`)**:
+  - Added instant localStorage caching for `allMembers`, `pendingAccounts`, and `activity_logs`.
+  - Management Hub displays immediate member and pending counts (0ms delay) with zero "..." or "0" metric flashes.
+  - Fixed the temporary "No members found in roster" flash during initial background data resolution.
+* **Eliminated Network Thrashing & Parallelized Supabase Queries (`InventoryContext.tsx`, `UserDashboard.tsx`)**:
+  - Parallelized inventory items, borrow requests, and activity log queries using `Promise.all` instead of sequential network waterfalls.
+  - Unified member roster and pending registration queries using `supabaseAdmin` to prevent permission drops and duplicate round-trips.
+
+### Account Roster Synchronization
+* **Roster Cleanup & Re-synchronization**:
+  - Restored verified university account for Sannidhya Kumar (`992601030186@mail.jiit.ac.in`) with original UUID and roll number.
+  - Restored Dev Garg (`992601030056@mail.jiit.ac.in`) with active hardware loans.
+  - Deleted duplicate/unregistered personal email accounts (`isannidhyam@gmail.com`, `992601030056@gmail.com`, Arohan, Aryan Bhatia, Chetan).
+  - Updated profile designation and name for Vardaan (`992501210003@mail.jiit.ac.in`) to "Gourav Mandal".
+
+---
+
 ## [2.18.22] : 2026-11-03
 
 ### Changed

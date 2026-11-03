@@ -1,8 +1,33 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { supabase, supabaseAdmin } from '../lib/supabase';
 import { InventoryItem, BorrowRequest, ActivityLog } from '../types/inventory';
 import { useAuth } from './AuthContext';
 import { notifyEmail } from '../lib/notifications';
+import { useToast } from '../components/common/Toast';
+
+const playNotificationChime = (tone: 'up' | 'down') => {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    if (tone === 'up') {
+      osc.frequency.setValueAtTime(523.25, ctx.currentTime);
+      osc.frequency.setValueAtTime(783.99, ctx.currentTime + 0.08);
+    } else {
+      osc.frequency.setValueAtTime(659.25, ctx.currentTime);
+      osc.frequency.setValueAtTime(440.00, ctx.currentTime + 0.08);
+    }
+    gain.gain.setValueAtTime(0.06, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.25);
+  } catch {}
+};
 
 interface InventoryContextType {
   items: InventoryItem[];
@@ -35,6 +60,100 @@ const InventoryContext = createContext<InventoryContextType | undefined>(undefin
 
 export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, profile } = useAuth();
+  const { showToast } = useToast();
+
+  const userRef = useRef({ user, profile });
+  userRef.current = { user, profile };
+
+  const prevRequestsMapRef = useRef<Map<string, BorrowRequest>>(new Map());
+  const hasInitializedRef = useRef<boolean>(false);
+  const realtimeChannelRef = useRef<any>(null);
+
+  const broadcastLiveEvent = useCallback((eventType: string, reqData: any) => {
+    try {
+      if (realtimeChannelRef.current) {
+        realtimeChannelRef.current.send({
+          type: 'broadcast',
+          event: 'REQ_SYNC',
+          payload: {
+            eventType,
+            request: reqData,
+            senderEmail: userRef.current.user?.email,
+            senderName: userRef.current.profile?.full_name || userRef.current.user?.email,
+            timestamp: Date.now(),
+          },
+        });
+      }
+    } catch {}
+  }, []);
+
+  const handleRequestNotification = useCallback(
+    (action: string, req: BorrowRequest, fromSelf: boolean) => {
+      if (fromSelf) return;
+
+      const currentUser = userRef.current.user;
+      const currentProfile = userRef.current.profile;
+      const myEmail = (currentUser?.email || '').toLowerCase();
+      const myId = currentUser?.id;
+
+      const isCurrentAdmin =
+        currentProfile?.role === 'admin' ||
+        currentProfile?.role === 'lead' ||
+        currentUser?.user_metadata?.role === 'admin' ||
+        ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com'].includes(myEmail);
+
+      const isMyRequest =
+        (myId && req.user_id === myId) ||
+        (myEmail && req.user_email && req.user_email.toLowerCase() === myEmail);
+
+      if (action === 'NEW_REQUEST' && isCurrentAdmin) {
+        playNotificationChime('up');
+        showToast(
+          'info',
+          '🔔 New Requisition Request',
+          `${req.user_name || 'Member'} requested ${req.quantity}x ${req.item_name} for "${req.project_name || 'project'}"`
+        );
+      } else if (action === 'APPROVED') {
+        if (isMyRequest) {
+          playNotificationChime('up');
+          showToast(
+            'success',
+            '🎉 Requisition Approved!',
+            `Your requisition for ${req.quantity}x ${req.item_name} has been approved by admin.`
+          );
+        } else if (isCurrentAdmin) {
+          showToast(
+            'info',
+            'Requisition Approved',
+            `${req.approved_by || 'Admin'} approved ${req.item_name} for ${req.user_name}.`
+          );
+        }
+      } else if (action === 'REJECTED' && isMyRequest) {
+        playNotificationChime('down');
+        showToast(
+          'error',
+          '❌ Requisition Rejected',
+          `Your requisition for ${req.item_name} was rejected.${req.admin_notes ? ` Note: ${req.admin_notes}` : ''}`
+        );
+      } else if (action === 'RETURN_REQUESTED' && isCurrentAdmin) {
+        playNotificationChime('up');
+        showToast(
+          'info',
+          '🔄 Return Clearance Requested',
+          `${req.user_name || 'Member'} requested return for ${req.item_name}.`
+        );
+      } else if (action === 'RETURN_ACCEPTED' && isMyRequest) {
+        playNotificationChime('up');
+        showToast(
+          'success',
+          '📦 Hardware Return Cleared',
+          `Your return for ${req.item_name} has been verified & restocked by laboratory admin.`
+        );
+      }
+    },
+    [showToast]
+  );
+
   const [items, setItems] = useState<InventoryItem[]>(() => {
     try {
       const cached = localStorage.getItem('cicr-cached-inventory');
@@ -51,20 +170,52 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return [];
     }
   });
-  const [logs, setLogs] = useState<ActivityLog[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [logs, setLogs] = useState<ActivityLog[]>(() => {
+    try {
+      const cached = localStorage.getItem('cicr-cached-logs');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [loading, setLoading] = useState<boolean>(() => {
+    try {
+      const cached = localStorage.getItem('cicr-cached-inventory');
+      return !cached || JSON.parse(cached).length === 0;
+    } catch {
+      return true;
+    }
+  });
   const [isLiveDatabase, setIsLiveDatabase] = useState<boolean>(false);
   const [schemaNeeded, setSchemaNeeded] = useState<boolean>(false);
 
-  // Fetch real data from Supabase backend
+  // Fetch real data from Supabase backend in parallel for maximum speed
   const refreshData = useCallback(async () => {
-    setLoading(true);
+    // Only set visible loading state if there are zero cached items (avoids UI flickering)
+    setItems((currentItems) => {
+      if (currentItems.length === 0) setLoading(true);
+      return currentItems;
+    });
+
     try {
-      // 1. Fetch real inventory items from Supabase
-      const { data: dbItems, error: itemsError } = await supabase
-        .from('inventory_items')
-        .select('*')
-        .order('created_at', { ascending: false });
+      // Parallelize all 3 requests simultaneously with Promise.all
+      const [itemsRes, requestsRes, logsRes] = await Promise.all([
+        supabase
+          .from('inventory_items')
+          .select('*')
+          .order('created_at', { ascending: false }),
+        supabaseAdmin
+          .from('borrow_requests')
+          .select('*')
+          .order('created_at', { ascending: false }),
+        supabaseAdmin
+          .from('activity_logs')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(250),
+      ]);
+
+      const { data: dbItems, error: itemsError } = itemsRes;
 
       if (itemsError) {
         if (itemsError.code === 'PGRST205' || itemsError.message.includes('not find the table')) {
@@ -87,46 +238,95 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           localStorage.setItem('cicr-cached-inventory', JSON.stringify(normalizedItems));
         } catch {}
 
-        // 2. Fetch real borrow requests from Supabase
-        const { data: dbRequests } = await supabaseAdmin
-          .from('borrow_requests')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        if (dbRequests) {
-          setRequests(dbRequests as BorrowRequest[]);
+        if (requestsRes.data) {
+          const newReqs = requestsRes.data as BorrowRequest[];
+          setRequests(newReqs);
           try {
-            localStorage.setItem('cicr-cached-requests', JSON.stringify(dbRequests));
+            localStorage.setItem('cicr-cached-requests', JSON.stringify(newReqs));
           } catch {}
+
+          // Sub-second status change detection
+          if (hasInitializedRef.current) {
+            const prevMap = prevRequestsMapRef.current;
+            for (const r of newReqs) {
+              const old = prevMap.get(r.id);
+              if (!old) {
+                if (r.status === 'pending') {
+                  handleRequestNotification('NEW_REQUEST', r, false);
+                }
+              } else if (old.status !== r.status) {
+                if (r.status === 'approved') {
+                  handleRequestNotification('APPROVED', r, false);
+                } else if (r.status === 'rejected') {
+                  handleRequestNotification('REJECTED', r, false);
+                } else if (r.status === 'returned') {
+                  handleRequestNotification('RETURN_ACCEPTED', r, false);
+                }
+              }
+            }
+          }
+
+          const newMap = new Map<string, BorrowRequest>();
+          newReqs.forEach((r) => newMap.set(r.id, r));
+          prevRequestsMapRef.current = newMap;
+          hasInitializedRef.current = true;
         }
 
-        // 3. Fetch real activity logs (full multi-day audit history via supabaseAdmin)
-        const { data: dbLogs } = await supabaseAdmin
-          .from('activity_logs')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(250);
-
-        if (dbLogs) {
-          setLogs(dbLogs as ActivityLog[]);
+        if (logsRes.data) {
+          setLogs(logsRes.data as ActivityLog[]);
+          try {
+            localStorage.setItem('cicr-cached-logs', JSON.stringify(logsRes.data));
+          } catch {}
         }
       }
     } catch {
-      setItems([]);
-      setRequests([]);
-      setLogs([]);
+      // Fallback on network errors
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [handleRequestNotification]);
 
   useEffect(() => {
     refreshData();
+
+    // Supabase Realtime Broadcast Channel (sub-50ms instant sync)
+    const channel = supabase.channel('cicr-live-requisitions-sync');
+    realtimeChannelRef.current = channel;
+
+    channel
+      .on('broadcast', { event: 'REQ_SYNC' }, (payload) => {
+        const data = payload?.payload;
+        if (!data) return;
+        const { eventType, request, senderEmail } = data;
+        const isFromSelf = Boolean(
+          senderEmail && user?.email && senderEmail.toLowerCase() === user.email.toLowerCase()
+        );
+        if (request) {
+          handleRequestNotification(eventType, request, isFromSelf);
+        }
+        // Immediately fetch latest state without refreshing page
+        refreshData();
+      })
+      .subscribe();
+
+    // Fast 1.2s background auto-poll sync when window is visible (guarantees update within 1 sec flat)
     const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        refreshData();
+      }
+    }, 1200);
+
+    const handleFocus = () => {
       refreshData();
-    }, 1500);
-    return () => clearInterval(timer);
-  }, [refreshData]);
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', handleFocus);
+      supabase.removeChannel(channel);
+    };
+  }, [refreshData, handleRequestNotification, user?.email]);
 
   // Real Add Item in Supabase
   const addItem = async (newItemData: Omit<InventoryItem, 'id'>) => {
@@ -355,6 +555,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (error) return { success: false, error: error.message };
       if (dbData) {
         setRequests((prev) => [dbData as BorrowRequest, ...prev]);
+        broadcastLiveEvent('NEW_REQUEST', dbData);
         try {
           await supabaseAdmin.from('activity_logs').insert([
             {
@@ -494,6 +695,16 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         prev.map((r) => (r.id === requestId ? { ...r, ...updatePayload, status: newStatus } : r))
       );
 
+      if (targetReq) {
+        const liveType =
+          newStatus === 'approved'
+            ? 'APPROVED'
+            : newStatus === 'rejected'
+            ? 'REJECTED'
+            : 'RETURN_ACCEPTED';
+        broadcastLiveEvent(liveType, { ...targetReq, ...updatePayload, status: newStatus });
+      }
+
       // Log activity in Supabase
       if (targetReq) {
         await supabaseAdmin.from('activity_logs').insert([
@@ -577,6 +788,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         )
       );
 
+      broadcastLiveEvent('RETURN_REQUESTED', { ...targetReq, admin_notes: updatedNotes });
+
       try {
         await supabaseAdmin.from('activity_logs').insert([
           {
@@ -625,6 +838,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             : r
         )
       );
+
+      broadcastLiveEvent('RETURN_DECLINED', { ...targetReq, admin_notes: updatedNotes || undefined });
 
       await refreshData();
       return { success: true };

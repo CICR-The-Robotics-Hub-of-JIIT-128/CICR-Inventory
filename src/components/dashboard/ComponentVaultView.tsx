@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { InventoryItem, BorrowRequest } from '../../types/inventory';
 import { IOSSearchBar } from '../ui/ios-search-bar';
 import {
@@ -17,6 +18,8 @@ import {
   Clock,
   AlertTriangle,
   Pencil,
+  SlidersHorizontal,
+  ChevronDown,
 } from 'lucide-react';
 
 interface ComponentVaultViewProps {
@@ -48,6 +51,15 @@ const isLowReserveItem = (i: InventoryItem): boolean => {
   return (i.available_qty / i.total_qty) < 0.5;
 };
 
+const CATEGORIES = [
+  { key: 'all', label: 'All', icon: Layers },
+  { key: 'mcu', label: 'MCU', icon: Cpu },
+  { key: 'sensors', label: 'Sensors', icon: Radar },
+  { key: 'actuators', label: 'Actuators', icon: Compass },
+  { key: 'power', label: 'Power', icon: Zap },
+  { key: 'tools', label: 'Tools', icon: Wrench },
+];
+
 export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
   items,
   requests,
@@ -70,6 +82,7 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
   onOpenCart,
   loading = false,
 }) => {
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   // Active loans calculation:
   // For administrators: displays active loans across all members.
   // For normal members: strictly personalized to display only their own active checkouts.
@@ -140,6 +153,12 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
     return 'HARDWARE';
   };
 
+  const isAllCategory = categoryFilter === 'all';
+  const activeCategoryItem = CATEGORIES.find(
+    (c) => categoryFilter === c.key || (c.key === 'mcu' && categoryFilter === 'microcontrollers')
+  );
+  const activeCategoryLabel = activeCategoryItem && activeCategoryItem.key !== 'all' ? activeCategoryItem.label : null;
+
   return (
     <div className="space-y-6 pb-20">
       {/* Title */}
@@ -150,45 +169,141 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
       </div>
 
       {/* Search Bar & Category Filter Tabs */}
-      <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-[#0f0f15] border-2 border-slate-200 dark:border-[#20202c] space-y-4 shadow-sm">
-        <div className="w-full">
-          <IOSSearchBar
-            value={searchQuery}
-            onChange={setSearchQuery}
-            placeholder="Search components by name, category, specs..."
-            className="w-full"
-            collapsedWidth="100%"
-            expandedWidth="100%"
-          />
+      <div className="p-3 sm:p-3.5 rounded-2xl sm:rounded-3xl bg-white dark:bg-[#0f0f15] border-2 border-slate-200 dark:border-[#20202c] shadow-sm">
+        {/* Desktop / Laptop: Exactly 1 line - Search Bar on LEFT, Options on RIGHT */}
+        <div className="hidden sm:flex items-center justify-between gap-4 w-full">
+          {/* Left: Search Bar */}
+          <div className="w-64 md:w-72 lg:w-80 shrink-0">
+            <IOSSearchBar
+              value={searchQuery}
+              onChange={setSearchQuery}
+              placeholder="Search components..."
+              className="w-full"
+              collapsedWidth="100%"
+              expandedWidth="100%"
+            />
+          </div>
+
+          {/* Right: Category Options */}
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
+            {CATEGORIES.map((cat) => {
+              const Icon = cat.icon;
+              const active = categoryFilter === cat.key || (cat.key === 'mcu' && categoryFilter === 'microcontrollers');
+              return (
+                <button
+                  key={cat.key}
+                  type="button"
+                  onClick={() => setCategoryFilter(cat.key)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    active
+                      ? 'bg-blue-600 dark:bg-purple-600 text-white border-2 border-blue-600 dark:border-purple-600 shadow-sm'
+                      : 'bg-slate-100 dark:bg-[#14141c] text-slate-700 dark:text-zinc-400 hover:text-slate-900 hover:bg-slate-200 dark:hover:bg-zinc-800 border-2 border-slate-200 dark:border-zinc-800 font-bold'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5 shrink-0" />
+                  <span>{cat.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pt-1">
-          {[
-            { key: 'all', label: 'All', icon: Layers },
-            { key: 'mcu', label: 'MCU', icon: Cpu },
-            { key: 'sensors', label: 'Sensors', icon: Radar },
-            { key: 'actuators', label: 'Actuators', icon: Compass },
-            { key: 'power', label: 'Power', icon: Zap },
-            { key: 'tools', label: 'Tools', icon: Wrench },
-          ].map((cat) => {
-            const Icon = cat.icon;
-            const active = categoryFilter === cat.key || (cat.key === 'mcu' && categoryFilter === 'microcontrollers');
-            return (
-              <button
-                key={cat.key}
-                type="button"
-                onClick={() => setCategoryFilter(cat.key)}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
-                  active
-                    ? 'bg-blue-600 dark:bg-purple-600 text-white border-2 border-blue-600 dark:border-purple-600 shadow-sm'
-                    : 'bg-slate-100 dark:bg-[#14141c] text-slate-700 dark:text-zinc-400 hover:text-slate-900 hover:bg-slate-200 dark:hover:bg-zinc-800 border-2 border-slate-200 dark:border-zinc-800 font-bold'
+        {/* Mobile / Phone: Exactly 2 lines (Line 1: Search Bar, Line 2: All + Filters) */}
+        <div className="sm:hidden space-y-2.5">
+          {/* Line 1: Search Bar */}
+          <div className="w-full">
+            <IOSSearchBar
+              value={searchQuery}
+              onChange={setSearchQuery}
+              placeholder="Search components..."
+              className="w-full"
+              collapsedWidth="100%"
+              expandedWidth="100%"
+            />
+          </div>
+
+          {/* Line 2: All & Filters */}
+          <div className="flex items-center gap-2">
+            {/* All Tab */}
+            <button
+              type="button"
+              onClick={() => {
+                setCategoryFilter('all');
+                setMobileFiltersOpen(false);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                isAllCategory
+                  ? 'bg-blue-600 dark:bg-purple-600 text-white border-2 border-blue-600 dark:border-purple-600 shadow-sm'
+                  : 'bg-slate-100 dark:bg-[#14141c] text-slate-700 dark:text-zinc-400 border-2 border-slate-200 dark:border-zinc-800'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>All</span>
+            </button>
+
+            {/* Filters Button */}
+            <button
+              type="button"
+              onClick={() => setMobileFiltersOpen((prev) => !prev)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeCategoryLabel
+                  ? 'bg-blue-600 dark:bg-purple-600 text-white border-2 border-blue-600 dark:border-purple-600 shadow-sm'
+                  : mobileFiltersOpen
+                  ? 'bg-slate-200 dark:bg-zinc-800 text-slate-900 dark:text-white border-2 border-slate-300 dark:border-zinc-700'
+                  : 'bg-slate-100 dark:bg-[#14141c] text-slate-700 dark:text-zinc-400 border-2 border-slate-200 dark:border-zinc-800'
+              }`}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span>{activeCategoryLabel ? `Filters: ${activeCategoryLabel}` : 'Filters'}</span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                  mobileFiltersOpen ? 'rotate-180' : ''
                 }`}
+              />
+            </button>
+          </div>
+
+          {/* Expandable Tabs on Phone (when Filters is clicked) */}
+          <AnimatePresence>
+            {mobileFiltersOpen && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.18 }}
+                className="overflow-hidden pt-1"
               >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{cat.label}</span>
-              </button>
-            );
-          })}
+                <div className="grid grid-cols-2 gap-1.5 p-2 rounded-xl bg-slate-50 dark:bg-[#14141d] border border-slate-200 dark:border-zinc-800/80">
+                  {CATEGORIES.map((cat) => {
+                    const Icon = cat.icon;
+                    const active =
+                      categoryFilter === cat.key ||
+                      (cat.key === 'mcu' && categoryFilter === 'microcontrollers');
+                    return (
+                      <button
+                        key={cat.key}
+                        type="button"
+                        onClick={() => {
+                          setCategoryFilter(cat.key);
+                          if (cat.key === 'all') {
+                            setMobileFiltersOpen(false);
+                          }
+                        }}
+                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          active
+                            ? 'bg-blue-600 dark:bg-purple-600 text-white shadow-sm'
+                            : 'bg-white dark:bg-[#1b1b26] text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 border border-slate-200/80 dark:border-zinc-700/60'
+                        }`}
+                      >
+                        <Icon className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{cat.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
@@ -291,15 +406,15 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
       {/* Catalog Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white tracking-tight">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2">
+            <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white tracking-tight whitespace-nowrap">
               Catalog Components
             </h2>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-800 border-2 border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 dark:text-zinc-400 font-bold font-mono">
+            <span className="w-fit text-xs px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-800 border-2 border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 dark:text-zinc-400 font-bold font-mono whitespace-nowrap">
               Showing {filteredItems.length} components
             </span>
           </div>
-          <p className="text-xs text-slate-600 dark:text-zinc-400 mt-0.5">
+          <p className="text-xs text-slate-600 dark:text-zinc-400 mt-1">
             Click component to inspect datasheet or click + Add to Cart to stage for requisition clearance
           </p>
         </div>

@@ -2,7 +2,6 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { jsPDF } from 'jspdf';
 import {
   Check,
   AlertCircle,
@@ -163,13 +162,14 @@ export const PaymentStatus: React.FC<PaymentStatusProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (onDownloadReceipt) {
       onDownloadReceipt();
       return;
     }
 
     try {
+      const { jsPDF } = await import('jspdf');
       const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',

@@ -1,23 +1,42 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useInventory } from '../../context/InventoryContext';
 import { BottomNavbar, ActiveView } from '../layout/BottomNavbar';
-import { RequestCartModal, CartItem } from '../inventory/RequestCartModal';
-import { ChangePasswordModal } from '../profile/ChangePasswordModal';
-import { AddEditItemModal } from '../inventory/AddEditItemModal';
-import { ItemDetailModal } from '../inventory/ItemDetailModal';
-import { MeetTheDevelopers } from './MeetTheDevelopers';
+import { CartItem } from '../inventory/RequestCartModal';
 import { TopNavbar } from './TopNavbar';
 import { DashboardOverview } from './DashboardOverview';
 import { ComponentVaultView } from './ComponentVaultView';
-import { RequisitionsView } from './RequisitionsView';
 import { AdminHubView } from './AdminHubView';
-import { OperatorProfileView } from './OperatorProfileView';
-import { IssuePassModal } from './IssuePassModal';
 import { InventoryItem, BorrowRequest, isReturnRequested } from '../../types/inventory';
 import { supabase, supabaseAdmin } from '../../lib/supabase';
 import { useToast } from '../common/Toast';
 import { Notification } from '../ui/notification-bell';
+
+// Code-split heavy sub-views and modals on-demand so initial page load is 0ms instant and smooth
+const RequisitionsView = lazy(() =>
+  import('./RequisitionsView').then((m) => ({ default: m.RequisitionsView }))
+);
+const OperatorProfileView = lazy(() =>
+  import('./OperatorProfileView').then((m) => ({ default: m.OperatorProfileView }))
+);
+const MeetTheDevelopers = lazy(() =>
+  import('./MeetTheDevelopers').then((m) => ({ default: m.MeetTheDevelopers }))
+);
+const RequestCartModal = lazy(() =>
+  import('../inventory/RequestCartModal').then((m) => ({ default: m.RequestCartModal }))
+);
+const ChangePasswordModal = lazy(() =>
+  import('../profile/ChangePasswordModal').then((m) => ({ default: m.ChangePasswordModal }))
+);
+const AddEditItemModal = lazy(() =>
+  import('../inventory/AddEditItemModal').then((m) => ({ default: m.AddEditItemModal }))
+);
+const ItemDetailModal = lazy(() =>
+  import('../inventory/ItemDetailModal').then((m) => ({ default: m.ItemDetailModal }))
+);
+const IssuePassModal = lazy(() =>
+  import('./IssuePassModal').then((m) => ({ default: m.IssuePassModal }))
+);
 
 const isLowReserveItem = (i: InventoryItem): boolean => {
   if (i.available_qty <= 0) return false;
@@ -93,10 +112,24 @@ export const UserDashboard: React.FC = () => {
   );
   const [savingProfile, setSavingProfile] = useState(false);
 
-  // Admin Hub state
-  const [pendingAccounts, setPendingAccounts] = useState<any[]>([]);
+  // Admin Hub state with instant 0ms localStorage caching
+  const [pendingAccounts, setPendingAccounts] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem('cicr-cached-pending-accounts');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
   const [processingUserId, setProcessingUserId] = useState<string | null>(null);
-  const [allMembers, setAllMembers] = useState<any[]>([]);
+  const [allMembers, setAllMembers] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem('cicr-cached-members');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
   const [loadingMembers, setLoadingMembers] = useState(false);
 
   // Notifications with persistent read status in localStorage
@@ -381,16 +414,35 @@ export const UserDashboard: React.FC = () => {
     }
   }, [profile]);
 
-  // Fetch pending registrations and all members
-  const fetchPendingAccounts = async () => {
+  // Unified parallel fetch for Admin Hub roster & pending requests with local storage persistence
+  const syncAdminHubData = useCallback(async () => {
+    if (!isAdmin) return;
     try {
-      const { data: profData } = await supabase
-        .from('profiles')
-        .select('*');
+      setAllMembers((curr) => {
+        if (curr.length === 0) setLoadingMembers(true);
+        return curr;
+      });
 
-      // Resolved accounts: Any account marked approved, rejected, or admin is permanently RESOLVED!
+      const [profRes, reqLogsRes] = await Promise.all([
+        supabaseAdmin.from('profiles').select('*').order('full_name', { ascending: true }),
+        supabaseAdmin.from('activity_logs').select('*').eq('action', 'ACCOUNT_REQUEST').order('created_at', { ascending: false }).limit(100),
+      ]);
+
+      const profData = profRes.data || [];
+      const reqLogs = reqLogsRes.data || [];
+
+      // 1. Process Approved Roster Members
+      const approvedMembers = profData.filter(
+        (m) => m.status === 'approved' || m.role === 'admin' || m.avatar_url === 'status:approved'
+      );
+      setAllMembers(approvedMembers);
+      try {
+        localStorage.setItem('cicr-cached-members', JSON.stringify(approvedMembers));
+      } catch {}
+
+      // 2. Process Pending Signups
       const resolvedEmails = new Set(
-        (profData || [])
+        profData
           .filter(
             (p) =>
               p.status === 'approved' ||
@@ -400,10 +452,11 @@ export const UserDashboard: React.FC = () => {
               p.avatar_url === 'status:rejected'
           )
           .map((p) => p.email?.toLowerCase())
+          .filter(Boolean)
       );
 
       const resolvedUserIds = new Set(
-        (profData || [])
+        profData
           .filter(
             (p) =>
               p.status === 'approved' ||
@@ -417,7 +470,7 @@ export const UserDashboard: React.FC = () => {
 
       const pendingMap = new Map();
 
-      (profData || []).forEach((p) => {
+      profData.forEach((p) => {
         const isResolved =
           p.role === 'admin' ||
           p.status === 'approved' ||
@@ -438,77 +491,54 @@ export const UserDashboard: React.FC = () => {
         }
       });
 
+      reqLogs.forEach((log) => {
+        let details: any = {};
+        try {
+          details = typeof log.details === 'string' ? JSON.parse(log.details) : log.details;
+        } catch {
+          details = {};
+        }
+        const email = (details?.email || '').toLowerCase();
+        const userId = details?.userId || log.user_id;
+        const isPending = !details?.status || details?.status === 'pending';
+
+        if (
+          isPending &&
+          email &&
+          !resolvedEmails.has(email) &&
+          (!userId || !resolvedUserIds.has(userId)) &&
+          !pendingMap.has(email)
+        ) {
+          pendingMap.set(email, {
+            id: userId || log.id,
+            full_name: details?.fullName || log.user_name || 'New Member',
+            email: details?.email,
+            roll_number: details?.enrollmentNo || '',
+            phone: details?.phone || '',
+            role: details?.role || 'member',
+            status: 'pending',
+            created_at: log.created_at,
+          });
+        }
+      });
+
+      const pendingList = Array.from(pendingMap.values());
+      setPendingAccounts(pendingList);
       try {
-        const { data: reqLogs } = await supabaseAdmin
-          .from('activity_logs')
-          .select('*')
-          .eq('action', 'ACCOUNT_REQUEST')
-          .order('created_at', { ascending: false });
-
-        (reqLogs || []).forEach((log) => {
-          let details: any = {};
-          try {
-            details = typeof log.details === 'string' ? JSON.parse(log.details) : log.details;
-          } catch {
-            details = {};
-          }
-          const email = (details?.email || '').toLowerCase();
-          const userId = details?.userId || log.user_id;
-          const isPending = !details?.status || details?.status === 'pending';
-
-          // Strictly filter out any account whose email or user_id is already resolved (approved OR rejected)!
-          if (
-            isPending &&
-            email &&
-            !resolvedEmails.has(email) &&
-            (!userId || !resolvedUserIds.has(userId)) &&
-            !pendingMap.has(email)
-          ) {
-            pendingMap.set(email, {
-              id: userId || log.id,
-              full_name: details?.fullName || log.user_name || 'New Member',
-              email: details?.email,
-              roll_number: details?.enrollmentNo || '',
-              phone: details?.phone || '',
-              role: details?.role || 'member',
-              status: 'pending',
-              created_at: log.created_at,
-            });
-          }
-        });
-      } catch (logErr) {
-        console.warn('Notice loading request logs:', logErr);
-      }
-
-      setPendingAccounts(Array.from(pendingMap.values()));
-    } catch {
-      // ignore
-    }
-  };
-
-  const fetchAllMembers = async () => {
-    try {
-      setLoadingMembers(true);
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('full_name', { ascending: true });
-      if (!error && data) {
-        setAllMembers(data.filter((m) => m.status === 'approved' || m.role === 'admin' || m.avatar_url === 'status:approved'));
-      }
-    } catch {
-      // ignore
+        localStorage.setItem('cicr-cached-pending-accounts', JSON.stringify(pendingList));
+      } catch {}
+    } catch (err) {
+      console.warn('Notice syncing admin hub telemetry:', err);
     } finally {
       setLoadingMembers(false);
     }
-  };
+  }, [isAdmin]);
 
   useEffect(() => {
     if (isAdmin) {
-      fetchPendingAccounts();
-      fetchAllMembers();
+      syncAdminHubData();
     }
-  }, [isAdmin]);
+  }, [isAdmin, syncAdminHubData]);
 
   // Generate notifications: warnings are strictly visible to only admin accounts!
   useEffect(() => {
@@ -721,8 +751,7 @@ export const UserDashboard: React.FC = () => {
       }
 
       showToast('success', 'Role Updated', `${name} is now ${newRole.toUpperCase()}.`);
-      await fetchAllMembers();
-      await refreshData();
+      await Promise.all([syncAdminHubData(), refreshData()]);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Could not change member role.';
       showToast('error', 'Role Update Failed', msg);
@@ -740,9 +769,7 @@ export const UserDashboard: React.FC = () => {
       setPendingAccounts((prev) =>
         prev.filter((a) => a.id !== targetUserId && (!targetEmail || a.email?.toLowerCase() !== targetEmail.toLowerCase()))
       );
-      await refreshData();
-      await fetchPendingAccounts();
-      await fetchAllMembers();
+      await Promise.all([refreshData(), syncAdminHubData()]);
     } else {
       showToast('error', 'Approval Failed', res.error || 'Could not approve account');
     }
@@ -757,9 +784,7 @@ export const UserDashboard: React.FC = () => {
       setPendingAccounts((prev) =>
         prev.filter((a) => a.id !== targetUserId && (!targetEmail || a.email?.toLowerCase() !== targetEmail.toLowerCase()))
       );
-      await refreshData();
-      await fetchPendingAccounts();
-      await fetchAllMembers();
+      await Promise.all([refreshData(), syncAdminHubData()]);
     } else {
       showToast('error', 'Rejection Failed', res.error || 'Could not reject account');
     }
@@ -855,16 +880,18 @@ export const UserDashboard: React.FC = () => {
 
         {/* VIEW 3: REQUISITIONS & CLEARANCE PORTAL */}
         {activeView === 'review-requests' && (
-          <RequisitionsView
-            requests={requests}
-            items={items}
-            isLeadOrAdmin={isLeadOrAdmin}
-            userEmail={user?.email}
-            userId={user?.id}
-            onNavigateToVault={() => handleNavigateView('inventory')}
-            onBorrowAction={handleBorrowAction}
-            onOpenIssuePass={handleOpenIssuePass}
-          />
+          <Suspense fallback={<div className="p-16 flex items-center justify-center"><div className="w-5 h-5 border-2 border-blue-600 dark:border-purple-500 border-t-transparent rounded-full animate-spin" /></div>}>
+            <RequisitionsView
+              requests={requests}
+              items={items}
+              isLeadOrAdmin={isLeadOrAdmin}
+              userEmail={user?.email}
+              userId={user?.id}
+              onNavigateToVault={() => handleNavigateView('inventory')}
+              onBorrowAction={handleBorrowAction}
+              onOpenIssuePass={handleOpenIssuePass}
+            />
+          </Suspense>
         )}
 
         {/* VIEW 4: MANAGEMENT HUB & AUDIT LOGS */}
@@ -881,35 +908,39 @@ export const UserDashboard: React.FC = () => {
             onApproveAccount={handleApproveAccount}
             onRejectAccount={handleRejectAccount}
             onRefresh={async () => {
-              await refreshData();
-              await fetchPendingAccounts();
-              await fetchAllMembers();
+              await Promise.all([refreshData(), syncAdminHubData()]);
             }}
           />
         )}
 
         {/* VIEW 5: MEET THE DEVELOPERS TIMELINE */}
-        {activeView === 'developers' && <MeetTheDevelopers />}
+        {activeView === 'developers' && (
+          <Suspense fallback={<div className="p-16 flex items-center justify-center"><div className="w-5 h-5 border-2 border-blue-600 dark:border-purple-500 border-t-transparent rounded-full animate-spin" /></div>}>
+            <MeetTheDevelopers />
+          </Suspense>
+        )}
 
         {/* VIEW 6: OPERATOR PROFILE */}
         {activeView === 'profile' && (
-          <OperatorProfileView
-            userName={userName}
-            userEmail={user?.email}
-            roleName={roleName}
-            editName={editName}
-            setEditName={setEditName}
-            editEnrollment={editEnrollment}
-            setEditEnrollment={setEditEnrollment}
-            editPhone={editPhone}
-            setEditPhone={setEditPhone}
-            editAvatarUrl={editAvatarUrl}
-            setEditAvatarUrl={setEditAvatarUrl}
-            savingProfile={savingProfile}
-            onSaveProfile={handleSaveProfile}
-            onOpenChangePassword={handleOpenChangePassword}
-            onRemoveAvatar={() => setEditAvatarUrl('')}
-          />
+          <Suspense fallback={<div className="p-16 flex items-center justify-center"><div className="w-5 h-5 border-2 border-blue-600 dark:border-purple-500 border-t-transparent rounded-full animate-spin" /></div>}>
+            <OperatorProfileView
+              userName={userName}
+              userEmail={user?.email}
+              roleName={roleName}
+              editName={editName}
+              setEditName={setEditName}
+              editEnrollment={editEnrollment}
+              setEditEnrollment={setEditEnrollment}
+              editPhone={editPhone}
+              setEditPhone={setEditPhone}
+              editAvatarUrl={editAvatarUrl}
+              setEditAvatarUrl={setEditAvatarUrl}
+              savingProfile={savingProfile}
+              onSaveProfile={handleSaveProfile}
+              onOpenChangePassword={handleOpenChangePassword}
+              onRemoveAvatar={() => setEditAvatarUrl('')}
+            />
+          </Suspense>
         )}
       </main>
 
@@ -923,43 +954,55 @@ export const UserDashboard: React.FC = () => {
         pendingAccountsCount={pendingAccounts.length}
       />
 
-      {/* 4. Modals */}
-      <RequestCartModal
-        isOpen={cartModalOpen}
-        onClose={handleCloseCart}
-        cart={cart}
-        onUpdateQuantity={handleUpdateCartQuantity}
-        onRemoveItem={handleRemoveFromCart}
-        onClearCart={() => setCart([])}
-      />
+      {/* 4. Modals (Suspense-wrapped on demand) */}
+      <Suspense fallback={null}>
+        {cartModalOpen && (
+          <RequestCartModal
+            isOpen={cartModalOpen}
+            onClose={handleCloseCart}
+            cart={cart}
+            onUpdateQuantity={handleUpdateCartQuantity}
+            onRemoveItem={handleRemoveFromCart}
+            onClearCart={() => setCart([])}
+          />
+        )}
 
-      <ChangePasswordModal
-        isOpen={changePasswordOpen}
-        onClose={handleCloseChangePassword}
-      />
+        {changePasswordOpen && (
+          <ChangePasswordModal
+            isOpen={changePasswordOpen}
+            onClose={handleCloseChangePassword}
+          />
+        )}
 
-      <AddEditItemModal
-        isOpen={addItemModalOpen}
-        onClose={handleCloseAddEditItem}
-        initialItem={editingItem}
-      />
+        {addItemModalOpen && (
+          <AddEditItemModal
+            isOpen={addItemModalOpen}
+            onClose={handleCloseAddEditItem}
+            initialItem={editingItem}
+          />
+        )}
 
-      <ItemDetailModal
-        item={selectedItem}
-        isAdmin={isAdmin}
-        onEdit={handleOpenEditItem}
-        onClose={handleCloseItemDetail}
-        onBorrow={(it) => {
-          handleAddToCart(it);
-          handleCloseItemDetail();
-        }}
-      />
+        {selectedItem && (
+          <ItemDetailModal
+            item={selectedItem}
+            isAdmin={isAdmin}
+            onEdit={handleOpenEditItem}
+            onClose={handleCloseItemDetail}
+            onBorrow={(it) => {
+              handleAddToCart(it);
+              handleCloseItemDetail();
+            }}
+          />
+        )}
 
-      <IssuePassModal
-        request={selectedIssuePassReq}
-        item={items.find((i) => i.id === selectedIssuePassReq?.item_id)}
-        onClose={handleCloseIssuePass}
-      />
+        {selectedIssuePassReq && (
+          <IssuePassModal
+            request={selectedIssuePassReq}
+            item={items.find((i) => i.id === selectedIssuePassReq?.item_id)}
+            onClose={handleCloseIssuePass}
+          />
+        )}
+      </Suspense>
     </div>
   );
 };

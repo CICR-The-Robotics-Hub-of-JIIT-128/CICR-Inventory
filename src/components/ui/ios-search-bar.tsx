@@ -67,20 +67,22 @@ export const IOSSearchBar: React.FC<IOSSearchBarProps> = ({
         width: isExpanded ? expandedWidth : collapsedWidth,
       }}
       transition={motionTransitions.springSmooth}
-      className={cn('relative flex items-center', className)}
+      className={cn('relative flex items-center group', className)}
     >
       <div
         className={cn(
-          'relative w-full flex items-center h-10 px-3.5 rounded-full transition-all duration-200',
+          'relative w-full flex items-center h-10 px-3.5 rounded-2xl transition-all duration-200',
           isFocused
-            ? 'bg-white dark:bg-[#141414] border-2 border-blue-600 dark:border-purple-600 shadow-sm'
-            : 'bg-white dark:bg-[#0E0E0E] border-2 border-slate-300 dark:border-[#1F1F1F] hover:border-slate-400 dark:hover:border-[#4A4A4A]'
+            ? 'bg-white dark:bg-[#161624] border-2 border-blue-600 dark:border-purple-500 shadow-sm shadow-blue-500/10 dark:shadow-purple-500/20 ring-2 ring-blue-500/10 dark:ring-purple-500/20'
+            : 'bg-slate-100/90 dark:bg-[#13131c] border-2 border-slate-200 dark:border-[#222232] hover:border-slate-300 dark:hover:border-[#323248]'
         )}
       >
         <Search
           className={cn(
             'w-4 h-4 shrink-0 transition-colors mr-2.5',
-            isFocused ? 'text-blue-600 dark:text-[#FAFAFA]' : 'text-slate-500 dark:text-[#525252]'
+            isFocused
+              ? 'text-blue-600 dark:text-purple-400'
+              : 'text-slate-400 dark:text-zinc-400 group-hover:text-slate-600 dark:group-hover:text-zinc-300'
           )}
         />
 
@@ -96,7 +98,7 @@ export const IOSSearchBar: React.FC<IOSSearchBarProps> = ({
           autoFocus={autoFocus}
           placeholder={placeholder}
           aria-label={placeholder}
-          className="min-w-0 flex-1 bg-transparent text-xs sm:text-[13px] text-slate-900 dark:text-[#FAFAFA] placeholder:text-slate-400 dark:placeholder-[#6B6B6B] placeholder:text-xs focus:outline-none focus:ring-0 pr-2 [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:hidden [&::-webkit-search-results-button]:hidden [&::-webkit-search-results-decoration]:hidden disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+          className="min-w-0 flex-1 bg-transparent text-xs sm:text-[13px] text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder-zinc-500 placeholder:text-xs sm:placeholder:text-[13px] focus:outline-none focus:ring-0 pr-2 [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:hidden [&::-webkit-search-results-button]:hidden [&::-webkit-search-results-decoration]:hidden disabled:opacity-40 disabled:cursor-not-allowed font-medium"
         />
 
         {/* Clear Button */}
@@ -110,7 +112,7 @@ export const IOSSearchBar: React.FC<IOSSearchBarProps> = ({
               exit={{ opacity: 0, scale: 0.8 }}
               transition={{ duration: 0.15 }}
               aria-label="Clear search"
-              className="p-1 rounded-full bg-slate-100 dark:bg-[#141414] text-slate-500 dark:text-[#525252] hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-[#1F1F1F] transition-colors shrink-0 ml-1.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-600 dark:ring-purple-600 cursor-pointer"
+              className="p-1 rounded-full bg-slate-200/80 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 hover:text-slate-900 hover:bg-slate-300 dark:hover:text-white dark:hover:bg-zinc-700 transition-colors shrink-0 ml-1.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-600 dark:ring-purple-600 cursor-pointer"
             >
               <X className="w-3 h-3" />
             </motion.button>

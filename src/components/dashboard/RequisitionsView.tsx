@@ -124,15 +124,22 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
   };
 
   return (
-    <div className="p-5 sm:p-7 rounded-3xl bg-white dark:bg-[#0f0f15] border-2 border-slate-200 dark:border-[#20202c] space-y-6 shadow-sm">
+    <div className="p-4 sm:p-7 rounded-3xl bg-white dark:bg-[#0f0f15] border-2 border-slate-200 dark:border-[#20202c] space-y-4 sm:space-y-6 shadow-sm">
       {/* Header */}
-      <div className="border-b border-slate-200 dark:border-zinc-800 pb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="border-b border-slate-200 dark:border-zinc-800 pb-4 sm:pb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5 tracking-tight">
-            <Bell className="w-5 h-5 text-blue-600 dark:text-purple-400" />
-            {isLeadOrAdmin
-              ? 'Requisition & Return Approval Portal (Admin Clearance)'
-              : 'My Hardware Requisitions & Issues'}
+          <h2 className="text-base sm:text-xl lg:text-2xl font-black text-slate-900 dark:text-white flex items-start lg:items-center gap-2 sm:gap-2.5 tracking-tight">
+            <Bell className="w-5 h-5 text-blue-600 dark:text-purple-400 shrink-0 mt-0.5 lg:mt-0" />
+            {isLeadOrAdmin ? (
+              <span className="leading-snug lg:leading-normal">
+                <span className="block lg:inline">Requisition &amp; Return </span>
+                <span className="block lg:inline text-sm sm:text-lg lg:text-2xl text-slate-800 dark:text-zinc-200 lg:text-slate-900 lg:dark:text-white">
+                  Approval Portal <span className="text-blue-600 dark:text-purple-400 font-extrabold">(Admin Clearance)</span>
+                </span>
+              </span>
+            ) : (
+              <span>My Hardware Requisitions &amp; Issues</span>
+            )}
           </h2>
         </div>
 

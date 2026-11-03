@@ -1,5 +1,4 @@
-import React, { useState } from 'react';
-import { MorphingDialog } from '../ui/morphing-dialog';
+import React, { useState, useMemo } from 'react';
 import { IOSSearchBar } from '../ui/ios-search-bar';
 import { BorrowRequest } from '../../types/inventory';
 import {
@@ -87,6 +86,88 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
   const [logSearch, setLogSearch] = useState('');
   const [logDaysFilter, setLogDaysFilter] = useState<'24h' | '3d'>('24h');
   const [logCategoryFilter, setLogCategoryFilter] = useState<'all' | 'borrow' | 'return' | 'account' | 'inventory'>('all');
+  const [inspectingLog, setInspectingLog] = useState<any | null>(null);
+  const [logDisplayCount, setLogDisplayCount] = useState<number>(50);
+
+  // Memoized Member Groups to eliminate re-filtering/re-sorting bottlenecks
+  const { adminGroup, memberGroup, totalFilteredMembers } = useMemo(() => {
+    const q = memberSearch.toLowerCase().trim();
+    const filtered = allMembers.filter((m) => {
+      const matchesQ =
+        !q ||
+        (m.full_name && m.full_name.toLowerCase().includes(q)) ||
+        (m.email && m.email.toLowerCase().includes(q)) ||
+        (m.roll_number && m.roll_number.toLowerCase().includes(q));
+      const matchesR = memberRoleFilter === 'all' || m.role === memberRoleFilter;
+      return matchesQ && matchesR;
+    });
+
+    const admins = filtered
+      .filter((m) => m.role === 'admin')
+      .sort((a, b) => (a.full_name || a.email || '').localeCompare(b.full_name || b.email || ''));
+
+    const members = filtered
+      .filter((m) => m.role !== 'admin')
+      .sort((a, b) => (a.full_name || a.email || '').localeCompare(b.full_name || b.email || ''));
+
+    return { adminGroup: admins, memberGroup: members, totalFilteredMembers: filtered.length };
+  }, [allMembers, memberSearch, memberRoleFilter]);
+
+  // Memoized Filtered Activity Logs
+  const filteredLogs = useMemo(() => {
+    const now = Date.now();
+    const cutoffMs = {
+      '24h': now - 24 * 60 * 60 * 1000,
+      '3d': now - 3 * 24 * 60 * 60 * 1000,
+    }[logDaysFilter];
+
+    const q = logSearch.toLowerCase().trim();
+
+    return logs.filter((log) => {
+      const logTime = new Date(log.created_at).getTime();
+      if (cutoffMs > 0 && logTime < cutoffMs) return false;
+
+      if (logCategoryFilter === 'borrow') {
+        const isBorrow =
+          log.action?.toLowerCase().includes('borrow') ||
+          log.action?.toLowerCase().includes('approved') ||
+          log.details?.toLowerCase().includes('borrow') ||
+          log.details?.toLowerCase().includes('requested');
+        if (!isBorrow) return false;
+      } else if (logCategoryFilter === 'return') {
+        const isReturn =
+          log.action?.toLowerCase().includes('return') ||
+          log.details?.toLowerCase().includes('returned');
+        if (!isReturn) return false;
+      } else if (logCategoryFilter === 'account') {
+        const isAccount =
+          log.action?.toLowerCase().includes('user') ||
+          log.action?.toLowerCase().includes('account') ||
+          log.action?.toLowerCase().includes('role') ||
+          log.action?.toLowerCase().includes('sign') ||
+          log.details?.toLowerCase().includes('account') ||
+          log.details?.toLowerCase().includes('registration') ||
+          log.details?.toLowerCase().includes('signed');
+        if (!isAccount) return false;
+      } else if (logCategoryFilter === 'inventory') {
+        const isItem =
+          log.action?.toLowerCase().includes('item') ||
+          log.details?.toLowerCase().includes('component') ||
+          log.details?.toLowerCase().includes('inventory');
+        if (!isItem) return false;
+      }
+
+      if (q) {
+        const matches =
+          (log.user_name && log.user_name.toLowerCase().includes(q)) ||
+          (log.details && log.details.toLowerCase().includes(q)) ||
+          (log.action && log.action.toLowerCase().includes(q));
+        if (!matches) return false;
+      }
+
+      return true;
+    });
+  }, [logs, logDaysFilter, logCategoryFilter, logSearch]);
 
   if (!isAdmin) {
     return (
@@ -108,21 +189,21 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
   const activeLoansCount = requests.filter((r) => r.status === 'approved').length;
 
   return (
-    <div className="p-5 sm:p-7 rounded-3xl bg-white dark:bg-[#0f0f15] border-2 border-slate-200 dark:border-[#20202c] space-y-6 shadow-sm">
+    <div className="p-4 sm:p-7 rounded-3xl bg-white dark:bg-[#0f0f15] border-2 border-slate-200 dark:border-[#20202c] space-y-4 sm:space-y-6 shadow-sm">
       {/* Header */}
-      <div className="border-b border-slate-200 dark:border-zinc-800 pb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5 tracking-tight">
-            <ScrollText className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600 dark:text-purple-400" />
-            CICR Management Hub &amp; Activity Logs
-          </h2>
-        </div>
+      <div className="border-b border-slate-200 dark:border-zinc-800 pb-3 sm:pb-4 flex items-center justify-between gap-3">
+        <h2 className="text-base sm:text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2 sm:gap-2.5 tracking-tight min-w-0">
+          <ScrollText className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600 dark:text-purple-400 shrink-0" />
+          <span className="truncate">CICR Management Hub</span>
+          <span className="hidden md:inline">&amp; Activity Logs</span>
+        </h2>
 
         <button
           type="button"
           onClick={onRefresh}
-          className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300 transition-colors self-start sm:self-auto cursor-pointer"
+          className="p-2 sm:p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300 transition-colors shrink-0 cursor-pointer"
           title="Refresh Hub Data"
+          aria-label="Refresh Hub Data"
         >
           <RefreshCw className="w-4 h-4" />
         </button>
@@ -137,7 +218,7 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
             <Users className="w-4 h-4 text-blue-600 dark:text-purple-400" />
           </div>
           <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
-            {loadingMembers ? '...' : allMembers.length}
+            {allMembers.length > 0 ? allMembers.length : (loadingMembers ? '...' : 0)}
           </div>
           <p className="text-[10px] text-slate-500 dark:text-zinc-500">Registered laboratory roster</p>
         </div>
@@ -314,27 +395,17 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
 
           {/* Members Table */}
           {(() => {
-            const filteredMembers = allMembers.filter((m) => {
-              const q = memberSearch.toLowerCase().trim();
-              const matchesQ =
-                !q ||
-                (m.full_name && m.full_name.toLowerCase().includes(q)) ||
-                (m.email && m.email.toLowerCase().includes(q)) ||
-                (m.roll_number && m.roll_number.toLowerCase().includes(q));
-              const matchesR = memberRoleFilter === 'all' || m.role === memberRoleFilter;
-              return matchesQ && matchesR;
-            });
-
-            // Split into Admins and Members (Admins first, secondary sort alphabetical)
-            const adminGroup = filteredMembers
-              .filter((m) => m.role === 'admin')
-              .sort((a, b) => (a.full_name || a.email || '').localeCompare(b.full_name || b.email || ''));
-
-            const memberGroup = filteredMembers
-              .filter((m) => m.role !== 'admin')
-              .sort((a, b) => (a.full_name || a.email || '').localeCompare(b.full_name || b.email || ''));
-
-            if (filteredMembers.length === 0) {
+            if (totalFilteredMembers === 0) {
+              if (loadingMembers && allMembers.length === 0) {
+                return (
+                  <div className="p-12 text-center rounded-2xl bg-slate-50 dark:bg-[#14141c] border-2 border-slate-200 dark:border-zinc-800 space-y-3">
+                    <div className="flex items-center justify-center gap-2.5 text-slate-500 dark:text-zinc-400">
+                      <div className="w-4 h-4 border-2 border-blue-600 dark:border-purple-500 border-t-transparent rounded-full animate-spin" />
+                      <span className="text-xs font-bold">Synchronizing laboratory roster...</span>
+                    </div>
+                  </div>
+                );
+              }
               return (
                 <div className="p-12 text-center rounded-2xl bg-slate-50 dark:bg-[#14141c] border-2 border-dashed border-slate-200 dark:border-zinc-800 space-y-2">
                   <Users className="w-8 h-8 text-slate-400 mx-auto" />
@@ -561,57 +632,6 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
           {/* Filtered Log Stream */}
           {(() => {
             const now = Date.now();
-            const cutoffMs = {
-              '24h': now - 24 * 60 * 60 * 1000,
-              '3d': now - 3 * 24 * 60 * 60 * 1000,
-            }[logDaysFilter];
-
-            const filteredLogs = logs.filter((log) => {
-              const logTime = new Date(log.created_at).getTime();
-              if (cutoffMs > 0 && logTime < cutoffMs) return false;
-
-              if (logCategoryFilter === 'borrow') {
-                const isBorrow =
-                  log.action?.toLowerCase().includes('borrow') ||
-                  log.action?.toLowerCase().includes('approved') ||
-                  log.details?.toLowerCase().includes('borrow') ||
-                  log.details?.toLowerCase().includes('requested');
-                if (!isBorrow) return false;
-              } else if (logCategoryFilter === 'return') {
-                const isReturn =
-                  log.action?.toLowerCase().includes('return') ||
-                  log.details?.toLowerCase().includes('returned');
-                if (!isReturn) return false;
-              } else if (logCategoryFilter === 'account') {
-                const isAccount =
-                  log.action?.toLowerCase().includes('user') ||
-                  log.action?.toLowerCase().includes('account') ||
-                  log.action?.toLowerCase().includes('role') ||
-                  log.action?.toLowerCase().includes('sign') ||
-                  log.details?.toLowerCase().includes('account') ||
-                  log.details?.toLowerCase().includes('registration') ||
-                  log.details?.toLowerCase().includes('signed');
-                if (!isAccount) return false;
-              } else if (logCategoryFilter === 'inventory') {
-                const isItem =
-                  log.action?.toLowerCase().includes('item') ||
-                  log.details?.toLowerCase().includes('component') ||
-                  log.details?.toLowerCase().includes('inventory');
-                if (!isItem) return false;
-              }
-
-              if (logSearch.trim()) {
-                const q = logSearch.toLowerCase().trim();
-                const matches =
-                  (log.user_name && log.user_name.toLowerCase().includes(q)) ||
-                  (log.details && log.details.toLowerCase().includes(q)) ||
-                  (log.action && log.action.toLowerCase().includes(q));
-                if (!matches) return false;
-              }
-
-              return true;
-            });
-
             if (filteredLogs.length === 0) {
               return (
                 <div className="py-16 text-center rounded-2xl bg-slate-50 dark:bg-[#14141c]/60 border border-slate-200 dark:border-zinc-800 space-y-2">
@@ -624,14 +644,16 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
               );
             }
 
+            const displayedLogs = filteredLogs.slice(0, logDisplayCount);
+
             return (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <div className="text-[11px] text-slate-500 dark:text-zinc-500 font-mono pb-1 flex items-center justify-between">
-                  <span>Showing {filteredLogs.length} events logged in chronological timeline</span>
+                  <span>Showing {displayedLogs.length} of {filteredLogs.length} events logged in chronological timeline</span>
                 </div>
 
                 <div className="rounded-2xl bg-white dark:bg-[#0f0f15] border-2 border-slate-200 dark:border-zinc-800/90 divide-y divide-slate-100 dark:divide-zinc-800/80 overflow-hidden shadow-sm">
-                  {filteredLogs.map((log) => {
+                  {displayedLogs.map((log) => {
                     const actionUpper = (log.action || '').toUpperCase();
                     const detailsLower = (log.details || '').toLowerCase();
 
@@ -688,7 +710,7 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
                     else if (diffDays === 1) relativeTime = 'Yesterday';
                     else if (diffDays > 1) relativeTime = `${diffDays}d ago`;
 
-                    const { cleanSummary, meta } = parseActivityDetails(log.details);
+                    const { cleanSummary } = parseActivityDetails(log.details);
 
                     return (
                       <div
@@ -730,76 +752,31 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
                             </span>
                           </div>
 
-                          <MorphingDialog
-                            id={`activity-morph-${log.id}`}
-                            title={`Activity Log: ${label}`}
-                            subtitle={`Logged on ${logDate.toLocaleString('en-GB')}`}
-                            trigger={(open) => (
-                              <button
-                                type="button"
-                                onClick={open}
-                                className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300 transition-colors cursor-pointer"
-                                title="Inspect Details"
-                              >
-                                Inspect
-                              </button>
-                            )}
+                          <button
+                            type="button"
+                            onClick={() => setInspectingLog(log)}
+                            className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300 transition-colors cursor-pointer"
+                            title="Inspect Details"
                           >
-                            <div className="space-y-4 text-xs">
-                              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#151520] border border-slate-200 dark:border-zinc-800 space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-slate-500 dark:text-zinc-400">Actor / Member</span>
-                                  <span className="font-bold text-slate-900 dark:text-white">{log.user_name || 'System Member'}</span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                  <span className="text-slate-500 dark:text-zinc-400">Action Type</span>
-                                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase border ${badgeClass}`}>{label}</span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                  <span className="text-slate-500 dark:text-zinc-400">Timestamp</span>
-                                  <span className="font-mono text-slate-800 dark:text-zinc-300">{logDate.toLocaleString('en-GB')}</span>
-                                </div>
-                              </div>
-
-                              {meta ? (
-                                <div className="space-y-2">
-                                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
-                                    Application Record Details
-                                  </p>
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                    {meta.fullName && (
-                                      <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#151520] border border-slate-200 dark:border-zinc-800">
-                                        <span className="text-[10px] text-zinc-500 block uppercase font-mono">Full Name</span>
-                                        <span className="font-bold text-slate-900 dark:text-white">{meta.fullName}</span>
-                                      </div>
-                                    )}
-                                    {meta.email && (
-                                      <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#151520] border border-slate-200 dark:border-zinc-800">
-                                        <span className="text-[10px] text-zinc-500 block uppercase font-mono">Email Address</span>
-                                        <span className="font-bold text-slate-900 dark:text-white break-all">{meta.email}</span>
-                                      </div>
-                                    )}
-                                    {(meta.enrollmentNo || meta.enrollment_no) && (
-                                      <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#151520] border border-slate-200 dark:border-zinc-800">
-                                        <span className="text-[10px] text-zinc-500 block uppercase font-mono">Enrollment No</span>
-                                        <span className="font-bold font-mono text-slate-900 dark:text-white">{meta.enrollmentNo || meta.enrollment_no}</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#151520] border border-slate-200 dark:border-zinc-800 space-y-1">
-                                  <p className="text-[10px] text-zinc-500 uppercase font-mono">Logged Description</p>
-                                  <p className="text-slate-800 dark:text-zinc-200 font-medium leading-relaxed">{cleanSummary}</p>
-                                </div>
-                              )}
-                            </div>
-                          </MorphingDialog>
+                            Inspect
+                          </button>
                         </div>
                       </div>
                     );
                   })}
                 </div>
+
+                {filteredLogs.length > logDisplayCount && (
+                  <div className="text-center pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setLogDisplayCount((prev) => prev + 50)}
+                      className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-xs font-bold text-slate-700 dark:text-zinc-300 transition-colors cursor-pointer"
+                    >
+                      Load More Activities ({filteredLogs.length - logDisplayCount} remaining)
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })()}
@@ -865,6 +842,100 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Activity Details Inspector Modal */}
+      {inspectingLog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150"
+          onClick={() => setInspectingLog(null)}
+        >
+          <div
+            className="w-full max-w-lg bg-white dark:bg-[#14141c] border-2 border-slate-200 dark:border-zinc-800 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-zinc-800 pb-3.5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-purple-950/60 text-blue-600 dark:text-purple-300 flex items-center justify-center font-bold text-xs">
+                  {(inspectingLog.user_name || 'U').charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-slate-900 dark:text-white">
+                    {inspectingLog.user_name || 'Member'}
+                  </h3>
+                  <p className="text-[11px] text-slate-400 font-mono">
+                    {new Date(inspectingLog.created_at).toLocaleString('en-GB')}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInspectingLog(null)}
+                className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            {(() => {
+              const { cleanSummary, meta } = parseActivityDetails(inspectingLog.details);
+              return (
+                <div className="space-y-4 text-xs">
+                  <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#151520] border border-slate-200 dark:border-zinc-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 dark:text-zinc-400">Action</span>
+                      <span className="font-bold text-slate-900 dark:text-white uppercase font-mono">
+                        {inspectingLog.action || 'Activity'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 dark:text-zinc-400">Timestamp</span>
+                      <span className="font-mono text-slate-800 dark:text-zinc-300">
+                        {new Date(inspectingLog.created_at).toLocaleString('en-GB')}
+                      </span>
+                    </div>
+                  </div>
+
+                  {meta ? (
+                    <div className="space-y-2">
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                        Record Details
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {meta.fullName && (
+                          <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#151520] border border-slate-200 dark:border-zinc-800">
+                            <span className="text-[10px] text-zinc-500 block uppercase font-mono">Full Name</span>
+                            <span className="font-bold text-slate-900 dark:text-white">{meta.fullName}</span>
+                          </div>
+                        )}
+                        {meta.email && (
+                          <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#151520] border border-slate-200 dark:border-zinc-800">
+                            <span className="text-[10px] text-zinc-500 block uppercase font-mono">Email Address</span>
+                            <span className="font-bold text-slate-900 dark:text-white break-all">{meta.email}</span>
+                          </div>
+                        )}
+                        {(meta.enrollmentNo || meta.enrollment_no) && (
+                          <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#151520] border border-slate-200 dark:border-zinc-800">
+                            <span className="text-[10px] text-zinc-500 block uppercase font-mono">Enrollment No</span>
+                            <span className="font-bold font-mono text-slate-900 dark:text-white">
+                              {meta.enrollmentNo || meta.enrollment_no}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#151520] border border-slate-200 dark:border-zinc-800 space-y-1">
+                      <p className="text-[10px] text-zinc-500 uppercase font-mono">Description</p>
+                      <p className="text-slate-800 dark:text-zinc-200 font-medium leading-relaxed">{cleanSummary}</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
         </div>
       )}
     </div>

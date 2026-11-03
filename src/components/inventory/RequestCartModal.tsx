@@ -3,6 +3,7 @@ import { InventoryItem } from '../../types/inventory';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../common/Toast';
+import { notifyRequisitionSubmitted } from '../../utils/deviceNotification';
 import { DragToConfirm } from '../ui/drag-to-confirm';
 import { PaymentStatus, PaymentReceiptItem } from '../ui/payment-status';
 import {
@@ -103,6 +104,8 @@ export const RequestCartModal: React.FC<RequestCartModalProps> = ({
           items: receiptItems,
           totalUnits,
         });
+        // Push to device notification panel
+        notifyRequisitionSubmitted(totalUnits, projectName.trim());
       } else {
         showToast(
           'warning',

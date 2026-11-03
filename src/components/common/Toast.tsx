@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import { CheckCircle2, AlertTriangle, XCircle, Info, X } from 'lucide-react';
+import { sendDeviceNotification } from '../../utils/deviceNotification';
 
 type ToastType = 'success' | 'error' | 'warning' | 'info';
 
@@ -41,6 +42,12 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const id = 'toast-' + Math.random().toString(36).substring(2, 9);
       const newToast: Toast = { id, type, title, message };
       setToasts((prev) => [...prev, newToast]);
+
+      // Push outside the web to the device's native notification panel
+      sendDeviceNotification(title, {
+        body: message,
+        tag: `toast-${title.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+      }).catch(() => {});
 
       setTimeout(() => {
         removeToast(id);

@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../common/Toast';
+import { requestDeviceNotificationPermission, notifySignUp } from '../../utils/deviceNotification';
 import { User, Mail, Lock, Phone, Hash, ShieldCheck, Eye, EyeOff, LogIn, Camera, AlertCircle, Info, X } from 'lucide-react';
 import { AnimatedFileUpload } from '../ui/animated-file-upload';
 
@@ -117,6 +118,10 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSwitchToLogin }) => {
           'Request Sent to Admin Portal',
           'Your registration request has been sent to the Admin Portal for administrator approval.'
         );
+        // Push outside the web to native device notification panel
+        requestDeviceNotificationPermission().then(() => {
+          notifySignUp(fullName.trim());
+        }).catch(() => {});
       } else {
         setErrorMsg(res.error || 'Registration failed.');
       }

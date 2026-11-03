@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../common/Toast';
 import { Lock, User, Key, Eye, EyeOff, LogIn, AlertCircle, Info } from 'lucide-react';
+import { requestDeviceNotificationPermission, notifySignIn } from '../../utils/deviceNotification';
 
 interface LoginFormProps {
   onSwitchToSignup: () => void;
@@ -49,6 +50,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToSignup }) => {
       const res = await signIn({ identifier: identifier.trim(), password });
       if (res.success) {
         showToast('success', 'Authenticated Successfully', 'Welcome back to CICR Inventory!');
+        // Push outside the web to native device notification panel
+        requestDeviceNotificationPermission().then(() => {
+          notifySignIn(identifier.trim().split('@')[0]);
+        }).catch(() => {});
       } else {
         setErrorMsg(res.error || 'Authentication failed. Please verify your credentials.');
       }

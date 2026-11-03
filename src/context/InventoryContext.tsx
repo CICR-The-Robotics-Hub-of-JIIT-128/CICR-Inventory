@@ -4,6 +4,15 @@ import { InventoryItem, BorrowRequest, ActivityLog } from '../types/inventory';
 import { useAuth } from './AuthContext';
 import { notifyEmail } from '../lib/notifications';
 import { useToast } from '../components/common/Toast';
+import {
+  notifyRequisitionApproved,
+  notifyRequisitionRejected,
+  notifyReturnRequested,
+  notifyReturnCleared,
+  notifyAccountApproved,
+  notifyAccountRejected,
+  sendDeviceNotification,
+} from '../utils/deviceNotification';
 
 const playNotificationChime = (tone: 'up' | 'down') => {
   try {
@@ -95,6 +104,7 @@ interface InventoryContextType {
   requestItemReturn: (requestId: string, returnNotes?: string) => Promise<{ success: boolean; error?: string }>;
   cancelReturnRequest: (requestId: string, reason?: string) => Promise<{ success: boolean; error?: string }>;
   refreshData: () => Promise<void>;
+  broadcastAccountStatus?: (userId: string, email: string, name: string, status: 'approved' | 'rejected') => void;
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
@@ -109,6 +119,29 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const prevRequestsMapRef = useRef<Map<string, BorrowRequest>>(new Map());
   const hasInitializedRef = useRef<boolean>(false);
   const realtimeChannelRef = useRef<any>(null);
+
+  const broadcastAccountStatus = useCallback(
+    (userId: string, email: string, name: string, status: 'approved' | 'rejected') => {
+      try {
+        if (realtimeChannelRef.current) {
+          realtimeChannelRef.current.send({
+            type: 'broadcast',
+            event: 'ACCOUNT_STATUS_SYNC',
+            payload: {
+              userId,
+              email,
+              name,
+              status,
+              timestamp: Date.now(),
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('Realtime account sync broadcast note:', err);
+      }
+    },
+    []
+  );
 
   const broadcastLiveEvent = useCallback((eventType: string, reqData: any) => {
     try {
@@ -154,6 +187,10 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           '🔔 New Requisition Request',
           `${req.user_name || 'Member'} requested ${req.quantity}x ${req.item_name} for "${req.project_name || 'project'}"`
         );
+        sendDeviceNotification('🔔 New Requisition Request', {
+          body: `${req.user_name || 'Member'} requested ${req.quantity}x ${req.item_name} for "${req.project_name || 'project'}"`,
+          tag: `admin-req-${req.id}`,
+        });
       } else if (action === 'APPROVED') {
         if (isMyRequest) {
           playNotificationChime('up');
@@ -162,6 +199,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             '🎉 Requisition Approved!',
             `Your requisition for ${req.quantity}x ${req.item_name} has been approved by admin.`
           );
+          notifyRequisitionApproved(req.item_name, req.quantity);
         } else if (isCurrentAdmin) {
           showToast(
             'info',
@@ -176,6 +214,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           '❌ Requisition Rejected',
           `Your requisition for ${req.item_name} was rejected.${req.admin_notes ? ` Note: ${req.admin_notes}` : ''}`
         );
+        notifyRequisitionRejected(req.item_name, req.admin_notes);
       } else if (action === 'RETURN_REQUESTED' && isCurrentAdmin) {
         playNotificationChime('up');
         showToast(
@@ -183,6 +222,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           '🔄 Return Clearance Requested',
           `${req.user_name || 'Member'} requested return for ${req.item_name}.`
         );
+        notifyReturnRequested(req.item_name, req.user_name);
       } else if (action === 'RETURN_ACCEPTED' && isMyRequest) {
         playNotificationChime('up');
         showToast(
@@ -190,6 +230,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           '📦 Hardware Return Cleared',
           `Your return for ${req.item_name} has been verified & restocked by laboratory admin.`
         );
+        notifyReturnCleared(req.item_name);
       }
     },
     [showToast]
@@ -253,7 +294,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           .from('activity_logs')
           .select('*')
           .order('created_at', { ascending: false })
-          .limit(250),
+          .limit(2500),
       ]);
 
       const { data: dbItems, error: itemsError } = itemsRes;
@@ -347,6 +388,25 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     realtimeChannelRef.current = channel;
 
     channel
+      .on('broadcast', { event: 'ACCOUNT_STATUS_SYNC' }, (payload) => {
+        const data = payload?.payload;
+        if (!data) return;
+        const myEmail = (user?.email || '').toLowerCase().trim();
+        const myId = user?.id;
+        const targetEmail = (data?.email || '').toLowerCase().trim();
+        const targetId = data?.userId;
+        const isMe = (myEmail && targetEmail && myEmail === targetEmail) || (myId && targetId && myId === targetId);
+
+        if (isMe) {
+          if (data.status === 'approved') {
+            notifyAccountApproved(data.name || 'Member', true);
+            showToast('success', '🎉 Account Approved!', 'Your account has been authorized. You can now access all portal features.');
+          } else if (data.status === 'rejected') {
+            notifyAccountRejected(data.name || 'Member', true);
+            showToast('error', 'Account Registration Update', 'Your registration request was reviewed and declined by administrator.');
+          }
+        }
+      })
       .on('broadcast', { event: 'REQ_SYNC' }, (payload) => {
         const data = payload?.payload;
         if (!data) return;
@@ -933,6 +993,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         requestItemReturn,
         cancelReturnRequest,
         refreshData,
+        broadcastAccountStatus,
       }}
     >
       {children}

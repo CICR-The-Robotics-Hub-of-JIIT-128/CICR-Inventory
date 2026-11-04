@@ -1,8 +1,15 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
-import { supabase, supabaseAdmin } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { UserProfile, UserRole } from '../types/inventory';
 import { notifyEmail } from '../lib/notifications';
+
+export const MASTER_ADMIN_EMAILS = [
+  'vardaansaxena096@gmail.com',
+  'cicrinventory@gmail.com',
+  'cicrinventoryofficial@gmail.com',
+  '992501030399@mail.jiit.ac.in',
+];
 
 export interface SignUpData {
   email: string;
@@ -47,13 +54,15 @@ const getInitialAuth = (): { user: User | null; profile: UserProfile | null } =>
     if (cachedUser && cachedProfile) {
       const u = JSON.parse(cachedUser);
       const p = JSON.parse(cachedProfile);
-      const isMasterAdmin = Boolean(
-        u?.email &&
-        ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com'].includes(u.email.toLowerCase())
-      );
-      const isAdmin = isMasterAdmin || p.role === 'admin' || u.user_metadata?.role === 'admin';
-      const isPending = p.status === 'pending' || p.avatar_url === 'status:pending' || u.user_metadata?.status === 'pending';
-      const isRejected = p.status === 'rejected' || p.avatar_url === 'status:rejected' || u.user_metadata?.status === 'rejected';
+      const email = (u?.email || '').toLowerCase();
+      const isMasterAdmin = MASTER_ADMIN_EMAILS.includes(email);
+      // Hard security check: ONLY master admin emails can ever have admin role pre-loaded from localStorage
+      if (!isMasterAdmin && p.role === 'admin') {
+        p.role = 'member';
+      }
+      const isAdmin = isMasterAdmin || p.role === 'admin';
+      const isPending = p.status === 'pending' || p.avatar_url === 'status:pending';
+      const isRejected = p.status === 'rejected' || p.avatar_url === 'status:rejected';
       if (!isAdmin && (isPending || isRejected)) {
         localStorage.removeItem('cicr-active-user');
         localStorage.removeItem('cicr-active-profile');
@@ -88,8 +97,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const rawStatus =
           data.status ||
           (data.avatar_url?.startsWith('status:') ? data.avatar_url.replace('status:', '') : '') ||
-          currentUser.user_metadata?.status ||
           'approved';
+        const isMasterAdmin = MASTER_ADMIN_EMAILS.includes((currentUser.email || '').toLowerCase());
+        const resolvedRole: UserRole = isMasterAdmin
+          ? 'admin'
+          : (data.role === 'admin' ? 'admin' : (data.role as UserRole) || 'member');
         const resolvedProfile: UserProfile = {
           id: data.id,
           email: data.email || currentUser.email || '',
@@ -97,7 +109,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           username: data.username || currentUser.user_metadata?.username || '',
           enrollment_no: data.roll_number || currentUser.user_metadata?.enrollment_no || '',
           roll_number: data.roll_number || currentUser.user_metadata?.enrollment_no || '',
-          role: (data.role as UserRole) || (currentUser.user_metadata?.role as UserRole) || 'member',
+          role: resolvedRole,
           status: rawStatus as 'pending' | 'approved' | 'rejected',
           phone: data.phone || currentUser.user_metadata?.phone || '',
           avatar_url: data.avatar_url && !data.avatar_url.startsWith('status:') ? data.avatar_url : (currentUser.user_metadata?.avatar_url || ''),
@@ -116,6 +128,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const meta = currentUser.user_metadata || {};
+    const isMasterAdmin = MASTER_ADMIN_EMAILS.includes((currentUser.email || '').toLowerCase());
     const fallbackProfile: UserProfile = {
       id: currentUser.id,
       email: currentUser.email || '',
@@ -123,8 +136,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       username: meta.username || '',
       enrollment_no: meta.enrollment_no || meta.roll_number || '',
       roll_number: meta.enrollment_no || meta.roll_number || '',
-      role: (meta.role as UserRole) || 'member',
-      status: (meta.status as 'pending' | 'approved' | 'rejected') || 'pending',
+      role: isMasterAdmin ? 'admin' : 'member',
+      status: isMasterAdmin ? 'approved' : 'pending',
       phone: meta.phone || '',
       avatar_url: meta.avatar_url || '',
       created_at: currentUser.created_at,
@@ -136,13 +149,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const checkUserApproval = async (
     currentUser: User
   ): Promise<{ approved: boolean; reason?: 'pending' | 'rejected' }> => {
-    const isMasterAdmin = Boolean(
-      currentUser.email &&
-        ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com'].includes(
-          currentUser.email.toLowerCase()
-        )
-    );
-    if (isMasterAdmin || currentUser.user_metadata?.role === 'admin') {
+    const isMasterAdmin = MASTER_ADMIN_EMAILS.includes((currentUser.email || '').toLowerCase());
+    if (isMasterAdmin) {
       return { approved: true };
     }
 
@@ -170,7 +178,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.warn('Profile approval check notice:', err);
     }
 
-    // 2. Check user metadata
+    // 2. Check user metadata status
     const metaStatus = currentUser.user_metadata?.status;
     if (metaStatus === 'pending') return { approved: false, reason: 'pending' };
     if (metaStatus === 'rejected') return { approved: false, reason: 'rejected' };
@@ -178,7 +186,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // 3. Check activity_logs for unapproved requests
     try {
-      const { data: logs } = await supabaseAdmin
+      const { data: logs } = await supabase
         .from('activity_logs')
         .select('id, details')
         .eq('action', 'ACCOUNT_REQUEST')
@@ -308,27 +316,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           password,
         });
         res = authRes;
-
-        // Handle unconfirmed email automatically using service role admin
-        if (res.error && res.error.message?.toLowerCase().includes('not confirmed')) {
-          try {
-            const { data: usersData } = await supabaseAdmin.auth.admin.listUsers();
-            const target = usersData?.users?.find(
-              (u) => u.email?.toLowerCase() === emailToAuth.toLowerCase()
-            );
-            if (target) {
-              await supabaseAdmin.auth.admin.updateUserById(target.id, {
-                email_confirm: true,
-              });
-              res = await supabase.auth.signInWithPassword({
-                email: emailToAuth,
-                password,
-              });
-            }
-          } catch (adminErr) {
-            console.warn('Auto-confirm attempt error:', adminErr);
-          }
-        }
       } catch (networkErr) {
         console.warn('Supabase sign-in network error:', networkErr);
         res = { data: null, error: networkErr };
@@ -363,7 +350,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               await notifyEmail('login', fallbackUser.email, {
                 name: fallbackUser.user_metadata?.full_name,
                 email: fallbackUser.email,
-                role: fallbackUser.user_metadata?.role,
+                role: 'member',
               });
               return { success: true };
             }
@@ -412,7 +399,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             .eq('id', res.data.user.id)
             .maybeSingle();
 
-          await supabaseAdmin.from('activity_logs').insert([
+          await supabase.from('activity_logs').insert([
             {
               user_id: res.data.user.id,
               user_name: profData?.full_name || res.data.user.user_metadata?.full_name || emailToAuth.split('@')[0],
@@ -424,7 +411,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           await notifyEmail('login', res.data.user.email, {
             name: profData?.full_name || res.data.user.user_metadata?.full_name,
             email: res.data.user.email,
-            role: profData?.role || res.data.user.user_metadata?.role,
+            role: profData?.role || 'member',
           });
         } catch (logErr) {
           console.warn('Sign-in log error:', logErr);
@@ -453,14 +440,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         emailToRegister = `${emailToRegister.toLowerCase()}@mail.jiit.ac.in`;
       }
 
-      const isMasterAdminEmail = ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com'].includes(
-        emailToRegister.toLowerCase()
-      );
+      const isMasterAdminEmail = MASTER_ADMIN_EMAILS.includes(emailToRegister.toLowerCase());
       const enforcedRole = isMasterAdminEmail ? 'admin' : 'member';
       const initialStatus = isMasterAdminEmail ? 'approved' : 'pending';
-      // 0. Check if this email or roll number has already submitted a registration request
+
+      // 0. Pre-registration check via supabase client
       try {
-        const { data: existingProfiles } = await supabaseAdmin
+        const { data: existingProfiles } = await supabase
           .from('profiles')
           .select('id, email, status, roll_number')
           .ilike('email', emailToRegister)
@@ -479,33 +465,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             error: 'An account with this college email already exists. Please sign in.',
           };
         }
-
-        // Also check activity_logs to ensure no pending ACCOUNT_REQUEST exists
-        const { data: existingLogs } = await supabaseAdmin
-          .from('activity_logs')
-          .select('id, details')
-          .eq('action', 'ACCOUNT_REQUEST')
-          .limit(50);
-
-        for (const log of existingLogs || []) {
-          let d: any = {};
-          try {
-            d = typeof log.details === 'string' ? JSON.parse(log.details) : log.details || {};
-          } catch {}
-          if ((d?.email || '').toLowerCase().trim() === emailToRegister.toLowerCase().trim()) {
-            if (d?.status !== 'approved' && d?.status !== 'rejected') {
-              return {
-                success: false,
-                error: 'Your registration request has already been submitted and is awaiting administrator approval.',
-              };
-            }
-          }
-        }
       } catch (checkErr) {
         console.warn('Pre-registration check notice:', checkErr);
       }
 
-      let registeredViaApi = false;
+      // Call serverless API
       try {
         const accountResponse = await fetch('/api/accounts', {
           method: 'POST',
@@ -517,34 +481,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             full_name,
             enrollment_no,
             phone,
-            role,
+            role: enforcedRole,
             avatar_url,
           }),
         });
+
         if (accountResponse.ok) {
-          registeredViaApi = true;
+          return {
+            success: true,
+            message: 'Registration request submitted successfully! Check your email and wait for administrator approval.',
+          };
+        } else {
+          const errData = await accountResponse.json().catch(() => ({}));
+          return {
+            success: false,
+            error: errData.error || 'Registration failed. Please try again.',
+          };
         }
       } catch (apiErr) {
-        console.warn('API register notice:', apiErr);
+        console.warn('API register notice, attempting fallback:', apiErr);
       }
 
-      if (registeredViaApi) {
-        return {
-          success: true,
-          message: 'Registration request submitted successfully! Check your email and wait for administrator approval.',
-        };
-      }
-
-      // Seamless direct fallback
-      let createdUserId: string | null = null;
-
-      // 1. Attempt to create user in Supabase Auth via supabaseAdmin
-      try {
-        const { data: adminUser, error: adminError } = await supabaseAdmin.auth.admin.createUser({
-          email: emailToRegister,
-          password,
-          email_confirm: true,
-          user_metadata: {
+      // Direct fallback using standard supabase.auth.signUp (no admin key required)
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: emailToRegister,
+        password,
+        options: {
+          data: {
             full_name,
             enrollment_no,
             phone,
@@ -552,66 +515,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             status: initialStatus,
             avatar_url: avatar_url || undefined,
           },
-        });
-        if (!adminError && adminUser?.user) {
-          createdUserId = adminUser.user.id;
-        } else if (adminError) {
-          console.warn('Notice from auth.admin.createUser:', adminError.message);
-        }
-      } catch (err) {
-        console.warn('auth.admin.createUser warning:', err);
+        },
+      });
+
+      if (authError) {
+        return { success: false, error: authError.message };
       }
 
-      // 2. If auth user was created, upsert to profiles table
-      if (createdUserId) {
-        try {
-          await supabaseAdmin.from('profiles').upsert([
-            {
-              id: createdUserId,
-              full_name,
+      if (authData.user) {
+        await supabase.from('profiles').upsert([
+          {
+            id: authData.user.id,
+            full_name,
+            email: emailToRegister,
+            role: enforcedRole,
+            status: initialStatus,
+            roll_number: enrollment_no,
+            phone,
+            avatar_url: avatar_url || `status:${initialStatus}`,
+          },
+        ]);
+        await supabase.from('activity_logs').insert([
+          {
+            user_id: authData.user.id,
+            user_name: full_name,
+            action: 'ACCOUNT_REQUEST',
+            details: JSON.stringify({
+              userId: authData.user.id,
               email: emailToRegister,
+              fullName: full_name,
+              enrollmentNo: enrollment_no,
+              phone,
               role: enforcedRole,
               status: initialStatus,
-              roll_number: enrollment_no,
-              phone,
-              avatar_url: avatar_url || `status:${initialStatus}`,
-            },
-          ]);
-        } catch (profileErr) {
-          console.warn('Profile insert warning:', profileErr);
-        }
+              avatar_url: avatar_url || undefined,
+              created_at: new Date().toISOString(),
+            }),
+          },
+        ]);
       }
-
-      // 3. ALWAYS insert ACCOUNT_REQUEST into activity_logs so the Admin Portal displays it
-      await supabaseAdmin.from('activity_logs').insert([
-        {
-          user_id: createdUserId,
-          user_name: full_name,
-          action: 'ACCOUNT_REQUEST',
-          details: JSON.stringify({
-            userId: createdUserId,
-            email: emailToRegister,
-            fullName: full_name,
-            enrollmentNo: enrollment_no,
-            phone,
-            role,
-            status: initialStatus,
-            avatar_url: avatar_url || undefined,
-            created_at: new Date().toISOString(),
-          }),
-        },
-      ]);
-      await notifyEmail('account_created', emailToRegister, {
-        name: full_name,
-        email: emailToRegister,
-        role,
-        status: initialStatus,
-      });
 
       return {
         success: true,
-        message:
-          'Registration request submitted successfully! Your account is pending admin approval in Admin Logs before you can log in.',
+        message: 'Registration request submitted successfully! Check your email and wait for administrator approval.',
       };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Registration failed';
@@ -622,59 +568,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const approveUserAccount = async (targetId: string, email?: string) => {
     try {
       const isCallerAdmin =
-        profile?.role === 'admin' ||
-        user?.user_metadata?.role === 'admin' ||
-        Boolean(
-          user?.email &&
-            ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com'].includes(
-              user.email.toLowerCase()
-            )
-        );
+        MASTER_ADMIN_EMAILS.includes((user?.email || '').toLowerCase()) ||
+        profile?.role === 'admin';
       if (!isCallerAdmin) {
         return { success: false, error: 'Unauthorized: Administrative privileges required.' };
       }
 
-      // 1. Call server API
-      try {
-        const response = await fetch('/api/accounts', {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-          },
-          body: JSON.stringify({ action: 'approve', target_id: targetId, email }),
-        });
-        if (response.ok) {
-          // If server API succeeded, all database records & logs are already updated!
-          return { success: true };
-        }
-      } catch (apiErr) {
-        console.warn('API approve notice:', apiErr);
+      const response = await fetch('/api/accounts', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ action: 'approve', target_id: targetId, email }),
+      });
+      if (response.ok) {
+        return { success: true };
       }
-
-      // 2. Direct Supabase Fallback (executed in parallel)
-      try {
-        await Promise.all([
-          supabaseAdmin
-            .from('profiles')
-            .update({ status: 'approved', avatar_url: 'status:approved', updated_at: new Date().toISOString() })
-            .eq('id', targetId),
-          email
-            ? supabaseAdmin
-                .from('profiles')
-                .update({ status: 'approved', avatar_url: 'status:approved', updated_at: new Date().toISOString() })
-                .ilike('email', email)
-            : Promise.resolve(),
-          supabaseAdmin.auth.admin.updateUserById(targetId, {
-            email_confirm: true,
-            user_metadata: { status: 'approved' },
-          }).catch(() => {}),
-        ]);
-      } catch (fbErr) {
-        console.warn('Fallback approve sync notice:', fbErr);
-      }
-
-      return { success: true };
+      const errData = await response.json().catch(() => ({}));
+      return { success: false, error: errData.error || 'Approval failed.' };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Approval failed';
       return { success: false, error: msg };
@@ -684,57 +596,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const rejectUserAccount = async (targetId: string, email?: string) => {
     try {
       const isCallerAdmin =
-        profile?.role === 'admin' ||
-        user?.user_metadata?.role === 'admin' ||
-        Boolean(
-          user?.email &&
-            ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com'].includes(
-              user.email.toLowerCase()
-            )
-        );
+        MASTER_ADMIN_EMAILS.includes((user?.email || '').toLowerCase()) ||
+        profile?.role === 'admin';
       if (!isCallerAdmin) {
         return { success: false, error: 'Unauthorized: Administrative privileges required.' };
       }
 
-      // 1. Call server API
-      try {
-        const response = await fetch('/api/accounts', {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-          },
-          body: JSON.stringify({ action: 'reject', target_id: targetId, email }),
-        });
-        if (response.ok) {
-          return { success: true };
-        }
-      } catch (apiErr) {
-        console.warn('API reject notice:', apiErr);
+      const response = await fetch('/api/accounts', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ action: 'reject', target_id: targetId, email }),
+      });
+      if (response.ok) {
+        return { success: true };
       }
-
-      // 2. Direct Supabase Fallback (executed in parallel)
-      try {
-        await Promise.all([
-          supabaseAdmin
-            .from('profiles')
-            .update({ status: 'rejected', avatar_url: 'status:rejected', updated_at: new Date().toISOString() })
-            .eq('id', targetId),
-          email
-            ? supabaseAdmin
-                .from('profiles')
-                .update({ status: 'rejected', avatar_url: 'status:rejected', updated_at: new Date().toISOString() })
-                .ilike('email', email)
-            : Promise.resolve(),
-          supabaseAdmin.auth.admin.updateUserById(targetId, {
-            user_metadata: { status: 'rejected' },
-          }).catch(() => {}),
-        ]);
-      } catch (fbErr) {
-        console.warn('Fallback reject sync notice:', fbErr);
-      }
-
-      return { success: true };
+      const errData = await response.json().catch(() => ({}));
+      return { success: false, error: errData.error || 'Rejection failed.' };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Rejection failed';
       return { success: false, error: msg };
@@ -744,57 +624,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateUserRole = async (targetId: string, newRole: 'admin' | 'member') => {
     try {
       const isCallerAdmin =
-        profile?.role === 'admin' ||
-        user?.user_metadata?.role === 'admin' ||
-        Boolean(
-          user?.email &&
-            ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com'].includes(
-              user.email.toLowerCase()
-            )
-        );
+        MASTER_ADMIN_EMAILS.includes((user?.email || '').toLowerCase()) ||
+        profile?.role === 'admin';
       if (!isCallerAdmin) {
         return { success: false, error: 'Unauthorized: Administrative privileges required.' };
       }
 
-      let apiSuccess = false;
-      try {
-        const response = await fetch('/api/accounts', {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-          },
-          body: JSON.stringify({ action: 'role', target_id: targetId, role: newRole }),
-        });
-        if (response.ok) {
-          apiSuccess = true;
-        } else {
-          const errData = await response.json().catch(() => ({}));
-          if (errData?.error) {
-            console.warn('API role update message:', errData.error);
-          }
-        }
-      } catch (apiErr) {
-        console.warn('API role update notice:', apiErr);
+      const response = await fetch('/api/accounts', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ action: 'role', target_id: targetId, role: newRole }),
+      });
+      if (response.ok) {
+        return { success: true };
       }
-
-      if (!apiSuccess) {
-        const { error: profileError } = await supabaseAdmin
-          .from('profiles')
-          .update({ role: newRole, updated_at: new Date().toISOString() })
-          .eq('id', targetId);
-        if (profileError) throw profileError;
-
-        try {
-          await supabaseAdmin.auth.admin.updateUserById(targetId, {
-            user_metadata: { role: newRole },
-          });
-        } catch {
-          // Ignore admin auth update error on fallback
-        }
-      }
-
-      return { success: true };
+      const errData = await response.json().catch(() => ({}));
+      return { success: false, error: errData.error || 'Role update failed.' };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Role update failed';
       return { success: false, error: msg };
@@ -842,7 +690,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       if (user) {
         try {
-          await supabaseAdmin.from('activity_logs').insert([
+          await supabase.from('activity_logs').insert([
             {
               user_id: user.id,
               user_name:
@@ -896,7 +744,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const isAdmin = profile?.role === 'admin' || user?.user_metadata?.role === 'admin';
+  // Anti-tampering listener: instantly revert any console modifications to localStorage role
+  useEffect(() => {
+    const handleStorage = () => {
+      try {
+        const stored = localStorage.getItem('cicr-active-profile');
+        if (stored && user) {
+          const p = JSON.parse(stored);
+          const email = (user.email || '').toLowerCase();
+          const isMaster = MASTER_ADMIN_EMAILS.includes(email);
+          if (p.role === 'admin' && !isMaster && profile?.role !== 'admin') {
+            console.warn('[Security] Unauthorized role escalation detected in localStorage. Reverting.');
+            p.role = 'member';
+            localStorage.setItem('cicr-active-profile', JSON.stringify(p));
+            setProfile(p);
+          }
+        }
+      } catch {}
+    };
+
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, [user, profile]);
+
+  const isMasterAdmin = MASTER_ADMIN_EMAILS.includes((user?.email || '').toLowerCase());
+  const isAdmin = Boolean(isMasterAdmin || profile?.role === 'admin');
   const isLeadOrAdmin = isAdmin || profile?.role === 'lead';
 
   return (

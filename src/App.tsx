@@ -75,20 +75,16 @@ const AppContent: React.FC = () => {
 
   const isApproved =
     user &&
-    (profile?.role === 'admin' ||
-      user.user_metadata?.role === 'admin' ||
-      Boolean(
-        user.email &&
-          ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com'].includes(
-            user.email.toLowerCase()
-          )
-      ) ||
-      (profile?.status !== 'pending' &&
-        profile?.status !== 'rejected' &&
+    (Boolean(
+      user.email &&
+        ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com', '992501030399@mail.jiit.ac.in'].includes(
+          user.email.toLowerCase()
+        )
+    ) ||
+      profile?.role === 'admin' ||
+      (profile?.status === 'approved' &&
         profile?.avatar_url !== 'status:pending' &&
-        profile?.avatar_url !== 'status:rejected' &&
-        user.user_metadata?.status !== 'pending' &&
-        user.user_metadata?.status !== 'rejected'));
+        profile?.avatar_url !== 'status:rejected'));
 
   // If user is authenticated and authorized, show dashboard
   if (user && isApproved) {

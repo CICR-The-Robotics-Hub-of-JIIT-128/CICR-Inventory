@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.30] : 2026-11-04
+
+### Security Hardening & Zero-Trust Privilege Protection
+* **Complete Console Privilege Escalation Elimination (supabase.ts, AuthContext.tsx, InventoryContext.tsx, UserDashboard.tsx)**:
+  - Removed all hardcoded Supabase service role keys and supabaseAdmin export from the client-side JavaScript bundle.
+  - Eliminated all client-side reliance on user_metadata.role; roles are strictly resolved from verified database rows (profiles.role) and master admin email whitelist.
+  - Added real-time storage event listener to instantly detect and revert any browser DevTools console tampering of localStorage cached roles.
+  - Guarded hash navigation (#management, #logs) and view rendering with strict isAdmin verification.
+
+### Endpoint Cloaking & Infrastructure Hardening
+* **Rogue Database Proxy Removal & Endpoint Lockdown (pi/db.ts, pi/accounts.ts, pi/email.ts, pi/reminders.ts, pi/index.ts)**:
+  - Completely removed unauthenticated /api/db REST database proxy.
+  - Cloaked all serverless endpoints with silent 404 Not Found responses for unauthenticated and non-POST probing requests.
+  - Added /api/index.ts catch-all 404 handler to prevent directory listing or endpoint discovery.
+  - Secured /api/email with mandatory Supabase JWT token verification, preventing email spoofing.
+  - Hardened /api/reminders with mandatory CRON_SECRET validation.
+  - Injected strict security headers (Cache-Control: no-store, X-Content-Type-Options: nosniff, X-Frame-Options: DENY) across all API routes via ercel.json.
+  - Configured sourcemap: false in ite.config.ts to prevent disclosing internal source files or routes in production.
+
+---
+
 ## [2.18.29] : 2026-11-03
 
 ### Security & Inactivity Session Management

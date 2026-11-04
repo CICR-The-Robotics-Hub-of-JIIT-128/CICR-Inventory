@@ -2,12 +2,16 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { Client } from 'pg';
 
 function jsonResponse(res: VercelResponse, status: number, body: unknown) {
-  res.status(status).setHeader('content-type', 'application/json');
-  res.json(body);
+  res.setHeader('content-type', 'application/json');
+  res.status(status).json(body);
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') return jsonResponse(res, 405, { error: 'Method not allowed.' });
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+
+  if (req.method !== 'POST') return jsonResponse(res, 404, { error: 'Not found' });
   if (!process.env.NEON_DATABASE_URL) {
     return jsonResponse(res, 503, { error: 'Neon authentication is not configured.' });
   }

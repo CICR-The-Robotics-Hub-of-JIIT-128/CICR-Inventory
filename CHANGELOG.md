@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.31] : 2026-11-04
+
+### Deployment & Routing Infrastructure
+* **Vercel Route Pattern Syntax Correction (`vercel.json`)**:
+  - Replaced illegal path-to-regexp alternation and end-of-string regex syntax `/((?!api($|/)).*)` with standard, valid Vercel SPA route rewrite `/((?!api/).*)`.
+  - Fixed Vercel deployment build failure (`invalid-route-source-pattern`) on GitHub commit checks.
+  - Preserved enterprise HTTP security headers (`nosniff`, `DENY`, `no-store`) and verified full TypeScript and production Vite build pass.
+
+---
+
 ## [2.18.30] : 2026-11-04
 
 ### Security Hardening & Zero-Trust Privilege Protection

@@ -28,23 +28,35 @@ function getAdminClient() {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
+const MASTER_ADMIN_EMAILS = [
+  'vardaansaxena096@gmail.com',
+  'cicrinventory@gmail.com',
+  'cicrinventoryofficial@gmail.com',
+  '992501030399@mail.jiit.ac.in',
+];
+
 async function requireAdmin(req: VercelRequest, supabase: ReturnType<typeof getAdminClient>) {
   const authorization = req.headers.authorization;
   if (!authorization?.startsWith('Bearer ')) throw new Error('Authentication is required.');
   const { data, error } = await supabase.auth.getUser(authorization.slice(7));
   if (error || !data.user) throw new Error('Authentication is required.');
   const email = (data.user.email || '').toLowerCase();
-  const isSuperadmin = ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com'].includes(email);
+  
+  // 1. Authoritative Superadmins
+  const isSuperadmin = MASTER_ADMIN_EMAILS.includes(email);
   if (isSuperadmin) return data.user;
-  const role = data.user.user_metadata?.role;
-  if (role !== 'admin') {
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', data.user.id)
-      .maybeSingle();
-    if (profileError || profile?.role !== 'admin') throw new Error('Administrator access is required.');
+
+  // 2. Query strictly from the secure server-side profiles table - NEVER trust client-writable user_metadata!
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('role, status')
+    .eq('id', data.user.id)
+    .maybeSingle();
+
+  if (profileError || !profile || profile.role !== 'admin' || profile.status !== 'approved') {
+    throw new Error('Unauthorized: Administrator access is required.');
   }
+
   return data.user;
 }
 
@@ -69,7 +81,11 @@ async function sendAccountEmail(
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') return response(res, 405, { error: 'Method not allowed.' });
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+
+  if (req.method !== 'POST') return response(res, 404, { error: 'Not found' });
 
   try {
     const supabase = getAdminClient();
@@ -107,9 +123,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       if (
         targetEmail &&
-        ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com'].includes(targetEmail.toLowerCase())
+        MASTER_ADMIN_EMAILS.includes(targetEmail.toLowerCase())
       ) {
         return response(res, 400, { error: 'Master administrator accounts cannot be demoted or modified.' });
+      }
+
+      if (
+        role === 'admin' &&
+        !MASTER_ADMIN_EMAILS.includes((adminUser.email || '').toLowerCase())
+      ) {
+        return response(res, 403, { error: 'Unauthorized: Only Master Superadmins can grant Administrator privileges.' });
       }
 
       // 1. Update Supabase profiles table
@@ -213,6 +236,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await sendAccountEmail('account_created', email, { name: fullName, email, role, status: 'pending' });
       return response(res, 201, { success: true });
     }
+
+    if (action === 'verify_role') {
+      const authorization = req.headers.authorization;
+      if (!authorization?.startsWith('Bearer ')) return response(res, 401, { error: 'Authentication required.' });
+      const { data, error } = await supabase.auth.getUser(authorization.slice(7));
+      if (error || !data.user) return response(res, 401, { error: 'Invalid session.' });
+      const email = (data.user.email || '').toLowerCase();
+      const isSuperadmin = MASTER_ADMIN_EMAILS.includes(email);
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role, status')
+        .eq('id', data.user.id)
+        .maybeSingle();
+
+      const realRole = isSuperadmin ? 'admin' : (profile?.role || 'member');
+      const realStatus = isSuperadmin ? 'approved' : (profile?.status || 'pending');
+
+      return response(res, 200, {
+        success: true,
+        userId: data.user.id,
+        role: realRole,
+        status: realStatus,
+        isAdmin: isSuperadmin || realRole === 'admin',
+      });
+    }
+
+    // Both 'approve' and 'reject' strictly require verified administrator privileges!
+    await requireAdmin(req, supabase);
 
     const targetId = typeof body?.target_id === 'string' ? body.target_id : '';
     const bodyEmail = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';

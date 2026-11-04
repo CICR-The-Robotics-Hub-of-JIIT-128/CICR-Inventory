@@ -8,7 +8,7 @@ import { DashboardOverview } from './DashboardOverview';
 import { ComponentVaultView } from './ComponentVaultView';
 import { AdminHubView } from './AdminHubView';
 import { InventoryItem, BorrowRequest, isReturnRequested } from '../../types/inventory';
-import { supabase, supabaseAdmin } from '../../lib/supabase';
+import { supabase } from '../../lib/supabase';
 import { useToast } from '../common/Toast';
 import { Notification } from '../ui/notification-bell';
 import { notifyAccountApproved, notifyAccountRejected, requestDeviceNotificationPermission } from '../../utils/deviceNotification';
@@ -72,6 +72,7 @@ export const UserDashboard: React.FC = () => {
   const {
     user,
     profile,
+    isAdmin,
     isLeadOrAdmin,
     refreshProfile,
     updateProfile,
@@ -79,13 +80,14 @@ export const UserDashboard: React.FC = () => {
     rejectUserAccount,
     updateUserRole,
   } = useAuth();
-  const isAdmin = profile?.role === 'admin' || user?.user_metadata?.role === 'admin';
   const { items, requests, logs, loading, deleteItem, updateBorrowStatus, refreshData, broadcastAccountStatus } = useInventory();
   const { showToast } = useToast();
 
   const [activeView, setActiveView] = useState<ActiveView>(() => {
     if (typeof window !== 'undefined') {
-      return HASH_TO_VIEW[window.location.hash] || 'dashboard';
+      const v = HASH_TO_VIEW[window.location.hash] || 'dashboard';
+      if (v === 'logs' && !isAdmin) return 'dashboard';
+      return v;
     }
     return 'dashboard';
   });
@@ -185,7 +187,10 @@ export const UserDashboard: React.FC = () => {
     if (typeof window === 'undefined') return;
 
     const currentHash = window.location.hash;
-    const initialView = HASH_TO_VIEW[currentHash] || 'dashboard';
+    let initialView = HASH_TO_VIEW[currentHash] || 'dashboard';
+    if (initialView === 'logs' && !isAdmin) {
+      initialView = 'dashboard';
+    }
     setActiveView(initialView);
     viewHistoryRef.current = initialView === 'dashboard' ? ['dashboard'] : ['dashboard', initialView];
 
@@ -268,6 +273,7 @@ export const UserDashboard: React.FC = () => {
 
   const handleNavigateView = useCallback((newView: ActiveView) => {
     if (newView === activeViewRef.current) return;
+    if (newView === 'logs' && !isAdmin) return;
     viewHistoryRef.current.push(newView);
     const cleanPath = typeof window !== 'undefined' ? (window.location.pathname || '/') : '/';
     // Push new view with clean address bar (no #hash)
@@ -277,7 +283,7 @@ export const UserDashboard: React.FC = () => {
       cleanPath
     );
     setActiveView(newView);
-  }, []);
+  }, [isAdmin]);
 
   // Modal open & close helpers that integrate with the browser history stack
   const openModalWithHistory = useCallback((modalName: string) => {
@@ -425,8 +431,8 @@ export const UserDashboard: React.FC = () => {
       });
 
       const [profRes, reqLogsRes] = await Promise.all([
-        supabaseAdmin.from('profiles').select('*').order('full_name', { ascending: true }),
-        supabaseAdmin.from('activity_logs').select('*').eq('action', 'ACCOUNT_REQUEST').order('created_at', { ascending: false }).limit(100),
+        supabase.from('profiles').select('*').order('full_name', { ascending: true }),
+        supabase.from('activity_logs').select('*').eq('action', 'ACCOUNT_REQUEST').order('created_at', { ascending: false }).limit(100),
       ]);
 
       const profData = profRes.data || [];
@@ -929,7 +935,7 @@ export const UserDashboard: React.FC = () => {
         )}
 
         {/* VIEW 4: MANAGEMENT HUB & AUDIT LOGS */}
-        {activeView === 'logs' && (
+        {activeView === 'logs' && isAdmin && (
           <AdminHubView
             isAdmin={isAdmin}
             logs={logs}

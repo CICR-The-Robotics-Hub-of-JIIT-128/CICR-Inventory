@@ -34,7 +34,7 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
 }) => {
   const { user, isAdmin: authIsAdmin, profile } = useAuth();
   const isUserAdmin = Boolean(
-    (isAdmin ?? true) && (profile?.role === 'admin' || user?.user_metadata?.role === 'admin' || authIsAdmin)
+    (isAdmin ?? true) && (profile?.role === 'admin' || authIsAdmin)
   );
   const { requests, requestItemReturn } = useInventory();
   const { showToast } = useToast();

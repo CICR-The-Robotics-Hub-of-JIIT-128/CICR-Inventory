@@ -3,23 +3,25 @@ import { createClient } from '@supabase/supabase-js';
 import { getMailFrom, isSmtpConfigured, getTransporter, renderEmail } from './_mailer';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST' && req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed.' });
-  if (process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
-    return res.status(401).json({ error: 'Unauthorized.' });
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+
+  // Silently return 404 for non-POST or unauthorized requests to hide existence
+  if (req.method !== 'POST') return res.status(404).json({ error: 'Not found' });
+
+  const cronSecret = process.env.CRON_SECRET;
+  const authHeader = req.headers.authorization;
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+    return res.status(404).json({ error: 'Not found' });
   }
 
-  const DEFAULT_REF = 'nmwkljtaymujqnmzgyxn';
-  const DEFAULT_URL = `https://${DEFAULT_REF}.supabase.co`;
-  const DEFAULT_SERVICE_ROLE_KEY = Buffer.from(
-    'ZXlKaGJHY2lPaUpJVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SnBjM01pT2lKemRYQmhZbUZ6WlNJc0luSmxaaUk2SW01dGQydHNhblJoZVcxMWFuRnViWHBuZVhodUlpd2ljbTlzWlNJNkluTmxjblpwWTJWZmNtOXNaU0lzSW1saGRDSTZNVGM1TXpNNE5EUXdOaXdpWlhod0lqb3lNVEE0T1RZd05EQTJmUS5JSWhZaXlfYXdYRlZrRFRMMHFXcXB3bWZVZkpvRkJuekpqbUZGbkcyN0R3',
-    'base64'
-  ).toString('utf8');
+  const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
 
-  const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || DEFAULT_URL;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.VITE_SUPABASE_SERVICE_ROLE_KEY ||
-    DEFAULT_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    return res.status(503).json({ error: 'Service configuration incomplete.' });
+  }
 
   if (!isSmtpConfigured()) {
     return res.status(503).json({ error: 'Reminder service is not configured.' });

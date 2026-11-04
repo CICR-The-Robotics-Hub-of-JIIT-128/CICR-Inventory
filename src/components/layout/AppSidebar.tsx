@@ -75,8 +75,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     'Member';
   const roleName = (
     profile?.role ||
-    user?.user_metadata?.role ||
-    (user?.email?.includes('admin') ? 'ADMIN' : 'MEMBER')
+    (user?.email && ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com', '992501030399@mail.jiit.ac.in'].includes(user.email.toLowerCase()) ? 'ADMIN' : 'MEMBER')
   ).toUpperCase();
 
   const getNavItemClass = (tab: NavTab) => {

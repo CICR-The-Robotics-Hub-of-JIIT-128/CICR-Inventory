@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
-import { supabase, supabaseAdmin } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { InventoryItem, BorrowRequest, ActivityLog } from '../types/inventory';
 import { useAuth } from './AuthContext';
 import { notifyEmail } from '../lib/notifications';
@@ -173,8 +173,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const isCurrentAdmin =
         currentProfile?.role === 'admin' ||
         currentProfile?.role === 'lead' ||
-        currentUser?.user_metadata?.role === 'admin' ||
-        ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com'].includes(myEmail);
+        ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com', '992501030399@mail.jiit.ac.in'].includes(myEmail);
 
       const isMyRequest =
         (myId && req.user_id === myId) ||
@@ -286,11 +285,11 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           .from('inventory_items')
           .select('*')
           .order('created_at', { ascending: false }),
-        supabaseAdmin
+        supabase
           .from('borrow_requests')
           .select('*')
           .order('created_at', { ascending: false }),
-        supabaseAdmin
+        supabase
           .from('activity_logs')
           .select('*')
           .order('created_at', { ascending: false })
@@ -447,8 +446,12 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const isAuthorized =
         profile?.role === 'admin' ||
         profile?.role === 'lead' ||
-        user?.user_metadata?.role === 'admin' ||
-        (user?.email && ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com'].includes(user.email.toLowerCase()));
+        Boolean(
+          user?.email &&
+            ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com', '992501030399@mail.jiit.ac.in'].includes(
+              user.email.toLowerCase()
+            )
+        );
       if (!isAuthorized) {
         return { success: false, error: 'Unauthorized: Administrative role required to register equipment.' };
       }
@@ -462,7 +465,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (data) {
         setItems((prev) => [data as InventoryItem, ...prev]);
         try {
-          await supabaseAdmin.from('activity_logs').insert([
+          await supabase.from('activity_logs').insert([
             {
               user_id: user?.id,
               user_name: profile?.full_name || user?.email || 'Admin',
@@ -487,10 +490,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const isAuthorized =
         profile?.role === 'admin' ||
         profile?.role === 'lead' ||
-        user?.user_metadata?.role === 'admin' ||
         Boolean(
           user?.email &&
-            ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com'].includes(
+            ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com', '992501030399@mail.jiit.ac.in'].includes(
               user.email.toLowerCase()
             )
         );
@@ -508,27 +510,15 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       delete cleanUpdates.id;
       delete cleanUpdates.created_at;
 
-      // 1. Prioritize supabaseAdmin with select() to bypass client RLS issues and guarantee row update
-      let { data, error } = await supabaseAdmin
+      // Update via Supabase client
+      let { data, error } = await supabase
         .from('inventory_items')
         .update(cleanUpdates)
         .eq('id', id)
         .select();
 
-      // Fallback to supabase user client
-      if (error || !data || data.length === 0) {
-        const fallbackRes = await supabase
-          .from('inventory_items')
-          .update(cleanUpdates)
-          .eq('id', id)
-          .select();
-
-        if (fallbackRes.error && error) {
-          return { success: false, error: error.message || fallbackRes.error.message };
-        }
-        if (fallbackRes.data && fallbackRes.data.length > 0) {
-          data = fallbackRes.data;
-        }
+      if (error) {
+        return { success: false, error: error.message };
       }
 
       // Update immediate local state
@@ -568,10 +558,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       };
 
       try {
-        const logRes = await supabaseAdmin.from('activity_logs').insert([logEntry]);
-        if (logRes.error) {
-          await supabase.from('activity_logs').insert([logEntry]);
-        }
+        await supabase.from('activity_logs').insert([logEntry]);
         setLogs((prev) => [logEntry, ...prev]);
       } catch {
         // Logging error shouldn't crash primary update
@@ -593,8 +580,12 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const isAuthorized =
         profile?.role === 'admin' ||
         profile?.role === 'lead' ||
-        user?.user_metadata?.role === 'admin' ||
-        (user?.email && ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com'].includes(user.email.toLowerCase()));
+        Boolean(
+          user?.email &&
+            ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com', '992501030399@mail.jiit.ac.in'].includes(
+              user.email.toLowerCase()
+            )
+        );
       if (!isAuthorized) {
         return { success: false, error: 'Unauthorized: Administrative role required to delete equipment.' };
       }
@@ -660,7 +651,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
 
     try {
-      const { data: dbData, error } = await supabaseAdmin
+      const { data: dbData, error } = await supabase
         .from('borrow_requests')
         .insert([
           {
@@ -684,7 +675,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setRequests((prev) => [dbData as BorrowRequest, ...prev]);
         broadcastLiveEvent('NEW_REQUEST', dbData);
         try {
-          await supabaseAdmin.from('activity_logs').insert([
+          await supabase.from('activity_logs').insert([
             {
               user_id: user?.id,
               user_name: profile?.full_name || user?.email || 'Member',
@@ -722,8 +713,12 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const isAuthorized =
           profile?.role === 'admin' ||
           profile?.role === 'lead' ||
-          user?.user_metadata?.role === 'admin' ||
-          (user?.email && ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com'].includes(user.email.toLowerCase()));
+          Boolean(
+            user?.email &&
+              ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com', '992501030399@mail.jiit.ac.in'].includes(
+                user.email.toLowerCase()
+              )
+          );
         if (!isAuthorized) {
           return { success: false, error: 'Unauthorized: Administrative clearance required to approve, reject, or confirm returns.' };
         }
@@ -732,7 +727,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       const updatePayload: Record<string, unknown> = {
         status: newStatus,
-        approved_by: profile?.full_name || user?.user_metadata?.full_name || (user?.email ? user.email.split('@')[0] : 'Admin'),
+        approved_by: profile?.full_name || (user?.email ? user.email.split('@')[0] : 'Admin'),
         admin_notes: adminNotes,
         updated_at: new Date().toISOString(),
       };
@@ -740,7 +735,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (newStatus === 'approved') {
         updatePayload.borrow_date = new Date().toISOString().split('T')[0];
         
-        // Decrement available quantity in Supabase backend via supabaseAdmin
+        // Decrement available quantity in Supabase backend
         if (targetReq) {
           const targetItem = items.find((i) => i.id === targetReq.item_id);
           if (targetItem) {
@@ -752,7 +747,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 ? 'Low Stock'
                 : 'In Stock';
 
-            await supabaseAdmin
+            await supabase
               .from('inventory_items')
               .update({
                 available_qty: newAvail,
@@ -776,7 +771,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const cleanNotes = (targetReq?.admin_notes || '').replace(/\[RETURN_REQUESTED\][^\n|]*/g, '').replace(/\|+/g, '|').trim();
         updatePayload.admin_notes = adminNotes || (cleanNotes ? `${cleanNotes} (Returned & Restocked)` : 'Returned & Restocked');
 
-        // Increment available quantity back in Supabase backend via supabaseAdmin
+        // Increment available quantity back in Supabase backend
         if (targetReq) {
           const targetItem = items.find((i) => i.id === targetReq.item_id);
           if (targetItem) {
@@ -788,7 +783,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 ? 'Low Stock'
                 : 'In Stock';
 
-            await supabaseAdmin
+            await supabase
               .from('inventory_items')
               .update({
                 available_qty: newAvail,
@@ -809,8 +804,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
       }
 
-      // Update borrow request in Supabase via supabaseAdmin
-      const { error } = await supabaseAdmin
+      // Update borrow request in Supabase
+      const { error } = await supabase
         .from('borrow_requests')
         .update(updatePayload)
         .eq('id', requestId);
@@ -834,7 +829,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       // Log activity in Supabase
       if (targetReq) {
-        await supabaseAdmin.from('activity_logs').insert([
+        await supabase.from('activity_logs').insert([
           {
             user_id: user?.id,
             user_name: profile?.full_name || 'Admin',
@@ -879,8 +874,12 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const isAuthorizedAdmin =
         profile?.role === 'admin' ||
         profile?.role === 'lead' ||
-        user?.user_metadata?.role === 'admin' ||
-        (user?.email && ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com'].includes(user.email.toLowerCase()));
+        Boolean(
+          user?.email &&
+            ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com', '992501030399@mail.jiit.ac.in'].includes(
+              user.email.toLowerCase()
+            )
+        );
 
       if (!isOwner && !isAuthorizedAdmin) {
         return { success: false, error: 'Unauthorized: Only the member who issued this component can initiate its return.' };
@@ -897,7 +896,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         ? `${noteTag} (${userDisplay}): ${returnNotes.trim()}${cleanExistingNotes ? ` | ${cleanExistingNotes}` : ''}`
         : `${noteTag} Return submitted by ${userDisplay} on ${new Date().toLocaleDateString('en-IN')}${cleanExistingNotes ? ` | ${cleanExistingNotes}` : ''}`;
 
-      const { error } = await supabaseAdmin
+      const { error } = await supabase
         .from('borrow_requests')
         .update({
           admin_notes: updatedNotes,
@@ -918,7 +917,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       broadcastLiveEvent('RETURN_REQUESTED', { ...targetReq, admin_notes: updatedNotes });
 
       try {
-        await supabaseAdmin.from('activity_logs').insert([
+        await supabase.from('activity_logs').insert([
           {
             user_id: user?.id,
             user_name: userDisplay,
@@ -948,7 +947,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const cleanNotes = (targetReq.admin_notes || '').replace(/\[RETURN_REQUESTED\][^\n|]*/g, '').replace(/\|+/g, '|').trim();
       const updatedNotes = reason ? `${cleanNotes ? `${cleanNotes} | ` : ''}Return declined: ${reason}` : (cleanNotes || null);
 
-      const { error } = await supabaseAdmin
+      const { error } = await supabase
         .from('borrow_requests')
         .update({
           admin_notes: updatedNotes,

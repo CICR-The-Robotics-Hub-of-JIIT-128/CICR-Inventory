@@ -23,7 +23,6 @@ loadLocalEnvironment();
 const routes = {
   '/api/accounts': './api/accounts.ts',
   '/api/auth': './api/auth.ts',
-  '/api/db': './api/db.ts',
   '/api/email': './api/email.ts',
   '/api/reminders': './api/reminders.ts',
 };
@@ -95,5 +94,4 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(3000, () => {
   console.log('CICR local app: http://localhost:3000');
-  console.log('API routes available at: http://localhost:3000/api');
 });

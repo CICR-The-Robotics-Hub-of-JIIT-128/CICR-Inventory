@@ -279,9 +279,11 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return currentItems;
     });
 
+    const currentUser = userRef.current.user;
+    const currentProfile = userRef.current.profile;
     const isUserAdmin = Boolean(
-      user &&
-      (MASTER_ADMIN_EMAILS.includes((user.email || '').toLowerCase()) || profile?.role === 'admin')
+      currentUser &&
+      (MASTER_ADMIN_EMAILS.includes((currentUser.email || '').toLowerCase()) || currentProfile?.role === 'admin')
     );
 
     try {
@@ -290,17 +292,31 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         supabase
           .from('inventory_items')
           .select('*')
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('borrow_requests')
-          .select('*')
-          .order('created_at', { ascending: false }),
+          .order('created_at', { ascending: false })
+          .then(
+            (res) => res,
+            (err: unknown) => ({ data: null, error: err as any })
+          ),
+        currentUser
+          ? supabase
+              .from('borrow_requests')
+              .select('*')
+              .order('created_at', { ascending: false })
+              .then(
+                (res) => res,
+                (err: unknown) => ({ data: null, error: err as any })
+              )
+          : Promise.resolve({ data: [] as any[], error: null }),
         isUserAdmin
           ? supabase
               .from('activity_logs')
               .select('*')
               .order('created_at', { ascending: false })
               .limit(2500)
+              .then(
+                (res) => res,
+                (err: unknown) => ({ data: null, error: err as any })
+              )
           : Promise.resolve({ data: null as ActivityLog[] | null, error: null }),
       ]);
 

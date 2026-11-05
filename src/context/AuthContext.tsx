@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
-import { supabase, cloakToken, uncloakToken } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { UserProfile, UserRole } from '../types/inventory';
 import { notifyEmail } from '../lib/notifications';
 
@@ -10,6 +10,23 @@ export const MASTER_ADMIN_EMAILS = [
   'cicrinventoryofficial@gmail.com',
   '992501030399@mail.jiit.ac.in',
 ];
+
+const safeParseJSON = <T,>(raw: string | null): T | null => {
+  if (!raw || typeof raw !== 'string') return null;
+  try {
+    if (raw.startsWith('cicr_vault_')) {
+      const decoded = decodeURIComponent(atob(raw.slice(11)).split('').reverse().join(''));
+      return JSON.parse(decoded) as T;
+    }
+    return JSON.parse(raw) as T;
+  } catch {
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return null;
+    }
+  }
+};
 
 export interface SignUpData {
   email: string;
@@ -52,8 +69,9 @@ const getInitialAuth = (): { user: User | null; profile: UserProfile | null } =>
     const rawUser = localStorage.getItem('cicr-active-user');
     const rawProfile = localStorage.getItem('cicr-active-profile');
     if (rawUser && rawProfile) {
-      const u = JSON.parse(uncloakToken(rawUser));
-      const p = JSON.parse(uncloakToken(rawProfile));
+      const u = safeParseJSON<User>(rawUser);
+      const p = safeParseJSON<UserProfile>(rawProfile);
+      if (!u || !p) return { user: null, profile: null };
       const email = (u?.email || '').toLowerCase();
       const isMasterAdmin = MASTER_ADMIN_EMAILS.includes(email);
       // Hard security check: ONLY master admin emails can ever have admin role pre-loaded from localStorage
@@ -118,8 +136,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
         setProfile(resolvedProfile);
         try {
-          localStorage.setItem('cicr-active-user', cloakToken(JSON.stringify(currentUser)));
-          localStorage.setItem('cicr-active-profile', cloakToken(JSON.stringify(resolvedProfile)));
+          localStorage.setItem('cicr-active-user', JSON.stringify(currentUser));
+          localStorage.setItem('cicr-active-profile', JSON.stringify(resolvedProfile));
         } catch {}
         return;
       }
@@ -228,7 +246,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         let fallbackUser: User | null = null;
         if (storedFallback) {
           try {
-            fallbackUser = JSON.parse(uncloakToken(storedFallback)) as User;
+            fallbackUser = safeParseJSON<User>(storedFallback);
           } catch {
             fallbackUser = null;
           }
@@ -321,7 +339,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         res = { data: null, error: networkErr };
       }
 
-      // If Supabase failed or threw network error, attempt Neon failover
+      // If Supabase direct browser connection failed, attempt resilient serverless auth failover via /api/auth
       if (res.error) {
         try {
           const fallback = await fetch('/api/auth', {
@@ -343,30 +361,72 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                       : 'Your registration request has been sent to the Admin Portal. Please wait for an administrator to review and approve your account before signing in.',
                 };
               }
+              if (fallbackData.session) {
+                try {
+                  await supabase.auth.setSession(fallbackData.session);
+                  setSession(fallbackData.session);
+                } catch {
+                  setSession(null);
+                }
+              } else {
+                setSession(null);
+              }
               setUser(fallbackUser);
-              setSession(null);
-              await loadProfile(fallbackUser);
-              localStorage.setItem('neon-fallback-user', cloakToken(JSON.stringify(fallbackUser)));
+              if (fallbackData.profile) {
+                setProfile(fallbackData.profile);
+                try {
+                  localStorage.setItem('cicr-active-profile', JSON.stringify(fallbackData.profile));
+                } catch {}
+              } else {
+                await loadProfile(fallbackUser);
+              }
+              try {
+                localStorage.setItem('cicr-active-user', JSON.stringify(fallbackUser));
+              } catch {}
               await notifyEmail('login', fallbackUser.email, {
                 name: fallbackUser.user_metadata?.full_name,
                 email: fallbackUser.email,
-                role: 'member',
+                role: fallbackData.profile?.role || 'member',
               });
               return { success: true };
             }
+          } else if (fallback.status === 401) {
+            const errJson = await fallback.json().catch(() => ({}));
+            return {
+              success: false,
+              error: errJson.error || 'Invalid email or password. Please verify your credentials.',
+            };
           }
         } catch (fallbackErr) {
-          console.warn('Neon auth failover error:', fallbackErr);
+          console.warn('Auth failover error:', fallbackErr);
         }
 
-        const errMsg = res.error?.message || (res.error instanceof Error ? res.error.message : String(res.error));
-        if (typeof errMsg === 'string' && errMsg.toLowerCase().includes('failed to fetch')) {
+        const rawErrMsg = res.error?.message || (res.error instanceof Error ? res.error.message : String(res.error || ''));
+        const lower = rawErrMsg.toLowerCase();
+
+        // Cross-browser friendly normalization for network and protocol exceptions (Firefox, Safari, Edge, Chrome)
+        if (
+          lower.includes('content-length') ||
+          lower.includes('failed to fetch') ||
+          lower.includes('network') ||
+          lower.includes('load failed') ||
+          lower.includes('cors') ||
+          lower.includes('null')
+        ) {
           return {
             success: false,
-            error: 'Authentication server connection timeout. Please check your internet connection or try again shortly.',
+            error: 'Authentication connection hiccup. Please check your network connection and retry.',
           };
         }
-        return { success: false, error: errMsg || 'Invalid login credentials. Please verify your email and password.' };
+
+        if (lower.includes('invalid login credentials') || lower.includes('invalid credentials')) {
+          return {
+            success: false,
+            error: 'Invalid email or password. Please verify your credentials.',
+          };
+        }
+
+        return { success: false, error: rawErrMsg || 'Authentication failed. Please verify your credentials.' };
       }
 
       if (res.data.user) {
@@ -753,13 +813,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const raw = localStorage.getItem('cicr-active-profile');
         if (raw && user) {
-          const p = JSON.parse(uncloakToken(raw));
+          const p = safeParseJSON<UserProfile>(raw);
+          if (!p) return;
           const email = (user.email || '').toLowerCase();
           const isMaster = MASTER_ADMIN_EMAILS.includes(email);
           if (p.role === 'admin' && !isMaster && profile?.role !== 'admin') {
             console.warn('[Security] Unauthorized role escalation detected in localStorage. Reverting.');
             p.role = 'member';
-            localStorage.setItem('cicr-active-profile', cloakToken(JSON.stringify(p)));
+            localStorage.setItem('cicr-active-profile', JSON.stringify(p));
             setProfile(p);
           }
         }

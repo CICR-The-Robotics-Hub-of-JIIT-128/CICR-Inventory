@@ -8,7 +8,7 @@ import { DashboardOverview } from './DashboardOverview';
 import { ComponentVaultView } from './ComponentVaultView';
 import { AdminHubView } from './AdminHubView';
 import { InventoryItem, BorrowRequest, isReturnRequested } from '../../types/inventory';
-import { supabase, cloakToken, uncloakToken } from '../../lib/supabase';
+import { supabase } from '../../lib/supabase';
 import { useToast } from '../common/Toast';
 import { Notification } from '../ui/notification-bell';
 import { notifyAccountApproved, notifyAccountRejected, requestDeviceNotificationPermission } from '../../utils/deviceNotification';
@@ -118,8 +118,13 @@ export const UserDashboard: React.FC = () => {
   // Admin Hub state with instant 0ms localStorage caching
   const [pendingAccounts, setPendingAccounts] = useState<any[]>(() => {
     try {
-      const cached = localStorage.getItem('cicr-cached-pending-accounts');
-      return cached ? JSON.parse(uncloakToken(cached)) : [];
+      const raw = localStorage.getItem('cicr-cached-pending-accounts');
+      if (!raw) return [];
+      if (raw.startsWith('cicr_vault_')) {
+        const decoded = decodeURIComponent(atob(raw.slice(11)).split('').reverse().join(''));
+        return JSON.parse(decoded);
+      }
+      return JSON.parse(raw);
     } catch {
       return [];
     }
@@ -127,8 +132,13 @@ export const UserDashboard: React.FC = () => {
   const [processingUserId, setProcessingUserId] = useState<string | null>(null);
   const [allMembers, setAllMembers] = useState<any[]>(() => {
     try {
-      const cached = localStorage.getItem('cicr-cached-members');
-      return cached ? JSON.parse(uncloakToken(cached)) : [];
+      const raw = localStorage.getItem('cicr-cached-members');
+      if (!raw) return [];
+      if (raw.startsWith('cicr_vault_')) {
+        const decoded = decodeURIComponent(atob(raw.slice(11)).split('').reverse().join(''));
+        return JSON.parse(decoded);
+      }
+      return JSON.parse(raw);
     } catch {
       return [];
     }
@@ -444,7 +454,7 @@ export const UserDashboard: React.FC = () => {
       );
       setAllMembers(approvedMembers);
       try {
-        localStorage.setItem('cicr-cached-members', cloakToken(JSON.stringify(approvedMembers)));
+        localStorage.setItem('cicr-cached-members', JSON.stringify(approvedMembers));
       } catch {}
 
       // 2. Process Pending Signups
@@ -532,7 +542,7 @@ export const UserDashboard: React.FC = () => {
       const pendingList = Array.from(pendingMap.values());
       setPendingAccounts(pendingList);
       try {
-        localStorage.setItem('cicr-cached-pending-accounts', cloakToken(JSON.stringify(pendingList)));
+        localStorage.setItem('cicr-cached-pending-accounts', JSON.stringify(pendingList));
       } catch {}
     } catch (err) {
       console.warn('Notice syncing admin hub telemetry:', err);

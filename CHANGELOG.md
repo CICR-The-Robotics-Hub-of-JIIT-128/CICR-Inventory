@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.32] : 2026-11-05
+
+### Critical Security Audit & Secret Scrubbing
+* **Complete Elimination of Hardcoded Passwords and Administrative Tokens**:
+  - Completely purged hardcoded Google SMTP App Password (`DEFAULT_SMTP_PASS`) and base64 credentials from `api/_mailer.ts`.
+  - Scrubbed legacy plaintext App Password disclosures from historical release documentation (`CHANGELOG.md`, `DEEPDIVE.md`).
+  - Purged hardcoded Supabase `service_role` JWT fallback (`DEFAULT_SERVICE_ROLE_KEY`) from `api/accounts.ts`; administrative serverless functions strictly require environment-injected `SUPABASE_SERVICE_ROLE_KEY`.
+  - Removed client-exposed `DEFAULT_ANON_KEY` fallback from `api/email.ts`.
+  - Eliminated dangerous `VITE_SUPABASE_SERVICE_ROLE_KEY` naming prefix across local `.env`, `README.md`, `api/reminders.ts`, and script loaders, preventing Vite from ever bundling server secrets into frontend code.
+  - Verified 0 passwords, auth tokens, or database connection strings exist in repository source code or client production bundles.
+
+---
+
 ## [2.18.31] : 2026-11-04
 
 ### Deployment & Routing Infrastructure
@@ -425,7 +438,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [2.18.4] : 2026-11-01
 
 ### Fixed
-* Google SMTP Password Fallback & Credentials Sanitization: Corrected the encoded base64 Google App Password fallback in `api/_mailer.ts` (`ezoufqenvifmudgv`) and added automatic whitespace/quote sanitization for 16-character Google App Passwords.
+* Google SMTP Password Fallback & Credentials Sanitization: Sanitized Google App Password handling in `api/_mailer.ts` and added automatic whitespace/quote sanitization for 16-character Google App Passwords.
 * Serverless SMTP Connection Stability: Set `pool: false` and added 8-second connection, greeting, and socket timeouts on nodemailer transporters to eliminate stale socket reuse and prevent serverless `FUNCTION_INVOCATION_FAILED` timeouts on Vercel.
 * Fault-Tolerant Account Emails: Wrapped `sendAccountEmail` in `api/accounts.ts` and `api/reminders.ts` in non-blocking try-catch blocks to prevent email delivery hiccups from breaking core user registration, approvals, or cron execution.
 * Serverless JSON Body Parsing: Added resilient body parsing in `api/email.ts` and `api/accounts.ts` to cleanly handle both parsed JSON objects and raw payload strings across edge and node runtimes.

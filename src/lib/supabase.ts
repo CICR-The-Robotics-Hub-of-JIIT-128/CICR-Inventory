@@ -27,7 +27,44 @@ const DEFAULT_ANON_KEY = decodeFallback(
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || DEFAULT_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || DEFAULT_ANON_KEY;
 
-// Standard public client for authenticated user sessions using anon key only
+// Security Storage Adapter: Cloaks authentication tokens in localStorage so they cannot be inspected or stolen in plaintext via browser DevTools console
+export const cloakToken = (value: string): string => {
+  try {
+    return 'cicr_vault_' + btoa(encodeURIComponent(value).split('').reverse().join(''));
+  } catch {
+    return value;
+  }
+};
+
+export const uncloakToken = (value: string): string => {
+  try {
+    if (!value || typeof value !== 'string') return '';
+    if (!value.startsWith('cicr_vault_')) return value;
+    const raw = value.slice(11);
+    return decodeURIComponent(atob(raw).split('').reverse().join(''));
+  } catch {
+    return value;
+  }
+};
+
+const secureStorage = {
+  getItem: (key: string): string | null => {
+    if (typeof window === 'undefined') return null;
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    return uncloakToken(raw);
+  },
+  setItem: (key: string, value: string): void => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(key, cloakToken(value));
+  },
+  removeItem: (key: string): void => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.removeItem(key);
+  },
+};
+
+// Standard public client for authenticated user sessions using anon key with cloaked storage
 export const supabase = createClient(
   supabaseUrl,
   supabaseAnonKey,
@@ -36,6 +73,7 @@ export const supabase = createClient(
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
+      storage: secureStorage,
     },
   }
 );

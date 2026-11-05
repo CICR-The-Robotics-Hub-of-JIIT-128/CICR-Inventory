@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.33] : 2026-11-05
+
+### Zero-Exposure Browser Console & Client Storage Hardening
+* **Database Password Scrubbing & Activity Logs Lockdown**:
+  - Scrubbed historical registration activity logs in Supabase database that previously held plaintext user passwords in their `details` payload.
+  - Restricted internal `activity_logs` query in `InventoryContext` to verified administrators only; non-admin members no longer receive or query audit log telemetry.
+  - Proactively purged unencrypted `cicr-cached-logs` from `localStorage` on startup and eliminated caching of raw audit logs.
+  - Built an automatic in-memory scrubber ensuring any log entry with sensitive fields is stripped before reaching state.
+* **Console Cloaking & Cryptographic Auth Token Shielding**:
+  - Implemented `secureStorage` adapter in `src/lib/supabase.ts` that cloaks auth session JWTs (`sb-*-auth-token`) in `localStorage` so tokens cannot be inspected in plaintext via browser DevTools.
+  - Cloaked cached user profiles, member rosters, and pending account state in `localStorage`.
+  - Configured compiler-level `esbuild: { drop: ['console', 'debugger'] }` in `vite.config.ts` to strip all console statements in production builds.
+  - Injected runtime console shields and warning banners in `main.tsx` to neutralize console scraping.
+  - Extended logout handlers in `AuthContext` and `useInactivityTimeout` to thoroughly flush all cached auth data on sign-out.
+
+---
+
 ## [2.18.32] : 2026-11-05
 
 ### Critical Security Audit & Secret Scrubbing

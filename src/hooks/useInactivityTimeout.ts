@@ -26,6 +26,12 @@ export const useInactivityTimeout = () => {
     try {
       localStorage.setItem('cicr_session_expired_reason', 'inactivity');
       localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem('cicr-active-user');
+      localStorage.removeItem('cicr-active-profile');
+      localStorage.removeItem('neon-fallback-user');
+      localStorage.removeItem('cicr-cached-logs');
+      localStorage.removeItem('cicr-cached-members');
+      localStorage.removeItem('cicr-cached-pending-accounts');
     } catch {}
 
     // 1. In-app toast alert

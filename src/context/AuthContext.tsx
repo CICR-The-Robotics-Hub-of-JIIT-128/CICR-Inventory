@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
+import { supabase, cloakToken, uncloakToken } from '../lib/supabase';
 import { UserProfile, UserRole } from '../types/inventory';
 import { notifyEmail } from '../lib/notifications';
 
@@ -49,11 +49,11 @@ interface AuthContextType {
 const getInitialAuth = (): { user: User | null; profile: UserProfile | null } => {
   if (typeof window === 'undefined') return { user: null, profile: null };
   try {
-    const cachedUser = localStorage.getItem('cicr-active-user');
-    const cachedProfile = localStorage.getItem('cicr-active-profile');
-    if (cachedUser && cachedProfile) {
-      const u = JSON.parse(cachedUser);
-      const p = JSON.parse(cachedProfile);
+    const rawUser = localStorage.getItem('cicr-active-user');
+    const rawProfile = localStorage.getItem('cicr-active-profile');
+    if (rawUser && rawProfile) {
+      const u = JSON.parse(uncloakToken(rawUser));
+      const p = JSON.parse(uncloakToken(rawProfile));
       const email = (u?.email || '').toLowerCase();
       const isMasterAdmin = MASTER_ADMIN_EMAILS.includes(email);
       // Hard security check: ONLY master admin emails can ever have admin role pre-loaded from localStorage
@@ -118,8 +118,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
         setProfile(resolvedProfile);
         try {
-          localStorage.setItem('cicr-active-user', JSON.stringify(currentUser));
-          localStorage.setItem('cicr-active-profile', JSON.stringify(resolvedProfile));
+          localStorage.setItem('cicr-active-user', cloakToken(JSON.stringify(currentUser)));
+          localStorage.setItem('cicr-active-profile', cloakToken(JSON.stringify(resolvedProfile)));
         } catch {}
         return;
       }
@@ -228,7 +228,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         let fallbackUser: User | null = null;
         if (storedFallback) {
           try {
-            fallbackUser = JSON.parse(storedFallback) as User;
+            fallbackUser = JSON.parse(uncloakToken(storedFallback)) as User;
           } catch {
             fallbackUser = null;
           }
@@ -346,7 +346,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setUser(fallbackUser);
               setSession(null);
               await loadProfile(fallbackUser);
-              localStorage.setItem('neon-fallback-user', JSON.stringify(fallbackUser));
+              localStorage.setItem('neon-fallback-user', cloakToken(JSON.stringify(fallbackUser)));
               await notifyEmail('login', fallbackUser.email, {
                 name: fallbackUser.user_metadata?.full_name,
                 email: fallbackUser.email,
@@ -724,6 +724,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.removeItem('cicr-active-user');
       localStorage.removeItem('cicr-active-profile');
       localStorage.removeItem('neon-fallback-user');
+      localStorage.removeItem('cicr-cached-logs');
+      localStorage.removeItem('cicr-cached-members');
+      localStorage.removeItem('cicr-cached-pending-accounts');
     }
   };
 
@@ -748,15 +751,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const handleStorage = () => {
       try {
-        const stored = localStorage.getItem('cicr-active-profile');
-        if (stored && user) {
-          const p = JSON.parse(stored);
+        const raw = localStorage.getItem('cicr-active-profile');
+        if (raw && user) {
+          const p = JSON.parse(uncloakToken(raw));
           const email = (user.email || '').toLowerCase();
           const isMaster = MASTER_ADMIN_EMAILS.includes(email);
           if (p.role === 'admin' && !isMaster && profile?.role !== 'admin') {
             console.warn('[Security] Unauthorized role escalation detected in localStorage. Reverting.');
             p.role = 'member';
-            localStorage.setItem('cicr-active-profile', JSON.stringify(p));
+            localStorage.setItem('cicr-active-profile', cloakToken(JSON.stringify(p)));
             setProfile(p);
           }
         }

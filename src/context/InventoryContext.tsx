@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { InventoryItem, BorrowRequest, ActivityLog } from '../types/inventory';
-import { useAuth } from './AuthContext';
+import { useAuth, MASTER_ADMIN_EMAILS } from './AuthContext';
 import { notifyEmail } from '../lib/notifications';
 import { useToast } from '../components/common/Toast';
 import {
@@ -253,8 +253,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   });
   const [logs, setLogs] = useState<ActivityLog[]>(() => {
     try {
-      const cached = localStorage.getItem('cicr-cached-logs');
-      return cached ? JSON.parse(cached) : [];
+      // Purge unencrypted historical audit logs from localStorage to prevent console inspection
+      localStorage.removeItem('cicr-cached-logs');
+      return [];
     } catch {
       return [];
     }
@@ -278,8 +279,13 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return currentItems;
     });
 
+    const isUserAdmin = Boolean(
+      user &&
+      (MASTER_ADMIN_EMAILS.includes((user.email || '').toLowerCase()) || profile?.role === 'admin')
+    );
+
     try {
-      // Parallelize all 3 requests simultaneously with Promise.all
+      // Parallelize item, request, and (for admins only) audit log queries simultaneously
       const [itemsRes, requestsRes, logsRes] = await Promise.all([
         supabase
           .from('inventory_items')
@@ -289,11 +295,13 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           .from('borrow_requests')
           .select('*')
           .order('created_at', { ascending: false }),
-        supabase
-          .from('activity_logs')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(2500),
+        isUserAdmin
+          ? supabase
+              .from('activity_logs')
+              .select('*')
+              .order('created_at', { ascending: false })
+              .limit(2500)
+          : Promise.resolve({ data: null as ActivityLog[] | null, error: null }),
       ]);
 
       const { data: dbItems, error: itemsError } = itemsRes;
@@ -361,14 +369,28 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           });
         }
 
-        if (logsRes.data) {
-          const newLogs = logsRes.data as ActivityLog[];
+        if (logsRes && logsRes.data) {
+          const rawLogs = logsRes.data as ActivityLog[];
+          // Security: scrub any sensitive fields before storing in state and do not persist to localStorage
+          const sanitizedLogs = rawLogs.map((log) => {
+            if (typeof log.details === 'string') {
+              try {
+                const parsed = JSON.parse(log.details);
+                if (parsed.password || parsed.password_hash || parsed.token) {
+                  delete parsed.password;
+                  delete parsed.password_hash;
+                  delete parsed.token;
+                  parsed.password_scrubbed = true;
+                  return { ...log, details: JSON.stringify(parsed) };
+                }
+              } catch {}
+            }
+            return log;
+          });
+
           setLogs((prev) => {
-            if (areLogsEqual(prev, newLogs)) return prev;
-            try {
-              localStorage.setItem('cicr-cached-logs', JSON.stringify(newLogs));
-            } catch {}
-            return newLogs;
+            if (areLogsEqual(prev, sanitizedLogs)) return prev;
+            return sanitizedLogs;
           });
         }
       }

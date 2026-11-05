@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.34] : 2026-11-05
+
+### Universal Cross-Browser Compatibility & Server-Side Auth Resilience
+* **Cross-Browser Auth Stability (Firefox, Safari, Edge, Chrome)**:
+  - Replaced custom client storage wrapper in `src/lib/supabase.ts` with standard native storage to prevent token corruption and stream abort errors in Firefox (`Content-Length header of network response exceeds response body`).
+  - Added automated boot-time cleanup in `src/lib/supabase.ts` to purge any legacy corrupted storage tokens from earlier sessions.
+  - Implemented backwards-compatible `safeParseJSON` helper across `AuthContext` and `UserDashboard` to seamlessly parse both standard and legacy storage without exceptions.
+* **Server-Side Resilient Auth Fallback (`/api/auth.ts`)**:
+  - Upgraded `/api/auth.ts` to authenticate directly with Supabase server-side over secure HTTPS, bypassing browser-level CORS, Firefox Total Cookie Protection, firewall blocks, or privacy extension interferences.
+  - Returns authenticated user, session, and profile directly from server, with secondary fallback to Neon if configured.
+* **Client Network Error Normalization**:
+  - Intercepted low-level browser network protocol errors (`Content-Length`, `Failed to fetch`, `NetworkError`, `CORS`) in `AuthContext` to display clear, user-friendly messages in the authentication form.
+* **Eager Pre-Login Request Guard**:
+  - Guarded `InventoryContext` eager queries so unauthenticated users on the login screen no longer trigger unnecessary concurrent requests to `borrow_requests` or `activity_logs`.
+  - Added safe error boundaries to `Promise.all` query parallelization so network hiccups in one query do not block catalog retrieval.
+
+---
+
 ## [2.18.33] : 2026-11-05
 
 ### Zero-Exposure Browser Console & Client Storage Hardening

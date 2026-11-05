@@ -1,7 +1,7 @@
 {
   "name": "cicr-inventory",
   "private": true,
-  "version": "2.18.33",
+  "version": "2.18.34",
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-server.mjs",

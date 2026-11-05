@@ -327,11 +327,6 @@ Run `npm run dev` for the full local app. It serves the Vite frontend and `/api/
 ```bash
 npm run build
 npm run preview
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-VITE_SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-
-# Secondary Redundancy (Neon PostgreSQL)
-NEON_DATABASE_URL=postgresql://neondb_owner:...@ep-odd-dawn-b5go8elm-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require
 ```
 
 ---

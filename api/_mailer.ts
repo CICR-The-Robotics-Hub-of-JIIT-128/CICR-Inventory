@@ -1,29 +1,7 @@
 import nodemailer from 'nodemailer';
 
-const decodeFallback = (encoded: string): string => {
-  if (typeof atob === 'function') {
-    try {
-      return atob(encoded);
-    } catch {
-      return '';
-    }
-  }
-  if (typeof Buffer !== 'undefined') {
-    try {
-      return Buffer.from(encoded, 'base64').toString('utf8');
-    } catch {
-      return '';
-    }
-  }
-  return '';
-};
-
-// Default Google SMTP configuration fallbacks
 const DEFAULT_SMTP_HOST = 'smtp.gmail.com';
 const DEFAULT_SMTP_PORT = 465;
-const DEFAULT_SMTP_USER = decodeFallback('Y2ljcmludmVudG9yeW9mZmljaWFsQGdtYWlsLmNvbQ=='); // cicrinventoryofficial@gmail.com
-const DEFAULT_SMTP_PASS = decodeFallback('ZXpvdWZxZW52aWZtdWRndg=='); // ezoufqenvifmudgv
-const DEFAULT_SMTP_FROM = 'CICR Inventory <cicrinventoryofficial@gmail.com>';
 
 export const smtpHost = (process.env.SMTP_HOST || DEFAULT_SMTP_HOST).trim();
 export const smtpPort = Number(process.env.SMTP_PORT) || DEFAULT_SMTP_PORT;
@@ -31,10 +9,10 @@ export const smtpSecure =
   process.env.SMTP_SECURE === 'true' ||
   (process.env.SMTP_SECURE !== 'false' && smtpPort === 465);
 
-const rawUser = process.env.SMTP_USER || DEFAULT_SMTP_USER;
+const rawUser = process.env.SMTP_USER || '';
 export const smtpUser = rawUser ? rawUser.trim().replace(/^['"]|['"]$/g, '') : '';
 
-const rawPass = process.env.SMTP_PASS || DEFAULT_SMTP_PASS;
+const rawPass = process.env.SMTP_PASS || '';
 // Clean Google 16-character App Passwords (stripping spaces and quotes)
 export const smtpPass = rawPass ? rawPass.trim().replace(/[\s'"]/g, '') : '';
 
@@ -54,10 +32,8 @@ export function getTransporter() {
   } as any);
 }
 
-
-
 export function getMailFrom(): string {
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER || DEFAULT_SMTP_FROM;
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER || (smtpUser ? `CICR Inventory <${smtpUser}>` : '');
   return from.trim().replace(/^['"]|['"]$/g, '');
 }
 

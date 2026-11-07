@@ -18,6 +18,8 @@ const allowedEvents = new Set([
 
 const DEFAULT_REF = 'nmwkljtaymujqnmzgyxn';
 const DEFAULT_URL = `https://${DEFAULT_REF}.supabase.co`;
+const DEFAULT_ANON_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5td2tsanRheW11anFubXpneXhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzODQ0MDYsImV4cCI6MjEwODk2MDQwNn0.LGEoX7QPu2O9yxw0LT74rerIo4_Tj9CHCWlsT1hoxT8';
 
 const MASTER_ADMIN_EMAILS = [
   'vardaansaxena096@gmail.com',
@@ -41,7 +43,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || DEFAULT_URL;
-  const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || DEFAULT_ANON_KEY;
   if (!supabaseUrl || !supabaseKey) {
     return res.status(503).json({ error: 'Supabase server configuration is missing.' });
   }
@@ -93,7 +95,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const transporter = getTransporter();
+    const transporter = await getTransporter();
+    if (!transporter) {
+      return res.status(503).json({ error: 'SMTP service is unavailable.' });
+    }
     const message = renderEmail(event, data && typeof data === 'object' ? data : {});
     await Promise.race([
       transporter.sendMail({ from: getMailFrom(), to, ...message }),

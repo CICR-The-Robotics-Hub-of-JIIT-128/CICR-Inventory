@@ -547,19 +547,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
 
         if (accountResponse.ok) {
+          const respData = await accountResponse.json().catch(() => ({}));
           return {
             success: true,
-            message: 'Registration request submitted successfully! Check your email and wait for administrator approval.',
+            message: respData.message || 'Registration request submitted successfully! Check your email and wait for administrator approval.',
           };
         } else {
           const errData = await accountResponse.json().catch(() => ({}));
-          return {
-            success: false,
-            error: errData.error || 'Registration failed. Please try again.',
-          };
+          const errMsg = typeof errData?.error === 'string' ? errData.error : '';
+          // If it is a clear validation conflict (account already exists, weak password, etc.)
+          if (
+            errMsg.includes('already exists') ||
+            errMsg.includes('already been submitted') ||
+            errMsg.includes('Password should be') ||
+            errMsg.includes('valid email')
+          ) {
+            return {
+              success: false,
+              error: errMsg,
+            };
+          }
+          console.warn('API /api/accounts returned error status (' + accountResponse.status + '), activating resilient direct Supabase registration fallback...');
         }
       } catch (apiErr) {
-        console.warn('API register notice, attempting fallback:', apiErr);
+        console.warn('API register notice, activating resilient direct Supabase registration fallback:', apiErr);
       }
 
       // Direct fallback using standard supabase.auth.signUp (no admin key required)
@@ -579,7 +590,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (authError) {
-        return { success: false, error: authError.message };
+        const raw = authError.message || '';
+        if (raw.toLowerCase().includes('already registered')) {
+          return {
+            success: false,
+            error: 'An account with this college email already exists. Please sign in.',
+          };
+        }
+        return { success: false, error: raw || 'Registration failed. Please verify your details and retry.' };
       }
 
       if (authData.user) {

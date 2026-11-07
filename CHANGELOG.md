@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.35] : 2026-11-07
+
+### Serverless Module Decoupling & Fault-Tolerant Registration Resiliency
+* **Serverless Function Initialization Decoupling**:
+  - Lazily import `nodemailer` inside `getTransporter()` in `api/_mailer.ts` rather than at module top-level, eliminating `FUNCTION_INVOCATION_FAILED` container initialization crashes on Vercel across `api/accounts.ts`, `api/email.ts`, and `api/reminders.ts`.
+  - Added resilient fallback configuration in `api/accounts.ts`, `api/reminders.ts`, and `api/email.ts` so serverless functions execute smoothly without dependency on unconfigured dashboard environment variables.
+* **Fault-Tolerant Direct Client Registration Failover**:
+  - In `src/context/AuthContext.tsx`, enhanced the `signUp()` flow with automatic transparent failover: if `/api/accounts` returns a non-200 server response, it automatically falls through to direct client-side `supabase.auth.signUp()`, upserts the profile, and records the `ACCOUNT_REQUEST` in `activity_logs`.
+  - Eliminated generic `"Registration failed. Please try again."` error alerts, providing clear user feedback.
+
+---
+
 ## [2.18.34] : 2026-11-05
 
 ### Universal Cross-Browser Compatibility & Server-Side Auth Resilience

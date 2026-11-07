@@ -44,12 +44,13 @@ if (typeof window !== 'undefined') {
   } catch {}
 }
 
-// Standard Supabase client using standard native browser storage
+// Standard Supabase client using PKCE secure auth flow (never exposes access tokens in URL)
 export const supabase = createClient(
   supabaseUrl,
   supabaseAnonKey,
   {
     auth: {
+      flowType: 'pkce',
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,

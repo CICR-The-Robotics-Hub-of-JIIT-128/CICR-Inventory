@@ -382,10 +382,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }]);
       requireDatabaseSuccess(profileError, 'Approved profile update');
     } else {
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({ status: 'rejected', avatar_url: 'status:rejected', updated_at: new Date().toISOString() })
-        .eq('id', resolvedUserId);
+      const { error: profileError } = await supabase.from('profiles').upsert([{
+        id: resolvedUserId,
+        full_name: fullName,
+        email: email || existing?.email,
+        role: details?.role || 'member',
+        status: 'rejected',
+        avatar_url: 'status:rejected',
+        roll_number: details?.enrollmentNo || '',
+        phone: details?.phone || '',
+        updated_at: new Date().toISOString(),
+      }]);
       requireDatabaseSuccess(profileError, 'Rejected profile update');
     }
 
@@ -397,10 +404,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           ssl: { rejectUnauthorized: true },
         });
         await pgClient.connect();
-        await pgClient.query('UPDATE profiles SET status = $1, avatar_url = $2, updated_at = NOW() WHERE id = $3', [
+        await pgClient.query('UPDATE profiles SET status = $1, avatar_url = $2, updated_at = NOW() WHERE id = $3 OR email = $4', [
           status,
           `status:${status}`,
           resolvedUserId,
+          email || '',
         ]);
         await pgClient.end();
       } catch (neonErr) {

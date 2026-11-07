@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.37] : 2026-11-07
+
+### Account Request Action Resiliency & Instant Removal Permanence
+* **Optimistic Local Cache & Immediate UI Removal**:
+  - Maintained `locallyProcessedIds` session state in `UserDashboard.tsx` to immediately remove approved/rejected accounts (0ms) and eliminate UI flicker.
+  - Instantly syncs `cicr-cached-pending-accounts` in `localStorage` on approve or reject, ensuring rejected/approved accounts never reappear on tab switch or page refresh.
+  - Enhanced `syncAdminHubData()` to cross-reference `locallyProcessedIds` and all resolved status variants (`status: 'rejected'`, `status: 'approved'`, `status:*`), completely filtering out previously handled requests.
+* **Direct Serverless & Client-Side Action Fallback**:
+  - In `api/accounts.ts`, updated rejection action to use `upsert` rather than `update` on the `profiles` table, ensuring even accounts registered through fallback without preexisting profile rows are permanently recorded with `status: 'rejected'`.
+  - In `src/context/AuthContext.tsx`, implemented direct client-side Supabase failover inside `approveUserAccount` and `rejectUserAccount` to ensure zero administrative interruption even during transient serverless network latency.
+  - Added visual `'Rejecting...'` action state in `AdminHubView.tsx`.
+* **Database Cleanup**:
+  - Cleaned and permanently marked all 3 target screenshot accounts (`Kushagra Singh Rathore`, `Vardaan Saxena`, `Divyam Jain`) as rejected across `profiles`, `auth.users`, and `activity_logs`.
+
+---
+
 ## [2.18.36] : 2026-11-07
 
 ### Complete Serverless Self-Containment & Zero-Dependency Execution

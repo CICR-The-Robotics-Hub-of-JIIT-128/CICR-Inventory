@@ -13,19 +13,59 @@ import {
 interface PrivacyPolicyProps {
   onBack?: () => void;
   defaultTab?: 'privacy' | 'terms';
+  mode?: 'privacy' | 'terms';
+  isSubdomain?: boolean;
 }
 
 export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({
   onBack,
   defaultTab = 'privacy',
+  mode,
+  isSubdomain = false,
 }) => {
-  const [activeTab, setActiveTab] = useState<'privacy' | 'terms'>(defaultTab);
+  const [activeTab, setActiveTab] = useState<'privacy' | 'terms'>(mode || defaultTab);
 
   const handleBack = () => {
     if (onBack) {
       onBack();
     } else {
       window.location.href = '/';
+    }
+  };
+
+  const handleTabChange = (tab: 'privacy' | 'terms') => {
+    setActiveTab(tab);
+    if (typeof window !== 'undefined' && !isSubdomain) {
+      window.history.pushState(null, '', tab === 'privacy' ? '/privacy' : '/terms');
+    }
+  };
+
+  const handleSwitchToOther = () => {
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname.toLowerCase();
+      if (host.startsWith('privacy.')) {
+        // Switch subdomain to tos. (or terms.)
+        window.location.href =
+          window.location.protocol +
+          '//' +
+          host.replace(/^privacy\./, 'tos.') +
+          (window.location.port ? ':' + window.location.port : '') +
+          '/terms';
+      } else if (
+        host.startsWith('tos.') ||
+        host.startsWith('terms.') ||
+        host.startsWith('toc.')
+      ) {
+        // Switch subdomain to privacy.
+        window.location.href =
+          window.location.protocol +
+          '//' +
+          host.replace(/^(tos|terms|toc)\./, 'privacy.') +
+          (window.location.port ? ':' + window.location.port : '') +
+          '/privacy';
+      } else {
+        handleTabChange(activeTab === 'privacy' ? 'terms' : 'privacy');
+      }
     }
   };
 
@@ -56,39 +96,60 @@ export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({
             <img src="/cicr-logo.jpg" alt="CICR Logo" className="w-12 h-12 rounded-xl object-cover" />
           </div>
           <h1 className="text-2xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">
-            Institutional Privacy &amp; Legal Center
+            {isSubdomain
+              ? activeTab === 'privacy'
+                ? 'CICR Inventory Privacy Policy'
+                : 'CICR Inventory Terms of Service'
+              : 'CICR Inventory Privacy & Legal Center'}
           </h1>
           <p className="text-xs sm:text-sm text-slate-600 dark:text-zinc-400 font-medium max-w-xl mx-auto">
             Creative &amp; Innovative Cell in Robotics (CICR) &bull; Jaypee Institute of Information Technology, Noida
           </p>
 
-          {/* Tab Switcher */}
-          <div className="inline-flex p-1 bg-slate-200/80 dark:bg-zinc-900 rounded-2xl border border-slate-300 dark:border-zinc-800 mt-4">
-            <button
-              type="button"
-              onClick={() => setActiveTab('privacy')}
-              className={`flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                activeTab === 'privacy'
-                  ? 'bg-white dark:bg-purple-600 text-slate-900 dark:text-white shadow-md'
-                  : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <ShieldCheck className="w-4 h-4" />
-              <span>Privacy Policy</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('terms')}
-              className={`flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                activeTab === 'terms'
-                  ? 'bg-white dark:bg-purple-600 text-slate-900 dark:text-white shadow-md'
-                  : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <FileText className="w-4 h-4" />
-              <span>Terms of Service</span>
-            </button>
-          </div>
+          {/* If on a dedicated subdomain, show quick link to the other document; otherwise show the tab switcher */}
+          {isSubdomain ? (
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handleSwitchToOther}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60 px-3.5 py-1.5 rounded-full shadow-sm"
+              >
+                <span>
+                  {activeTab === 'privacy'
+                    ? 'Looking for Terms of Service? View Terms'
+                    : 'Looking for Privacy Policy? View Privacy'}
+                </span>
+                <span aria-hidden="true">&rarr;</span>
+              </button>
+            </div>
+          ) : (
+            <div className="inline-flex p-1 bg-slate-200/80 dark:bg-zinc-900 rounded-2xl border border-slate-300 dark:border-zinc-800 mt-4">
+              <button
+                type="button"
+                onClick={() => handleTabChange('privacy')}
+                className={`flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'privacy'
+                    ? 'bg-white dark:bg-purple-600 text-slate-900 dark:text-white shadow-md'
+                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>Privacy Policy</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleTabChange('terms')}
+                className={`flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'terms'
+                    ? 'bg-white dark:bg-purple-600 text-slate-900 dark:text-white shadow-md'
+                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <FileText className="w-4 h-4" />
+                <span>Terms of Service</span>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Content Container */}
@@ -114,7 +175,7 @@ export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({
                 </a>.
               </p>
               <p>
-                The CICR Inventory platform is an academic and institutional laboratory management tool designed exclusively for enrolled JIIT students, student developers, faculty members, and lab administrators. It manages robotics hardware loans, electronic components, microcontrollers, issue passes, and return clearance records.
+                The CICR Inventory platform is only for CICR Team members who are currently enrolled in any program in Jaypee institute of information technology, Noida. It manages robotics hardware loans, electronic components, microcontrollers, issue passes, and return clearance records.
               </p>
             </section>
 
@@ -313,7 +374,7 @@ export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({
                 <span>Authorized Institutional Access Only</span>
               </h2>
               <p>
-                Access to the CICR Vault is granted exclusively to students, faculty, and research teams possessing valid institutional email credentials (<code className="bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-purple-600 dark:text-purple-400 font-mono text-xs">@mail.jiit.ac.in</code>). Attempted unauthorized access, account spoofing, or tampering with hardware tracking telemetry is strictly prohibited.
+                Access to the CICR Vault is granted exclusively to CICR Team members who are currently enrolled in any program at Jaypee Institute of Information Technology (JIIT) possessing valid institutional email credentials (<code className="bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-purple-600 dark:text-purple-400 font-mono text-xs">@mail.jiit.ac.in</code>). Attempted unauthorized access, account spoofing, or tampering with hardware tracking telemetry is strictly prohibited.
               </p>
             </section>
 

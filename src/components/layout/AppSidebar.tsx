@@ -13,7 +13,6 @@ import {
   Wrench,
   Code2,
   User,
-  Key,
   LogOut,
   ChevronDown,
   X
@@ -362,18 +361,8 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
               </div>
             </div>
 
-            {/* Action Buttons: Key & SignOut */}
+            {/* Action Buttons: SignOut */}
             <div className="flex items-center gap-1.5 shrink-0">
-              {/* Key button (change password) */}
-              <button
-                type="button"
-                onClick={() => onOpenChangePassword && onOpenChangePassword()}
-                className="w-8 h-8 rounded-xl bg-[#22222a] hover:bg-[#2d2d38] border border-[#32323e] text-zinc-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-                title="Change Password"
-              >
-                <Key className="w-4 h-4" />
-              </button>
-
               {/* SignOut button */}
               <button
                 type="button"

@@ -244,7 +244,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
       const password = typeof body?.password === 'string' ? body.password : '';
       const fullName = typeof body?.full_name === 'string' ? body.full_name.trim() : '';
-      const enrollmentNo = typeof body?.enrollment_no === 'string' ? body.enrollment_no : '';
+      const emailPrefix = email.split('@')[0];
+      const rollMatch = emailPrefix.match(/\d{6,}/) || emailPrefix.match(/\d+/);
+      const enrollmentNo =
+        typeof body?.enrollment_no === 'string' && body.enrollment_no.trim()
+          ? body.enrollment_no.trim()
+          : (rollMatch ? rollMatch[0] : emailPrefix);
       const phone = typeof body?.phone === 'string' ? body.phone : '';
       const role = typeof body?.role === 'string' ? body.role : 'member';
       const avatarUrl = typeof body?.avatar_url === 'string' ? body.avatar_url : '';

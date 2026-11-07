@@ -4,7 +4,6 @@ import { InventoryProvider } from './context/InventoryContext';
 import { ToastProvider } from './components/common/Toast';
 import { ThemeProvider } from './lib/theme/useTheme';
 import { LoginForm } from './components/auth/LoginForm';
-import { SignupForm } from './components/auth/SignupForm';
 import { UserDashboard } from './components/dashboard/UserDashboard';
 import { useInactivityTimeout } from './hooks/useInactivityTimeout';
 import { RotateCw } from 'lucide-react';
@@ -71,7 +70,6 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
 const AppContent: React.FC = () => {
   useInactivityTimeout();
   const { user, profile, loading } = useAuth();
-  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
 
   const isApproved =
     user &&
@@ -105,15 +103,11 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // Genuinely unauthenticated: Show Login / Signup form
+  // Genuinely unauthenticated: Show JIIT Google SSO Portal
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#05030a] text-slate-900 dark:text-slate-100 flex flex-col items-center justify-center p-4 selection:bg-blue-600 selection:text-white relative overflow-hidden">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#05030a] text-slate-900 dark:text-slate-100 flex flex-col items-center justify-center p-4 selection:bg-purple-600 selection:text-white relative overflow-hidden">
       <div className="w-full flex items-center justify-center relative z-10 animate-in fade-in duration-300">
-        {authMode === 'login' ? (
-          <LoginForm onSwitchToSignup={() => setAuthMode('signup')} />
-        ) : (
-          <SignupForm onSwitchToLogin={() => setAuthMode('login')} />
-        )}
+        <LoginForm />
       </div>
     </div>
   );

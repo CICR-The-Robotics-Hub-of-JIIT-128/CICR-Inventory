@@ -30,7 +30,7 @@ interface BottomNavbarProps {
   setActiveView: (view: ActiveView) => void;
   activeCategory?: string;
   onSelectCategory?: (category: string) => void;
-  onOpenChangePassword: () => void;
+  onOpenChangePassword?: () => void;
   pendingAccountsCount?: number;
 }
 
@@ -39,7 +39,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
   setActiveView,
   activeCategory = 'all',
   onSelectCategory,
-  onOpenChangePassword,
+  onOpenChangePassword = () => {},
   pendingAccountsCount = 0,
 }) => {
   const { user, profile, signOut } = useAuth();
@@ -563,22 +563,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                           <span>My Profile & Stats</span>
                         </button>
 
-                        {/* 2. Change Password */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onOpenChangePassword();
-                            setProfileMenuOpen(false);
-                            setMobileExpanded(false);
-                            setIsHovered(false);
-                          }}
-                          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-200 transition-colors text-left cursor-pointer"
-                        >
-                          <Key className="w-4 h-4 text-amber-500" />
-                          <span>Change Password</span>
-                        </button>
-
-                        {/* 3. Submit Bugs / Feedback Button */}
+                        {/* 2. Submit Bugs / Feedback Button */}
                         <button
                           type="button"
                           onClick={() => {

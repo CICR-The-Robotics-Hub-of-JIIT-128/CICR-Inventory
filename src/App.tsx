@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { InventoryProvider } from './context/InventoryContext';
 import { ToastProvider } from './components/common/Toast';
 import { ThemeProvider } from './lib/theme/useTheme';
 import { LoginForm } from './components/auth/LoginForm';
 import { UserDashboard } from './components/dashboard/UserDashboard';
+import { PrivacyPolicy } from './components/legal/PrivacyPolicy';
 import { useInactivityTimeout } from './hooks/useInactivityTimeout';
 import { RotateCw } from 'lucide-react';
 
@@ -70,8 +71,44 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
 const AppContent: React.FC = () => {
   useInactivityTimeout();
   const { user, session, profile, loading } = useAuth();
+  const [currentPath, setCurrentPath] = useState<string>(() =>
+    typeof window !== 'undefined' ? window.location.pathname.toLowerCase() : ''
+  );
 
-  // 1. Always wait for initial auth verification to complete before rendering either screen
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPath(window.location.pathname.toLowerCase());
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // 1. Legal & Compliance Pages (Publicly accessible for Google OAuth verification & Institutional Auditing)
+  if (currentPath === '/privacy' || currentPath === '/privacy-policy') {
+    return (
+      <PrivacyPolicy
+        defaultTab="privacy"
+        onBack={() => {
+          window.history.pushState(null, '', '/');
+          setCurrentPath('/');
+        }}
+      />
+    );
+  }
+
+  if (currentPath === '/terms' || currentPath === '/terms-of-service') {
+    return (
+      <PrivacyPolicy
+        defaultTab="terms"
+        onBack={() => {
+          window.history.pushState(null, '', '/');
+          setCurrentPath('/');
+        }}
+      />
+    );
+  }
+
+  // 2. Always wait for initial auth verification to complete before rendering either screen
   // This completely prevents dashboard flicker or crash on page refresh
   if (loading) {
     return (

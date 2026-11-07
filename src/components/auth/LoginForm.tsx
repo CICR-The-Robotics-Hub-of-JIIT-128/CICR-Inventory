@@ -60,6 +60,11 @@ export const LoginForm: React.FC<LoginFormProps> = () => {
     }
   };
 
+  const navigateTo = (path: string) => {
+    window.history.pushState(null, '', path);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
+
   return (
     <div className="w-full max-w-[440px] bg-white dark:bg-[#0c0918] border-2 border-slate-200 dark:border-purple-950/70 rounded-3xl p-8 sm:p-9 shadow-2xl shadow-purple-950/20 relative overflow-hidden text-slate-900 dark:text-slate-100 animate-in fade-in zoom-in-95 duration-300">
       {/* Decorative ambient background blur */}
@@ -131,6 +136,34 @@ export const LoginForm: React.FC<LoginFormProps> = () => {
             {isGoogleLoading ? 'Connecting to Google...' : 'Sign in with Google Account'}
           </span>
         </button>
+
+        {/* Institutional Domain Indicator */}
+        <div className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-slate-500 dark:text-zinc-400 font-medium text-center">
+          <span>Restricted to</span>
+          <span className="font-mono font-semibold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/50 px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800/60">
+            @mail.jiit.ac.in
+          </span>
+          <span>accounts</span>
+        </div>
+
+        {/* Legal & Compliance Footer Navigation */}
+        <div className="mt-6 pt-5 border-t border-slate-200 dark:border-zinc-800/80 flex items-center justify-center gap-4 text-[11px] text-slate-500 dark:text-zinc-400">
+          <button
+            type="button"
+            onClick={() => navigateTo('/privacy')}
+            className="hover:text-purple-600 dark:hover:text-purple-400 font-medium transition-colors cursor-pointer hover:underline"
+          >
+            Privacy Policy
+          </button>
+          <span className="text-slate-300 dark:text-zinc-700">&bull;</span>
+          <button
+            type="button"
+            onClick={() => navigateTo('/terms')}
+            className="hover:text-purple-600 dark:hover:text-purple-400 font-medium transition-colors cursor-pointer hover:underline"
+          >
+            Terms of Service
+          </button>
+        </div>
       </div>
     </div>
   );

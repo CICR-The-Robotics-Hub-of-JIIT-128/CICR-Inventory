@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.40] : 2026-11-07
+
+### Resilient Avatar Image Fallback & Referrer-Policy Fix
+* **Elimination of Broken Avatar Icons & Text Bleed**:
+  - Added `referrerPolicy="no-referrer"` to user avatar image tags, enabling Google Workspace profile images (`lh3.googleusercontent.com`) to load properly without third-party Referer 403 blocks.
+  - Implemented automatic load-error detection (`avatarLoadFailed` + `onError`) in [`BottomNavbar.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/layout/BottomNavbar.tsx) and [`AppSidebar.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/layout/AppSidebar.tsx): if an avatar image fails or is blocked, the broken image placeholder and overlapping alt text are immediately removed from the DOM.
+  - Smoothly renders the user's crisp capitalized initial badge (e.g. **V**) centered over the purple circle with zero visual distortion.
+
+---
+
 ## [2.18.39] : 2026-11-07
 
 ### Complete Password Retirement, Streamlined Google SSO & Auto-Enrollment

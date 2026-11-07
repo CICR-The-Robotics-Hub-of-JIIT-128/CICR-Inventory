@@ -137,15 +137,6 @@ export const LoginForm: React.FC<LoginFormProps> = () => {
           </span>
         </button>
 
-        {/* Institutional Domain Indicator */}
-        <div className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-slate-500 dark:text-zinc-400 font-medium text-center">
-          <span>Restricted to</span>
-          <span className="font-mono font-semibold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/50 px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800/60">
-            @mail.jiit.ac.in
-          </span>
-          <span>accounts</span>
-        </div>
-
         {/* Legal & Compliance Footer Navigation */}
         <div className="mt-6 pt-5 border-t border-slate-200 dark:border-zinc-800/80 flex items-center justify-center gap-4 text-[11px] text-slate-500 dark:text-zinc-400">
           <button

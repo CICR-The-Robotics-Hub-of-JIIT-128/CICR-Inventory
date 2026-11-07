@@ -259,7 +259,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const fullName = meta.full_name || meta.name || email.split('@')[0];
           const avatarUrl = meta.avatar_url || meta.picture || '';
           const emailPrefix = email.split('@')[0];
-          // Automatically fetch student enrollment number directly from college email ID (e.g. 992601030198@mail.jiit.ac.in -> 992601030198)
+          // Automatically fetch student enrollment number directly from college email ID (e.g. 992501030399@mail.jiit.ac.in -> 992501030399)
           const rollMatch = emailPrefix.match(/\d{6,}/) || emailPrefix.match(/\d+/);
           const rollNumber = rollMatch ? rollMatch[0] : emailPrefix;
           const initialStatus = isMaster ? 'approved' : 'pending';
@@ -668,7 +668,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         emailToRegister = `${emailToRegister.toLowerCase()}@mail.jiit.ac.in`;
       }
 
-      // Automatically fetch student enrollment number directly from college email ID (e.g. 992601030198@mail.jiit.ac.in -> 992601030198)
+      // Automatically fetch student enrollment number directly from college email ID (e.g. 992501030399@mail.jiit.ac.in -> 992501030399)
       const emailPrefix = emailToRegister.split('@')[0];
       const rollMatch = emailPrefix.match(/\d{6,}/) || emailPrefix.match(/\d+/);
       const effectiveEnrollmentNo = enrollment_no?.trim() || (rollMatch ? rollMatch[0] : emailPrefix);

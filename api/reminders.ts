@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { getMailFrom, isSmtpConfigured, getTransporter, renderEmail } from './_mailer';
 
 const DEFAULT_REF = 'nmwkljtaymujqnmzgyxn';
 const DEFAULT_URL = `https://${DEFAULT_REF}.supabase.co`;
@@ -8,6 +7,27 @@ const DEFAULT_SERVICE_ROLE_KEY = Buffer.from(
   'ZXlKaGJHY2lPaUpJVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SnBjM01pT2lKemRYQmhZbUZ6WlNJc0luSmxaaUk2SW01dGQydHNhblJoZVcxMWFuRnViWHBuZVhodUlpd2ljbTlzWlNJNkluTmxjblpwWTJWZmNtOXNaU0lzSW1saGRDSTZNVGM1TXpNNE5EUXdOaXdpWlhod0lqb3lNVEE0T1RZd05EQTJmUS5JSWhZaXlfYXdYRlZrRFRMMHFXcXB3bWZVZkpvRkJuekpqbUZGbkcyN0R3',
   'base64'
 ).toString('utf8');
+
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function renderReminderEmail(name: string, item: string, status: string, dueDate: string) {
+  const accent = '#ffc928';
+  const appUrl = process.env.APP_URL || 'https://cicr-inventory.vercel.app';
+  const html = `<!doctype html><html><body style="margin:0;background:#05070d;color:#eef2f8;font-family:Arial,sans-serif"><div style="padding:28px 12px;background:#05070d"><table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:640px;margin:auto;background:#0d1320;border:1px solid #1e2a3d;border-radius:6px;overflow:hidden"><tr><td style="padding:20px 24px;border-bottom:1px solid #1e2a3d"><div style="font-size:18px;font-weight:800;letter-spacing:2px;color:#f5dc72"><span style="background:#f5dc72;color:#0d1320;padding:2px 5px">CICR</span> <span style="color:#00e5ff">//</span> INVENTORY</div><div style="margin-top:7px;color:#77839d;font-size:9px;letter-spacing:2px">CENTRE FOR INNOVATION, CONTROL &amp; ROBOTICS</div></td></tr><tr><td style="padding:24px"><div style="display:inline-block;padding:6px 9px;border:1px solid ${accent};color:${accent};font:700 10px monospace;letter-spacing:1px">REMINDER // ACTION REQUIRED</div><h1 style="margin:18px 0 8px;color:#f5f7fb;font-size:21px">Return reminder</h1><p style="margin:0;color:#9aa7bc;font-size:13px;line-height:1.6">Hello ${escapeHtml(name)},<br><br>This is a reminder that an equipment return is due soon or overdue.</p><table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;margin:22px 0;padding:12px 16px;background:#080c14;border:1px solid #202b3c;border-radius:5px"><tr><td style="padding:8px 0;color:#77839d;font:11px Arial,sans-serif;letter-spacing:1px;width:34%">ITEM</td><td style="padding:8px 0;color:#f5f7fb;font:600 13px Arial,sans-serif">${escapeHtml(item)}</td></tr><tr><td style="padding:8px 0;color:#77839d;font:11px Arial,sans-serif;letter-spacing:1px;width:34%">STATUS</td><td style="padding:8px 0;color:#f5f7fb;font:600 13px Arial,sans-serif">${escapeHtml(status).toUpperCase()}</td></tr><tr><td style="padding:8px 0;color:#77839d;font:11px Arial,sans-serif;letter-spacing:1px;width:34%">DUE DATE</td><td style="padding:8px 0;color:#f5f7fb;font:600 13px Arial,sans-serif">${escapeHtml(dueDate)}</td></tr></table><a href="${appUrl}/profile" style="display:inline-block;padding:13px 24px;background:#00d9ed;color:#041018;text-decoration:none;font:800 12px Arial,sans-serif;letter-spacing:1px;border-radius:3px">VIEW ACTIVE LOANS</a></td></tr></table></div></body></html>`;
+
+  return {
+    subject: 'CICR item return reminder',
+    text: `Hello ${name},\n\nThis is a reminder that an equipment return is due soon or overdue.\nItem: ${item}\nStatus: ${status}\nDue date: ${dueDate}\n\nCICR Inventory`,
+    html,
+  };
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
@@ -33,7 +53,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(503).json({ error: 'Service configuration incomplete.' });
   }
 
-  if (!isSmtpConfigured()) {
+  const smtpUser = (process.env.SMTP_USER || '').trim().replace(/^['"]|['"]$/g, '');
+  const smtpPass = (process.env.SMTP_PASS || '').trim().replace(/[\s'"]/g, '');
+  if (!smtpUser || !smtpPass) {
     return res.status(503).json({ error: 'Reminder service is not configured.' });
   }
 
@@ -50,26 +72,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (error) throw error;
 
     let sent = 0;
-    const transporter = await getTransporter();
-    if (!transporter) return res.status(503).json({ error: 'SMTP service is unavailable.' });
+    const mod = await import('nodemailer');
+    const nodemailer = mod.default || mod;
+    const transporter = (nodemailer.createTransport as any)({
+      host: (process.env.SMTP_HOST || 'smtp.gmail.com').trim(),
+      port: Number(process.env.SMTP_PORT) || 465,
+      secure: (process.env.SMTP_SECURE === 'true' || Number(process.env.SMTP_PORT) === 465),
+      auth: { user: smtpUser, pass: smtpPass },
+      pool: false,
+      connectionTimeout: 4000,
+      greetingTimeout: 4000,
+      socketTimeout: 4000,
+    });
+
+    const from = (process.env.SMTP_FROM || smtpUser || `CICR Inventory <${smtpUser}>`).trim().replace(/^['"]|['"]$/g, '');
     for (const request of requests || []) {
       if (!request.user_email) continue;
-      const message = renderEmail('return_reminder', {
-        name: request.user_name,
-        item: request.item_name,
-        status: request.status,
-        dueDate: request.expected_return_date,
-      });
+      const message = renderReminderEmail(
+        request.user_name || 'CICR member',
+        request.item_name || 'Equipment',
+        request.status || 'Active',
+        request.expected_return_date || 'N/A'
+      );
       try {
-        await transporter.sendMail({ from: getMailFrom(), to: request.user_email, ...message });
+        await Promise.race([
+          transporter.sendMail({ from, to: request.user_email, ...message }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP timeout')), 4500)),
+        ]);
         sent += 1;
-      } catch (sendErr) {
-        console.warn(`Failed to send reminder to ${request.user_email}:`, sendErr);
+      } catch (err) {
+        console.warn(`Reminder send failed for ${request.user_email}:`, err);
       }
     }
-    return res.status(200).json({ sent });
+
+    return res.status(200).json({ processed: (requests || []).length, sent });
   } catch (error) {
-    console.error('Reminder processing failed:', error);
-    return res.status(500).json({ error: error instanceof Error ? error.message : 'Reminder processing failed.' });
+    console.error('Reminder cron failed:', error);
+    return res.status(500).json({ error: 'Reminder job failed.' });
   }
 }

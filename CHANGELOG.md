@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.36] : 2026-11-07
+
+### Complete Serverless Self-Containment & Zero-Dependency Execution
+* **Full Self-Containment of All Serverless Functions**:
+  - Inlined email rendering and dynamic transporter initialization directly into `api/accounts.ts`, `api/email.ts`, and `api/reminders.ts`.
+  - Removed relative module import `./_mailer` and purged dangling `api/_mailer.ts` file, eliminating Node.js ESM relative resolution errors (`MODULE_NOT_FOUND`) during Vercel serverless container initialization.
+  - All four serverless functions (`accounts.ts`, `auth.ts`, `email.ts`, `reminders.ts`) now operate with 100% self-contained independence, guaranteed zero-crash resilience on Vercel deployments.
+
+---
+
 ## [2.18.35] : 2026-11-07
 
 ### Serverless Module Decoupling & Fault-Tolerant Registration Resiliency

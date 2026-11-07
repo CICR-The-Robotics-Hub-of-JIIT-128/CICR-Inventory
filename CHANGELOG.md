@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.45] : 2026-11-08
+
+### CICR Inventory Privacy & Legal Center Branding & Team Member Eligibility
+* **Branding & Header Updates**:
+  - Renamed legal portal header to **CICR Inventory Privacy & Legal Center** (and document-specific headers on dedicated subdomains).
+* **Strict CICR Team Member Scope**:
+  - Updated Overview & Scope to explicitly reflect eligibility:
+    > *"The CICR Inventory platform is only for CICR Team members who are currently enrolled in any program in Jaypee institute of information technology, Noida."*
+  - Synchronized authorized access criteria in the Terms of Service.
+* **Dedicated Subdomain Routing**:
+  - `privacy.<domain>` routes directly to the dedicated Privacy Policy.
+  - `tos.<domain>` / `terms.<domain>` / `toc.<domain>` routes directly to dedicated Terms of Service.
+  - Root routes (`/privacy`, `/terms`, `/tos`, `/toc`) maintain seamless client-side navigation.
+
+---
+
 ## [2.18.42] : 2026-11-07
 
 ### Streamlined Login Portal UI & Privacy Policy Enrollment Documentation

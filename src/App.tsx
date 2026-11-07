@@ -83,26 +83,65 @@ const AppContent: React.FC = () => {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  const hostname = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
+  const isPrivacySubdomain = hostname.startsWith('privacy.');
+  const isTosSubdomain =
+    hostname.startsWith('tos.') ||
+    hostname.startsWith('terms.') ||
+    hostname.startsWith('toc.');
+
   // 1. Legal & Compliance Pages (Publicly accessible for Google OAuth verification & Institutional Auditing)
-  if (currentPath === '/privacy' || currentPath === '/privacy-policy') {
+  if (
+    isPrivacySubdomain ||
+    currentPath === '/privacy' ||
+    currentPath === '/privacy-policy'
+  ) {
     return (
       <PrivacyPolicy
-        defaultTab="privacy"
+        mode="privacy"
+        isSubdomain={isPrivacySubdomain}
         onBack={() => {
-          window.history.pushState(null, '', '/');
-          setCurrentPath('/');
+          if (isPrivacySubdomain) {
+            const apex = hostname.replace(/^privacy\./, '');
+            window.location.href =
+              window.location.protocol +
+              '//' +
+              apex +
+              (window.location.port ? ':' + window.location.port : '') +
+              '/';
+          } else {
+            window.history.pushState(null, '', '/');
+            setCurrentPath('/');
+          }
         }}
       />
     );
   }
 
-  if (currentPath === '/terms' || currentPath === '/terms-of-service') {
+  if (
+    isTosSubdomain ||
+    currentPath === '/terms' ||
+    currentPath === '/terms-of-service' ||
+    currentPath === '/tos' ||
+    currentPath === '/toc'
+  ) {
     return (
       <PrivacyPolicy
-        defaultTab="terms"
+        mode="terms"
+        isSubdomain={isTosSubdomain}
         onBack={() => {
-          window.history.pushState(null, '', '/');
-          setCurrentPath('/');
+          if (isTosSubdomain) {
+            const apex = hostname.replace(/^(tos|terms|toc)\./, '');
+            window.location.href =
+              window.location.protocol +
+              '//' +
+              apex +
+              (window.location.port ? ':' + window.location.port : '') +
+              '/';
+          } else {
+            window.history.pushState(null, '', '/');
+            setCurrentPath('/');
+          }
         }}
       />
     );

@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.39] : 2026-11-07
+
+### Complete Password Retirement, Streamlined Google SSO & Auto-Enrollment
+* **Complete Retirement of Legacy Password System**:
+  - Eliminated manual password fields, username/identifier inputs, password show/hide toggles, "Forgot Password" links, and the manual "Authenticate" action button.
+  - Removed obsolete password-change interfaces: deleted `ChangePasswordModal.tsx`, retired the Key/Lock icon buttons from `OperatorProfileView.tsx`, `AppSidebar.tsx`, and `BottomNavbar.tsx`, and pruned password management state from `UserDashboard.tsx`.
+  - Replaced profile security action with a verified badge: `JIIT Google SSO Linked`.
+* **Streamlined Google Sign-In & Single Sign-On (SSO)**:
+  - Cleaned up the authentication portal with a focused, distraction-free aesthetic: official Google SSO action button labeled **"Sign in with Google Account"**.
+  - Removed obsolete text and badge banners for a modern, minimal UI.
+* **Strict College Email Domain Validation**:
+  - Authentication and registration are strictly restricted to official college email accounts (`@mail.jiit.ac.in`). Any external domains are blocked automatically.
+* **Automatic Enrollment / Roll Number Derivation**:
+  - Automatically parses student enrollment/roll number directly from the college email ID prefix (e.g., `992601030198@mail.jiit.ac.in` $\rightarrow$ `992601030198`), eliminating the need to ask students during signup.
+* **Automated Admin Portal Request Routing for Unregistered Accounts**:
+  - When an unregistered student signs in with their college Google account, an account request is automatically dispatched to the Admin Portal (`profiles` with `status: 'pending'` and `activity_logs` with `action: 'ACCOUNT_REQUEST'`).
+  - Displays a clean status message informing the student that their request has been sent to the Admin Portal for administrator approval before dashboard access is unlocked.
+* **Codebase Cleanup & Attack Surface Reduction**:
+  - Safely purged obsolete components `ChangePasswordModal.tsx`, `SignupForm.tsx`, and `AuthModal.tsx`.
+  - Completely neutralized credential stuffing, phishing, and weak password vulnerabilities across the platform.
+
+---
+
+## [2.18.38] : 2026-11-07
+
+### Google OAuth Integration & Strict JIIT Domain Enforcement
+* **Google OAuth Sign-In & Registration**:
+  - Implemented `signInWithGoogle` in `src/context/AuthContext.tsx` with Google Workspace hosted domain hint (`hd: 'mail.jiit.ac.in'`) and prompt selection.
+  - Added dedicated, branded **"Sign in with JIIT Google Account"** buttons on both `LoginForm.tsx` and `SignupForm.tsx` with official multi-colored Google icon and `@mail.jiit.ac.in` domain badge.
+* **Strict JIIT Domain Restriction & Security Firewall**:
+  - Implemented automatic post-auth validation in `initSession()` and `onAuthStateChange()`: any external account not ending in `@mail.jiit.ac.in` / `@jiit.ac.in` (and not in `MASTER_ADMIN_EMAILS`) is immediately signed out with full session revocation.
+  - Displays user-friendly security alert: *"Access Restricted: Only official JIIT student email accounts (@mail.jiit.ac.in) are permitted to sign in."*
+* **Smart Student Profile Auto-Provisioning**:
+  - Auto-extracts student enrollment/roll number from the email prefix (e.g. `992601030198@mail.jiit.ac.in` $\rightarrow$ Roll Number `992601030198`).
+  - Auto-provisions the user's profile with verified Google name, avatar, and enrollment number, logging the registration in `activity_logs`.
+
+---
+
 ## [2.18.37] : 2026-11-07
 
 ### Account Request Action Resiliency & Instant Removal Permanence

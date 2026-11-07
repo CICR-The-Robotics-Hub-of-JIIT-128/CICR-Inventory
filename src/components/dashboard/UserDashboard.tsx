@@ -26,9 +26,6 @@ const MeetTheDevelopers = lazy(() =>
 const RequestCartModal = lazy(() =>
   import('../inventory/RequestCartModal').then((m) => ({ default: m.RequestCartModal }))
 );
-const ChangePasswordModal = lazy(() =>
-  import('../profile/ChangePasswordModal').then((m) => ({ default: m.ChangePasswordModal }))
-);
 const AddEditItemModal = lazy(() =>
   import('../inventory/AddEditItemModal').then((m) => ({ default: m.AddEditItemModal }))
 );
@@ -93,7 +90,6 @@ export const UserDashboard: React.FC = () => {
   });
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartModalOpen, setCartModalOpen] = useState(false);
-  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [addItemModalOpen, setAddItemModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
@@ -171,7 +167,6 @@ export const UserDashboard: React.FC = () => {
   // Track open modal status and active view in refs so popstate listener always has fresh state
   const isAnyModalOpen =
     cartModalOpen ||
-    changePasswordOpen ||
     addItemModalOpen ||
     editingItem !== null ||
     selectedItem !== null ||
@@ -228,7 +223,6 @@ export const UserDashboard: React.FC = () => {
       // 1. If any modal is open, pressing back closes the modal and stays in the active view
       if (isAnyModalOpenRef.current) {
         setCartModalOpen(false);
-        setChangePasswordOpen(false);
         setAddItemModalOpen(false);
         setEditingItem(null);
         setSelectedItem(null);
@@ -321,15 +315,6 @@ export const UserDashboard: React.FC = () => {
 
   const handleCloseCart = () => {
     closeModalWithHistory(() => setCartModalOpen(false));
-  };
-
-  const handleOpenChangePassword = () => {
-    openModalWithHistory('change-password');
-    setChangePasswordOpen(true);
-  };
-
-  const handleCloseChangePassword = () => {
-    closeModalWithHistory(() => setChangePasswordOpen(false));
   };
 
   const handleOpenAddItem = () => {
@@ -1060,7 +1045,6 @@ export const UserDashboard: React.FC = () => {
               setEditAvatarUrl={setEditAvatarUrl}
               savingProfile={savingProfile}
               onSaveProfile={handleSaveProfile}
-              onOpenChangePassword={handleOpenChangePassword}
               onRemoveAvatar={() => setEditAvatarUrl('')}
             />
           </Suspense>
@@ -1073,7 +1057,6 @@ export const UserDashboard: React.FC = () => {
         setActiveView={handleNavigateView}
         activeCategory={categoryFilter}
         onSelectCategory={(cat) => setCategoryFilter(cat)}
-        onOpenChangePassword={handleOpenChangePassword}
         pendingAccountsCount={pendingAccounts.length}
       />
 
@@ -1087,13 +1070,6 @@ export const UserDashboard: React.FC = () => {
             onUpdateQuantity={handleUpdateCartQuantity}
             onRemoveItem={handleRemoveFromCart}
             onClearCart={() => setCart([])}
-          />
-        )}
-
-        {changePasswordOpen && (
-          <ChangePasswordModal
-            isOpen={changePasswordOpen}
-            onClose={handleCloseChangePassword}
           />
         )}
 

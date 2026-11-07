@@ -53,6 +53,7 @@ interface AuthContextType {
   isAdmin: boolean;
   isLeadOrAdmin: boolean;
   signIn: (data: SignInData) => Promise<{ success: boolean; error?: string }>;
+  signInWithGoogle: () => Promise<{ success: boolean; error?: string }>;
   signUp: (data: SignUpData) => Promise<{ success: boolean; error?: string; message?: string }>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<{ success: boolean; error?: string }>;
@@ -105,10 +106,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loadProfile = async (currentUser: User) => {
     try {
+      const email = (currentUser.email || '').toLowerCase().trim();
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', currentUser.id)
+        .or(`id.eq.${currentUser.id},email.ilike.${email}`)
         .maybeSingle();
 
       if (!error && data) {
@@ -116,7 +118,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           data.status ||
           (data.avatar_url?.startsWith('status:') ? data.avatar_url.replace('status:', '') : '') ||
           'approved';
-        const isMasterAdmin = MASTER_ADMIN_EMAILS.includes((currentUser.email || '').toLowerCase());
+        const isMasterAdmin = MASTER_ADMIN_EMAILS.includes(email);
         const resolvedRole: UserRole = isMasterAdmin
           ? 'admin'
           : (data.role === 'admin' ? 'admin' : (data.role as UserRole) || 'member');
@@ -167,17 +169,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const checkUserApproval = async (
     currentUser: User
   ): Promise<{ approved: boolean; reason?: 'pending' | 'rejected' }> => {
-    const isMasterAdmin = MASTER_ADMIN_EMAILS.includes((currentUser.email || '').toLowerCase());
+    const email = (currentUser.email || '').toLowerCase().trim();
+    const isMasterAdmin = MASTER_ADMIN_EMAILS.includes(email);
     if (isMasterAdmin) {
       return { approved: true };
     }
 
-    // 1. Check profiles table first
+    // 1. Check profiles table first (by id or email)
     try {
       const { data: prof } = await supabase
         .from('profiles')
-        .select('role, status, avatar_url')
-        .eq('id', currentUser.id)
+        .select('id, role, status, avatar_url')
+        .or(`id.eq.${currentUser.id},email.ilike.${email}`)
         .maybeSingle();
 
       if (prof) {
@@ -208,7 +211,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from('activity_logs')
         .select('id, details')
         .eq('action', 'ACCOUNT_REQUEST')
-        .eq('user_id', currentUser.id)
+        .or(`user_id.eq.${currentUser.id},details->>email.ilike.${email}`)
         .order('created_at', { ascending: false })
         .limit(1);
 
@@ -225,11 +228,84 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch {}
 
-    return { approved: true };
+    return { approved: false, reason: 'pending' };
   };
 
   useEffect(() => {
     let mounted = true;
+
+    async function validateAndProvisionOAuthUser(u: User): Promise<{ allowed: boolean; error?: string }> {
+      const email = (u.email || '').toLowerCase().trim();
+      const isJiit = email.endsWith('@mail.jiit.ac.in') || email.endsWith('@jiit.ac.in');
+      const isMaster = MASTER_ADMIN_EMAILS.includes(email);
+
+      if (!isJiit && !isMaster) {
+        return {
+          allowed: false,
+          error: 'Access Restricted: Only college email accounts (@mail.jiit.ac.in) are permitted to sign in.',
+        };
+      }
+
+      // Check if user already exists in profiles table
+      try {
+        const { data: existingProf } = await supabase
+          .from('profiles')
+          .select('id, email, status, role')
+          .or(`id.eq.${u.id},email.ilike.${email}`)
+          .maybeSingle();
+
+        if (!existingProf) {
+          // Account is not registered in our database: create request and send to Admin Portal
+          const meta = u.user_metadata || {};
+          const fullName = meta.full_name || meta.name || email.split('@')[0];
+          const avatarUrl = meta.avatar_url || meta.picture || '';
+          const emailPrefix = email.split('@')[0];
+          // Automatically fetch student enrollment number directly from college email ID (e.g. 992601030198@mail.jiit.ac.in -> 992601030198)
+          const rollMatch = emailPrefix.match(/\d{6,}/) || emailPrefix.match(/\d+/);
+          const rollNumber = rollMatch ? rollMatch[0] : emailPrefix;
+          const initialStatus = isMaster ? 'approved' : 'pending';
+
+          await supabase.from('profiles').upsert([{
+            id: u.id,
+            full_name: fullName,
+            email,
+            roll_number: rollNumber,
+            role: isMaster ? 'admin' : 'member',
+            status: initialStatus,
+            avatar_url: avatarUrl || (isMaster ? 'status:approved' : 'status:pending'),
+            updated_at: new Date().toISOString(),
+          }]);
+
+          await supabase.from('activity_logs').insert([{
+            user_id: u.id,
+            user_name: fullName,
+            action: 'ACCOUNT_REQUEST',
+            details: JSON.stringify({
+              userId: u.id,
+              email,
+              fullName,
+              enrollmentNo: rollNumber,
+              role: isMaster ? 'admin' : 'member',
+              status: initialStatus,
+              auth_provider: 'google',
+              created_at: new Date().toISOString(),
+            }),
+          }]);
+        } else if (existingProf.id !== u.id) {
+          // Sync existing record ID to OAuth UID if needed
+          try {
+            await supabase
+              .from('profiles')
+              .update({ id: u.id, updated_at: new Date().toISOString() })
+              .eq('email', email);
+          } catch {}
+        }
+      } catch (e) {
+        console.warn('OAuth profile provisioning notice:', e);
+      }
+
+      return { allowed: true };
+    }
 
     async function initSession() {
       try {
@@ -254,12 +330,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const currentUser = session?.user ?? fallbackUser;
 
         if (currentUser) {
+          const oauthValidation = await validateAndProvisionOAuthUser(currentUser);
+          if (!oauthValidation.allowed) {
+            await supabase.auth.signOut();
+            localStorage.removeItem('cicr-active-user');
+            localStorage.removeItem('cicr-active-profile');
+            localStorage.removeItem('neon-fallback-user');
+            localStorage.setItem('cicr_auth_error', oauthValidation.error || 'Access Restricted: Only college email accounts (@mail.jiit.ac.in) are permitted.');
+            setSession(null);
+            setUser(null);
+            setProfile(null);
+            return;
+          }
+
           const check = await checkUserApproval(currentUser);
           if (!check.approved) {
             await supabase.auth.signOut();
             localStorage.removeItem('cicr-active-user');
             localStorage.removeItem('cicr-active-profile');
             localStorage.removeItem('neon-fallback-user');
+
+            if (check.reason === 'rejected') {
+              localStorage.setItem('cicr_auth_error', 'Your account request was rejected by an administrator. Please contact the lab coordinator.');
+            } else {
+              localStorage.setItem('cicr_auth_error', 'Your account request has been sent to the Admin Portal. Please wait for an administrator to approve your account.');
+            }
+
             setSession(null);
             setUser(null);
             setProfile(null);
@@ -294,12 +390,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
+      const oauthValidation = await validateAndProvisionOAuthUser(newSession.user);
+      if (!oauthValidation.allowed) {
+        await supabase.auth.signOut();
+        localStorage.removeItem('cicr-active-user');
+        localStorage.removeItem('cicr-active-profile');
+        localStorage.setItem('cicr_auth_error', oauthValidation.error || 'Access Restricted: Only college email accounts (@mail.jiit.ac.in) are permitted.');
+        setSession(null);
+        setUser(null);
+        setProfile(null);
+        setLoading(false);
+        return;
+      }
+
       // Check approval BEFORE granting access to User state (eliminates dashboard flickering)
       const check = await checkUserApproval(newSession.user);
       if (!check.approved) {
         await supabase.auth.signOut();
         localStorage.removeItem('cicr-active-user');
         localStorage.removeItem('cicr-active-profile');
+
+        if (check.reason === 'rejected') {
+          localStorage.setItem('cicr_auth_error', 'Your account request was rejected by an administrator. Please contact the lab coordinator.');
+        } else {
+          localStorage.setItem('cicr_auth_error', 'Your account request has been sent to the Admin Portal. Please wait for an administrator to approve your account.');
+        }
+
         setSession(null);
         setUser(null);
         setProfile(null);
@@ -485,6 +601,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const signInWithGoogle = async () => {
+    try {
+      localStorage.removeItem('cicr_auth_error');
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: typeof window !== 'undefined' ? `${window.location.origin}/` : 'https://cicr-inventory.vercel.app/',
+          queryParams: {
+            hd: 'mail.jiit.ac.in',
+            prompt: 'select_account',
+          },
+        },
+      });
+      if (error) throw error;
+      return { success: true };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Google sign-in initiation failed.';
+      if (msg.toLowerCase().includes('not enabled') || msg.toLowerCase().includes('validation_failed')) {
+        return {
+          success: false,
+          error: 'Google Sign-In is awaiting Google OAuth activation in Supabase Dashboard. Please sign in with your email & password in the meantime.',
+        };
+      }
+      return { success: false, error: msg };
+    }
+  };
+
   const signUp = async ({
     email,
     password,
@@ -499,6 +642,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!emailToRegister.includes('@')) {
         emailToRegister = `${emailToRegister.toLowerCase()}@mail.jiit.ac.in`;
       }
+
+      // Automatically fetch student enrollment number directly from college email ID (e.g. 992601030198@mail.jiit.ac.in -> 992601030198)
+      const emailPrefix = emailToRegister.split('@')[0];
+      const rollMatch = emailPrefix.match(/\d{6,}/) || emailPrefix.match(/\d+/);
+      const effectiveEnrollmentNo = enrollment_no?.trim() || (rollMatch ? rollMatch[0] : emailPrefix);
 
       const isMasterAdminEmail = MASTER_ADMIN_EMAILS.includes(emailToRegister.toLowerCase());
       const enforcedRole = isMasterAdminEmail ? 'admin' : 'member';
@@ -539,7 +687,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             email: emailToRegister,
             password,
             full_name,
-            enrollment_no,
+            enrollment_no: effectiveEnrollmentNo,
             phone,
             role: enforcedRole,
             avatar_url,
@@ -580,7 +728,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         options: {
           data: {
             full_name,
-            enrollment_no,
+            enrollment_no: effectiveEnrollmentNo,
             phone,
             role: enforcedRole,
             status: initialStatus,
@@ -608,7 +756,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             email: emailToRegister,
             role: enforcedRole,
             status: initialStatus,
-            roll_number: enrollment_no,
+            roll_number: effectiveEnrollmentNo,
             phone,
             avatar_url: avatar_url || `status:${initialStatus}`,
           },
@@ -622,7 +770,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               userId: authData.user.id,
               email: emailToRegister,
               fullName: full_name,
-              enrollmentNo: enrollment_no,
+              enrollmentNo: effectiveEnrollmentNo,
               phone,
               role: enforcedRole,
               status: initialStatus,
@@ -903,6 +1051,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAdmin,
         isLeadOrAdmin,
         signIn,
+        signInWithGoogle,
         signUp,
         signOut,
         updateProfile,

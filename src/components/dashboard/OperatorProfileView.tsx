@@ -4,9 +4,7 @@ import {
   Wrench,
   Construction,
   ShieldCheck,
-  Key,
   CheckCircle2,
-  Lock,
   Sparkles,
 } from 'lucide-react';
 
@@ -24,7 +22,7 @@ interface OperatorProfileViewProps {
   setEditAvatarUrl: (url: string) => void;
   savingProfile: boolean;
   onSaveProfile: (e: React.FormEvent) => void;
-  onOpenChangePassword: () => void;
+  onOpenChangePassword?: () => void;
   onRemoveAvatar: () => void;
 }
 
@@ -32,7 +30,6 @@ export const OperatorProfileView: React.FC<OperatorProfileViewProps> = ({
   userName,
   userEmail,
   roleName,
-  onOpenChangePassword,
 }) => {
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 sm:py-12 flex flex-col items-center justify-center text-center space-y-8 animate-in fade-in duration-300">
@@ -95,17 +92,13 @@ export const OperatorProfileView: React.FC<OperatorProfileViewProps> = ({
           </div>
         </div>
 
-        {/* Change Password Quick Action */}
+        {/* Google Workspace SSO Security Indicator */}
         <div className="pt-3 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between">
-          <span className="text-xs text-slate-500 dark:text-zinc-500">Account Security</span>
-          <button
-            type="button"
-            onClick={onOpenChangePassword}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 text-xs font-bold transition-colors cursor-pointer"
-          >
-            <Key className="w-3.5 h-3.5 text-amber-500" />
-            <span>Change Password</span>
-          </button>
+          <span className="text-xs text-slate-500 dark:text-zinc-500">Account Authentication</span>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 text-xs font-bold shadow-sm">
+            <ShieldCheck className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+            <span>JIIT Google SSO Linked</span>
+          </div>
         </div>
       </div>
     </div>

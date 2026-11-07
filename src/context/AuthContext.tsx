@@ -98,11 +98,10 @@ const getInitialAuth = (): { user: User | null; profile: UserProfile | null } =>
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const initialAuth = getInitialAuth();
-  const [user, setUser] = useState<User | null>(initialAuth.user);
+  const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(initialAuth.profile);
-  const [loading, setLoading] = useState<boolean>(!initialAuth.user);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
 
   const loadProfile = async (currentUser: User) => {
     try {
@@ -307,16 +306,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { allowed: true };
     }
 
+    // Scrub sensitive OAuth tokens from the browser address bar immediately
+    const cleanUrlHash = () => {
+      if (
+        typeof window !== 'undefined' &&
+        window.location.hash &&
+        (window.location.hash.includes('access_token=') ||
+          window.location.hash.includes('refresh_token=') ||
+          window.location.hash.includes('error='))
+      ) {
+        try {
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        } catch {}
+      }
+    };
+
+    cleanUrlHash();
+
     async function initSession() {
       try {
-        const sessionPromise = supabase.auth.getSession();
-        const timeoutPromise = new Promise<{ data: { session: null } }>((resolve) =>
-          setTimeout(() => resolve({ data: { session: null } }), 1200)
-        );
-        const {
-          data: { session },
-        } = await Promise.race([sessionPromise, timeoutPromise]);
+        const { data: { session } } = await supabase.auth.getSession();
         if (!mounted) return;
+
+        // Clean tokens from URL bar right after Supabase extracts the session
+        cleanUrlHash();
 
         const storedFallback = localStorage.getItem('neon-fallback-user');
         let fallbackUser: User | null = null;
@@ -382,6 +395,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       if (!mounted) return;
+
+      // Clean tokens from URL bar immediately when auth state change fires
+      cleanUrlHash();
+
       if (!newSession?.user) {
         setSession(null);
         setUser(null);
@@ -604,10 +621,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signInWithGoogle = async () => {
     try {
       localStorage.removeItem('cicr_auth_error');
+      const origin =
+        typeof window !== 'undefined' && window.location.origin
+          ? window.location.origin.replace(/\/$/, '')
+          : 'https://cicr-inventory.vercel.app';
+      const redirectUrl = origin.includes('localhost') || origin.includes('127.0.0.1')
+        ? origin
+        : 'https://cicr-inventory.vercel.app';
+
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: typeof window !== 'undefined' ? `${window.location.origin}/` : 'https://cicr-inventory.vercel.app/',
+          redirectTo: redirectUrl,
           queryParams: {
             hd: 'mail.jiit.ac.in',
             prompt: 'select_account',
@@ -953,47 +978,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOut = async () => {
-    try {
-      if (user) {
-        try {
+    // 1. Instantly (0ms) clear local state & storage so UI immediately returns to Login screen
+    const userToLog = user;
+    const profileToLog = profile;
+
+    setUser(null);
+    setSession(null);
+    setProfile(null);
+    localStorage.removeItem('cicr-active-user');
+    localStorage.removeItem('cicr-active-profile');
+    localStorage.removeItem('neon-fallback-user');
+    localStorage.removeItem('cicr-cached-logs');
+    localStorage.removeItem('cicr-cached-members');
+    localStorage.removeItem('cicr-cached-pending-accounts');
+
+    // 2. Perform Supabase session invalidation and audit logging asynchronously in the background (non-blocking)
+    (async () => {
+      try {
+        await supabase.auth.signOut();
+        if (userToLog) {
           await supabase.from('activity_logs').insert([
             {
-              user_id: user.id,
+              user_id: userToLog.id,
               user_name:
-                profile?.full_name ||
-                user.user_metadata?.full_name ||
-                user.email?.split('@')[0] ||
+                profileToLog?.full_name ||
+                userToLog.user_metadata?.full_name ||
+                userToLog.email?.split('@')[0] ||
                 'User',
               action: 'USER_SIGNOUT',
               details: `${
-                profile?.full_name ||
-                user.user_metadata?.full_name ||
-                user.email?.split('@')[0] ||
+                profileToLog?.full_name ||
+                userToLog.user_metadata?.full_name ||
+                userToLog.email?.split('@')[0] ||
                 'User'
               } signed out of CICR Inventory Vault`,
             },
           ]);
-        } catch (logErr) {
-          console.warn('Sign-out log error:', logErr);
         }
-        await notifyEmail('logout', user.email, {
-          name: profile?.full_name || user.user_metadata?.full_name,
-        });
+      } catch (err) {
+        console.warn('Background sign out error:', err);
       }
-      await supabase.auth.signOut();
-    } catch (err) {
-      console.error('Sign out error:', err);
-    } finally {
-      setUser(null);
-      setSession(null);
-      setProfile(null);
-      localStorage.removeItem('cicr-active-user');
-      localStorage.removeItem('cicr-active-profile');
-      localStorage.removeItem('neon-fallback-user');
-      localStorage.removeItem('cicr-cached-logs');
-      localStorage.removeItem('cicr-cached-members');
-      localStorage.removeItem('cicr-cached-pending-accounts');
-    }
+    })();
   };
 
   const refreshProfile = async () => {

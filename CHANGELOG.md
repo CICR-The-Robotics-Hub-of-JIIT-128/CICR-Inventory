@@ -8,8 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [2.18.40] : 2026-11-07
 
-### Resilient Avatar Image Fallback & Referrer-Policy Fix
-* **Elimination of Broken Avatar Icons & Text Bleed**:
+### Token Scrubbing, Zero-Flicker Login Refresh & Resilient Avatar Fallback
+* **OAuth Token Scrubbing from URL Bar**:
+  - Automatically scrubs sensitive hash tokens (`#access_token=...&refresh_token=...`) from the browser address bar immediately upon return from Google Single Sign-On using `window.history.replaceState`.
+  - Prevents token leaks in the URL bar, history, and browser address bars.
+* **Cold-Start & Refresh Race Condition Elimination**:
+  - Fixed premature `<UserDashboard />` flash on refresh of the login page by making `loading` guard root rendering until Supabase confirms the session.
+  - Removed artificial 1200ms timeout race that previously caused spurious session invalidations on slow network connections.
+* **OAuth Redirect Normalization**:
+  - Automatically resolves `redirectTo` origin dynamically, directing production requests to `https://cicr-inventory.vercel.app` and development to `localhost`.
+* **Resilient Avatar Image Fallback & Referrer-Policy Fix**:
   - Added `referrerPolicy="no-referrer"` to user avatar image tags, enabling Google Workspace profile images (`lh3.googleusercontent.com`) to load properly without third-party Referer 403 blocks.
   - Implemented automatic load-error detection (`avatarLoadFailed` + `onError`) in [`BottomNavbar.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/layout/BottomNavbar.tsx) and [`AppSidebar.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/layout/AppSidebar.tsx): if an avatar image fails or is blocked, the broken image placeholder and overlapping alt text are immediately removed from the DOM.
   - Smoothly renders the user's crisp capitalized initial badge (e.g. **V**) centered over the purple circle with zero visual distortion.

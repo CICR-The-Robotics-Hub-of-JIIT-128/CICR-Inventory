@@ -69,7 +69,22 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
 
 const AppContent: React.FC = () => {
   useInactivityTimeout();
-  const { user, profile, loading } = useAuth();
+  const { user, session, profile, loading } = useAuth();
+
+  // 1. Always wait for initial auth verification to complete before rendering either screen
+  // This completely prevents dashboard flicker or crash on page refresh
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-[#07070a] flex items-center justify-center p-4">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl overflow-hidden bg-white border border-slate-200 dark:border-slate-800 shadow-md p-1 animate-pulse">
+            <img src="/cicr-logo.jpg" alt="CICR" className="w-full h-full object-cover rounded-xl" />
+          </div>
+          <div className="w-4 h-4 border-2 border-purple-600 dark:border-purple-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </div>
+    );
+  }
 
   const isApproved =
     user &&
@@ -84,26 +99,12 @@ const AppContent: React.FC = () => {
         profile?.avatar_url !== 'status:pending' &&
         profile?.avatar_url !== 'status:rejected'));
 
-  // If user is authenticated and authorized, show dashboard
+  // 2. Verified authenticated session with approved status: Show dashboard
   if (user && isApproved) {
     return <UserDashboard />;
   }
 
-  // If auth is still checking on cold start without cached user, render sleek branded pulse
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 dark:bg-[#07070a] flex items-center justify-center p-4">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl overflow-hidden bg-white border border-slate-200 dark:border-slate-800 shadow-md p-1 animate-pulse">
-            <img src="/cicr-logo.jpg" alt="CICR" className="w-full h-full object-cover rounded-xl" />
-          </div>
-          <div className="w-4 h-4 border-2 border-blue-600 dark:border-purple-500 border-t-transparent rounded-full animate-spin" />
-        </div>
-      </div>
-    );
-  }
-
-  // Genuinely unauthenticated: Show JIIT Google SSO Portal
+  // 3. Unauthenticated or pending approval: Show Google SSO Portal
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#05030a] text-slate-900 dark:text-slate-100 flex flex-col items-center justify-center p-4 selection:bg-purple-600 selection:text-white relative overflow-hidden">
       <div className="w-full flex items-center justify-center relative z-10 animate-in fade-in duration-300">

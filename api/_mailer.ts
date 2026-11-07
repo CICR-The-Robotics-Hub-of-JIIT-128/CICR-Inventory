@@ -1,5 +1,3 @@
-import nodemailer from 'nodemailer';
-
 const DEFAULT_SMTP_HOST = 'smtp.gmail.com';
 const DEFAULT_SMTP_PORT = 465;
 
@@ -16,20 +14,31 @@ const rawPass = process.env.SMTP_PASS || '';
 // Clean Google 16-character App Passwords (stripping spaces and quotes)
 export const smtpPass = rawPass ? rawPass.trim().replace(/[\s'"]/g, '') : '';
 
-export function getTransporter() {
-  return nodemailer.createTransport({
-    host: smtpHost,
-    port: smtpPort,
-    secure: smtpSecure,
-    auth: {
-      user: smtpUser,
-      pass: smtpPass,
-    },
-    pool: false, // Critical in serverless to prevent frozen/dead socket reuse
-    connectionTimeout: 4000,
-    greetingTimeout: 4000,
-    socketTimeout: 4000,
-  } as any);
+let cachedTransporter: any = null;
+
+export async function getTransporter() {
+  if (cachedTransporter) return cachedTransporter;
+  try {
+    const mod = await import('nodemailer');
+    const nodemailer = mod.default || mod;
+    cachedTransporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
+      auth: {
+        user: smtpUser,
+        pass: smtpPass,
+      },
+      pool: false, // Critical in serverless to prevent frozen/dead socket reuse
+      connectionTimeout: 4000,
+      greetingTimeout: 4000,
+      socketTimeout: 4000,
+    } as any);
+    return cachedTransporter;
+  } catch (err) {
+    console.warn('Failed to dynamically initialize nodemailer:', err);
+    return null;
+  }
 }
 
 export function getMailFrom(): string {

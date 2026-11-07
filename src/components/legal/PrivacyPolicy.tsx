@@ -134,7 +134,7 @@ export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({
                   <strong>Google Workspace Identity Information:</strong> When signing in with your institutional Google account, we collect your verified full name, official college email address (restricted to <code className="bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-purple-600 dark:text-purple-400 font-mono text-xs">@mail.jiit.ac.in</code>), and Google account profile avatar.
                 </li>
                 <li>
-                  <strong>Academic Enrollment / Roll Number:</strong> Auto-extracted directly from your official college email prefix (e.g. <code className="bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-purple-600 dark:text-purple-400 font-mono text-xs">992601030198@mail.jiit.ac.in</code> &rarr; Roll Number <code className="bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-purple-600 dark:text-purple-400 font-mono text-xs">992601030198</code>).
+                  <strong>Academic Enrollment / Roll Number:</strong> Auto-extracted directly from your official college email prefix (e.g. <code className="bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-purple-600 dark:text-purple-400 font-mono text-xs">992501030399@mail.jiit.ac.in</code> &rarr; Roll Number <code className="bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-purple-600 dark:text-purple-400 font-mono text-xs">992501030399</code>).
                 </li>
                 <li>
                   <strong>Laboratory Requisition &amp; Audit Telemetry:</strong> Records of component borrow requests, quantities, project names, issue passes, physical return clearance statuses, timestamps, and administrative approval actions.

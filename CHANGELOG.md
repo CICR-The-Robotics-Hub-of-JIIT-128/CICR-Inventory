@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.42] : 2026-11-07
+
+### Streamlined Login Portal UI & Privacy Policy Enrollment Documentation
+* **Login Portal Cleanliness**:
+  - Removed redundant `@mail.jiit.ac.in` indicator badge beneath the Google Sign-In button in [`LoginForm.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/auth/LoginForm.tsx) for a minimal, distraction-free interface.
+* **Privacy Policy Sample Enrollment Update**:
+  - Updated the academic roll number auto-extraction example in [`PrivacyPolicy.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/legal/PrivacyPolicy.tsx) to `992501030399@mail.jiit.ac.in` $\rightarrow$ Roll Number `992501030399`.
+
+---
+
 ## [2.18.41] : 2026-11-07
 
 ### Institutional Privacy Policy, Terms of Service & Google OAuth Verification Compliance

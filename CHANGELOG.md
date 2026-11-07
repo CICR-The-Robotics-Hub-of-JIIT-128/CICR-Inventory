@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.18.41] : 2026-11-07
+
+### Institutional Privacy Policy, Terms of Service & Google OAuth Verification Compliance
+* **Institutional Legal & Compliance Center**:
+  - Created [`src/components/legal/PrivacyPolicy.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/legal/PrivacyPolicy.tsx) featuring responsive tab switching between **Privacy Policy** and **Terms of Service**, official JIIT institutional contacts (`cicrinventoryofficial@gmail.com`), data retention protocols, and zero-commercialization guarantees.
+  - Fully compliant with the **Google API Services User Data Policy**, including explicit Limited Use disclosures regarding institutional Google OAuth SSO.
+* **Public Route Access & History Navigation**:
+  - Integrated public routing in [`src/App.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/App.tsx) for `/privacy`, `/privacy-policy`, `/terms`, and `/terms-of-service`, allowing direct public access without requiring authentication.
+  - Backed by existing SPA rewrite rules in `vercel.json` for seamless direct URL hits on Vercel deployments.
+* **Authentication Portal Footer Links**:
+  - Added clean footer navigation links to [`src/components/auth/LoginForm.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/auth/LoginForm.tsx) for instant one-click access to Privacy Policy and Terms of Service.
+  - Clear institutional indicator highlighting restricted `@mail.jiit.ac.in` access.
+
+---
+
 ## [2.18.40] : 2026-11-07
 
 ### Token Scrubbing, Zero-Flicker Login Refresh & Resilient Avatar Fallback

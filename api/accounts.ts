@@ -1,7 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import { Client } from 'pg';
-import { getMailFrom, isSmtpConfigured, getTransporter, renderEmail } from './_mailer';
 
 function response(res: VercelResponse, status: number, body: unknown) {
   return res.status(status).json(body);
@@ -59,21 +58,76 @@ async function requireAdmin(req: VercelRequest, supabase: ReturnType<typeof getA
   return data.user;
 }
 
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function renderAccountEmail(event: string, data: Record<string, unknown>) {
+  const name = String(data.name || 'CICR member');
+  const role = data.role ? String(data.role).toUpperCase() : 'MEMBER';
+  const subjects: Record<string, string> = {
+    account_created: 'CICR registration received - awaiting approval',
+    account_approved: 'CICR account approved - access granted',
+    account_rejected: 'CICR account rejected - registration update',
+    role_updated: 'CICR account privileges updated',
+  };
+  const messages: Record<string, string> = {
+    account_created: `Hello ${name},\n\nYour CICR Inventory account has been registered successfully and is awaiting administrator approval. You will receive another email once your registration has been reviewed.`,
+    account_approved: `Hello ${name},\n\nYour CICR Inventory account has been approved by an administrator. You can now sign in to access laboratory equipment.`,
+    account_rejected: `Hello ${name},\n\nYour CICR Inventory registration request was reviewed and declined by an administrator.`,
+    role_updated: `Hello ${name},\n\nYour CICR Inventory account role has been updated to ${role}.`,
+  };
+  const layouts: Record<string, { label: string; title: string; action: string; path: string }> = {
+    account_created: { label: 'ACCOUNT // REVIEW PENDING', title: 'Registration received', action: 'CHECK ACCOUNT STATUS', path: '/' },
+    account_approved: { label: 'ACCOUNT // ACCESS APPROVED', title: 'Your account is ready', action: 'OPEN CICR VAULT', path: '/' },
+    account_rejected: { label: 'ACCOUNT // REVIEW COMPLETE', title: 'Registration update', action: 'CONTACT CICR', path: '/' },
+    role_updated: { label: 'ACCOUNT // ROLE UPDATED', title: 'Account privileges updated', action: 'OPEN CICR VAULT', path: '/' },
+  };
+  const layout = layouts[event] || { label: 'ACCOUNT // NOTIFICATION', title: 'Account Update', action: 'OPEN CICR VAULT', path: '/' };
+  const accent = event === 'account_rejected' ? '#ff2d8d' : '#00e5ff';
+  const appUrl = process.env.APP_URL || 'https://cicr-inventory.vercel.app';
+  const html = `<!doctype html><html><body style="margin:0;background:#05070d;color:#eef2f8;font-family:Arial,sans-serif"><div style="padding:28px 12px;background:#05070d"><table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:640px;margin:auto;background:#0d1320;border:1px solid #1e2a3d;border-radius:6px;overflow:hidden"><tr><td style="padding:20px 24px;border-bottom:1px solid #1e2a3d"><div style="font-size:18px;font-weight:800;letter-spacing:2px;color:#f5dc72"><span style="background:#f5dc72;color:#0d1320;padding:2px 5px">CICR</span> <span style="color:#00e5ff">//</span> INVENTORY</div><div style="margin-top:7px;color:#77839d;font-size:9px;letter-spacing:2px">CENTRE FOR INNOVATION, CONTROL &amp; ROBOTICS</div></td></tr><tr><td style="padding:24px"><div style="display:inline-block;padding:6px 9px;border:1px solid ${accent};color:${accent};font:700 10px monospace;letter-spacing:1px">${layout.label}</div><h1 style="margin:18px 0 8px;color:#f5f7fb;font-size:21px">${layout.title}</h1><p style="margin:0 0 20px;color:#9aa7bc;font-size:13px;line-height:1.6">${escapeHtml(messages[event] || '')}</p><a href="${appUrl}${layout.path}" style="display:inline-block;padding:12px 24px;background:#00d9ed;color:#041018;text-decoration:none;font:800 12px Arial,sans-serif;letter-spacing:1px;border-radius:3px">${layout.action}</a></td></tr></table></div></body></html>`;
+
+  return {
+    subject: subjects[event] || 'CICR Inventory notification',
+    text: messages[event] || '',
+    html,
+  };
+}
+
 async function sendAccountEmail(
   event: 'account_created' | 'account_approved' | 'account_rejected' | 'role_updated',
   to: string,
   data: Record<string, unknown>
 ) {
-  if (!isSmtpConfigured()) {
-    console.warn(`SMTP is not configured; skipped ${event} email.`);
-    return;
-  }
+  const user = (process.env.SMTP_USER || '').trim().replace(/^['"]|['"]$/g, '');
+  const pass = (process.env.SMTP_PASS || '').trim().replace(/[\s'"]/g, '');
+  if (!user || !pass) return;
+
   try {
-    const transporter = await getTransporter();
-    if (!transporter) return;
+    const mod = await import('nodemailer');
+    const nodemailer = mod.default || mod;
+    const transporter = (nodemailer.createTransport as any)({
+      host: (process.env.SMTP_HOST || 'smtp.gmail.com').trim(),
+      port: Number(process.env.SMTP_PORT) || 465,
+      secure: (process.env.SMTP_SECURE === 'true' || Number(process.env.SMTP_PORT) === 465),
+      auth: { user, pass },
+      pool: false,
+      connectionTimeout: 4000,
+      greetingTimeout: 4000,
+      socketTimeout: 4000,
+    });
+
+    const emailContent = renderAccountEmail(event, data);
+    const from = (process.env.SMTP_FROM || user || `CICR Inventory <${user}>`).trim().replace(/^['"]|['"]$/g, '');
     await Promise.race([
-      transporter.sendMail({ from: getMailFrom(), to, ...renderEmail(event, data) }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP transmission timed out')), 4500))
+      transporter.sendMail({ from, to, ...emailContent }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP timeout')), 4500)),
     ]);
   } catch (err) {
     console.warn(`SMTP delivery notice for ${event}:`, err);

@@ -827,7 +827,7 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
                       onClick={() => onRejectAccount(account.id, account.full_name || account.email, account.email)}
                       className="flex-1 sm:flex-none px-4 py-2 sm:py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400 border border-red-300 dark:border-red-800 text-xs font-bold transition-all cursor-pointer disabled:opacity-50 text-center"
                     >
-                      Reject
+                      {processingUserId === account.id ? 'Rejecting...' : 'Reject'}
                     </button>
                     <button
                       type="button"

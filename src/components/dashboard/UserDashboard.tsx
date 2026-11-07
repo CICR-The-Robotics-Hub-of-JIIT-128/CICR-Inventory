@@ -130,6 +130,7 @@ export const UserDashboard: React.FC = () => {
     }
   });
   const [processingUserId, setProcessingUserId] = useState<string | null>(null);
+  const [locallyProcessedIds, setLocallyProcessedIds] = useState<Set<string>>(() => new Set());
   const [allMembers, setAllMembers] = useState<any[]>(() => {
     try {
       const raw = localStorage.getItem('cicr-cached-members');
@@ -466,7 +467,8 @@ export const UserDashboard: React.FC = () => {
               p.status === 'rejected' ||
               p.role === 'admin' ||
               p.avatar_url === 'status:approved' ||
-              p.avatar_url === 'status:rejected'
+              p.avatar_url === 'status:rejected' ||
+              (typeof p.avatar_url === 'string' && p.avatar_url.startsWith('status:'))
           )
           .map((p) => p.email?.toLowerCase())
           .filter(Boolean)
@@ -480,7 +482,8 @@ export const UserDashboard: React.FC = () => {
               p.status === 'rejected' ||
               p.role === 'admin' ||
               p.avatar_url === 'status:approved' ||
-              p.avatar_url === 'status:rejected'
+              p.avatar_url === 'status:rejected' ||
+              (typeof p.avatar_url === 'string' && p.avatar_url.startsWith('status:'))
           )
           .map((p) => p.id)
       );
@@ -488,12 +491,16 @@ export const UserDashboard: React.FC = () => {
       const pendingMap = new Map();
 
       profData.forEach((p) => {
+        const emailKey = p.email?.toLowerCase();
         const isResolved =
           p.role === 'admin' ||
           p.status === 'approved' ||
           p.status === 'rejected' ||
           p.avatar_url === 'status:approved' ||
-          p.avatar_url === 'status:rejected';
+          p.avatar_url === 'status:rejected' ||
+          (typeof p.avatar_url === 'string' && p.avatar_url.startsWith('status:')) ||
+          locallyProcessedIds.has(p.id) ||
+          (emailKey && locallyProcessedIds.has(emailKey));
 
         if (!isResolved) {
           const isPending =
@@ -501,7 +508,6 @@ export const UserDashboard: React.FC = () => {
             p.avatar_url === 'status:pending' ||
             !p.status;
 
-          const emailKey = p.email?.toLowerCase();
           if (isPending && emailKey && !resolvedEmails.has(emailKey)) {
             pendingMap.set(emailKey, p);
           }
@@ -524,6 +530,9 @@ export const UserDashboard: React.FC = () => {
           email &&
           !resolvedEmails.has(email) &&
           (!userId || !resolvedUserIds.has(userId)) &&
+          !locallyProcessedIds.has(log.id) &&
+          (!userId || !locallyProcessedIds.has(userId)) &&
+          !locallyProcessedIds.has(email) &&
           !pendingMap.has(email)
         ) {
           pendingMap.set(email, {
@@ -539,7 +548,9 @@ export const UserDashboard: React.FC = () => {
         }
       });
 
-      const pendingList = Array.from(pendingMap.values());
+      const pendingList = Array.from(pendingMap.values()).filter(
+        (a) => !locallyProcessedIds.has(a.id) && (!a.email || !locallyProcessedIds.has(a.email.toLowerCase()))
+      );
       setPendingAccounts(pendingList);
       try {
         localStorage.setItem('cicr-cached-pending-accounts', JSON.stringify(pendingList));
@@ -549,7 +560,7 @@ export const UserDashboard: React.FC = () => {
     } finally {
       setLoadingMembers(false);
     }
-  }, [isAdmin]);
+  }, [isAdmin, locallyProcessedIds]);
 
   useEffect(() => {
     if (isAdmin) {
@@ -786,11 +797,24 @@ export const UserDashboard: React.FC = () => {
   };
 
   const handleApproveAccount = async (targetUserId: string, targetName: string, targetEmail?: string) => {
+    const emailKey = targetEmail?.toLowerCase() || '';
+    setLocallyProcessedIds((prev) => {
+      const next = new Set(prev);
+      if (targetUserId) next.add(targetUserId);
+      if (emailKey) next.add(emailKey);
+      return next;
+    });
+
     // Instant Optimistic UI Update (0ms)
     const previousPending = pendingAccounts;
-    setPendingAccounts((prev) =>
-      prev.filter((a) => a.id !== targetUserId && (!targetEmail || a.email?.toLowerCase() !== targetEmail.toLowerCase()))
+    const updatedPending = previousPending.filter(
+      (a) => a.id !== targetUserId && (!emailKey || a.email?.toLowerCase() !== emailKey)
     );
+    setPendingAccounts(updatedPending);
+    try {
+      localStorage.setItem('cicr-cached-pending-accounts', JSON.stringify(updatedPending));
+    } catch {}
+
     showToast('success', 'Account Approved', `${targetName} can now sign in.`);
     notifyAccountApproved(targetName, false);
     broadcastAccountStatus?.(targetUserId, targetEmail || '', targetName, 'approved');
@@ -799,14 +823,32 @@ export const UserDashboard: React.FC = () => {
     try {
       const res = await approveUserAccount(targetUserId, targetEmail);
       if (!res.success) {
-        // Rollback if approval failed
+        // Rollback only if approval truly failed
+        setLocallyProcessedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(targetUserId);
+          if (emailKey) next.delete(emailKey);
+          return next;
+        });
         setPendingAccounts(previousPending);
+        try {
+          localStorage.setItem('cicr-cached-pending-accounts', JSON.stringify(previousPending));
+        } catch {}
         showToast('error', 'Approval Failed', res.error || 'Could not approve account');
       } else {
         syncAdminHubData().catch(() => {});
       }
     } catch {
+      setLocallyProcessedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(targetUserId);
+        if (emailKey) next.delete(emailKey);
+        return next;
+      });
       setPendingAccounts(previousPending);
+      try {
+        localStorage.setItem('cicr-cached-pending-accounts', JSON.stringify(previousPending));
+      } catch {}
       showToast('error', 'Approval Failed', 'Network or server error during approval');
     } finally {
       setProcessingUserId(null);
@@ -814,11 +856,24 @@ export const UserDashboard: React.FC = () => {
   };
 
   const handleRejectAccount = async (targetUserId: string, targetName: string, targetEmail?: string) => {
+    const emailKey = targetEmail?.toLowerCase() || '';
+    setLocallyProcessedIds((prev) => {
+      const next = new Set(prev);
+      if (targetUserId) next.add(targetUserId);
+      if (emailKey) next.add(emailKey);
+      return next;
+    });
+
     // Instant Optimistic UI Update (0ms)
     const previousPending = pendingAccounts;
-    setPendingAccounts((prev) =>
-      prev.filter((a) => a.id !== targetUserId && (!targetEmail || a.email?.toLowerCase() !== targetEmail.toLowerCase()))
+    const updatedPending = previousPending.filter(
+      (a) => a.id !== targetUserId && (!emailKey || a.email?.toLowerCase() !== emailKey)
     );
+    setPendingAccounts(updatedPending);
+    try {
+      localStorage.setItem('cicr-cached-pending-accounts', JSON.stringify(updatedPending));
+    } catch {}
+
     showToast('warning', 'Request Rejected', `Account registration for ${targetName} was rejected.`);
     notifyAccountRejected(targetName, false);
     broadcastAccountStatus?.(targetUserId, targetEmail || '', targetName, 'rejected');
@@ -827,13 +882,31 @@ export const UserDashboard: React.FC = () => {
     try {
       const res = await rejectUserAccount(targetUserId, targetEmail);
       if (!res.success) {
+        setLocallyProcessedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(targetUserId);
+          if (emailKey) next.delete(emailKey);
+          return next;
+        });
         setPendingAccounts(previousPending);
+        try {
+          localStorage.setItem('cicr-cached-pending-accounts', JSON.stringify(previousPending));
+        } catch {}
         showToast('error', 'Rejection Failed', res.error || 'Could not reject account');
       } else {
         syncAdminHubData().catch(() => {});
       }
     } catch {
+      setLocallyProcessedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(targetUserId);
+        if (emailKey) next.delete(emailKey);
+        return next;
+      });
       setPendingAccounts(previousPending);
+      try {
+        localStorage.setItem('cicr-cached-pending-accounts', JSON.stringify(previousPending));
+      } catch {}
       showToast('error', 'Rejection Failed', 'Network or server error during rejection');
     } finally {
       setProcessingUserId(null);

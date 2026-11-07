@@ -49,6 +49,11 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [mobileExpanded, setMobileExpanded] = useState(false);
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
+
+  useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [profile?.avatar_url]);
 
   const navContainerRef = useRef<HTMLDivElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -501,12 +506,18 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                   }`}
                   title="Account Settings & Quick Actions"
                 >
-                  <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-purple-600 text-white flex items-center justify-center font-black text-xs shrink-0 overflow-hidden shadow-sm">
+                  <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-purple-600 text-white flex items-center justify-center font-black text-xs shrink-0 overflow-hidden shadow-sm relative">
+                    <span className="select-none">{getInitial()}</span>
                     {profile?.avatar_url &&
-                    (profile.avatar_url.startsWith('data:image') || profile.avatar_url.startsWith('http')) ? (
-                      <img src={profile.avatar_url} alt={displayName} className="w-full h-full object-cover" />
-                    ) : (
-                      getInitial()
+                    !avatarLoadFailed &&
+                    (profile.avatar_url.startsWith('data:image') || profile.avatar_url.startsWith('http')) && (
+                      <img
+                        src={profile.avatar_url}
+                        alt=""
+                        referrerPolicy="no-referrer"
+                        onError={() => setAvatarLoadFailed(true)}
+                        className="absolute inset-0 w-full h-full object-cover rounded-full"
+                      />
                     )}
                   </div>
                   <div className="text-left hidden sm:block">
@@ -531,11 +542,18 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                     >
                       {/* Header */}
                       <div className="px-3 py-2.5 border-b border-slate-200 dark:border-zinc-800/80 flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-purple-600 text-white font-black text-xs flex items-center justify-center shrink-0">
-                          {profile?.avatar_url ? (
-                            <img src={profile.avatar_url} alt={displayName} className="w-full h-full object-cover rounded-full" />
-                          ) : (
-                            getInitial()
+                        <div className="w-8 h-8 rounded-full bg-purple-600 text-white font-black text-xs flex items-center justify-center shrink-0 relative overflow-hidden">
+                          <span className="select-none">{getInitial()}</span>
+                          {profile?.avatar_url &&
+                          !avatarLoadFailed &&
+                          (profile.avatar_url.startsWith('data:image') || profile.avatar_url.startsWith('http')) && (
+                            <img
+                              src={profile.avatar_url}
+                              alt=""
+                              referrerPolicy="no-referrer"
+                              onError={() => setAvatarLoadFailed(true)}
+                              className="absolute inset-0 w-full h-full object-cover rounded-full"
+                            />
                           )}
                         </div>
                         <div className="min-w-0">

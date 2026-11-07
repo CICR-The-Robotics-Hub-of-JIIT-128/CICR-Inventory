@@ -348,8 +348,20 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
           <div className="flex items-center justify-between p-2.5 rounded-2xl bg-[#121215] border border-[#202026]">
             {/* Avatar & Name */}
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-10 h-10 rounded-full bg-[#152320] border border-[#1f3830] text-white flex items-center justify-center font-bold text-sm shrink-0">
-                {getInitial()}
+              <div className="w-10 h-10 rounded-full bg-[#152320] border border-[#1f3830] text-white flex items-center justify-center font-bold text-sm shrink-0 relative overflow-hidden">
+                <span className="select-none">{getInitial()}</span>
+                {profile?.avatar_url &&
+                  (profile.avatar_url.startsWith('data:image') || profile.avatar_url.startsWith('http')) && (
+                    <img
+                      src={profile.avatar_url}
+                      alt=""
+                      referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLElement).style.display = 'none';
+                      }}
+                      className="absolute inset-0 w-full h-full object-cover rounded-full"
+                    />
+                )}
               </div>
               <div className="min-w-0">
                 <h5 className="text-[13px] font-bold text-white truncate max-w-[95px]">

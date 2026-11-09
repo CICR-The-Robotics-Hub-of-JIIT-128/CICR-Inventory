@@ -49,7 +49,6 @@ flowchart TD
         Clearance["Requisition Clearance Portal"]
         AdminHub["Admin Control Center & 7-Day Audit"]
         TeamShowcase["macOS Window Team Showcase"]
-        Profile["2-Box Locked Operator Profile"]
         ClockHUD["Airport Matrix Live 24h Clock"]
     end
 
@@ -120,13 +119,7 @@ flowchart TD
 - **Real-Time Badge Telemetry**: Displays the current staging count with live badge updates.
 - **Multi-Item Loan Requests**: Stage multiple hardware items and dispatch a unified loan request with project title, purpose, and return timeline.
 
-### 5. Two-Box Locked Operator Profile
-- **Two Distinct Side-by-Side Modules**:
-  - **Left Box (Operator Identity)**: High-resolution profile avatar, full name, role badge (`ADMIN` / `LEAD` / `MEMBER`), and biography.
-  - **Right Box (Institutional Credentials)**: Security-locked, tamper-proof fields for Email Address, Enrollment Number, and Contact Number.
-- **Security-Locked Notice**: Clear indicators informing operators that verified institutional credentials can only be amended by master superadmins.
-
-### 6. macOS Window Team Showcase
+### 5. macOS Window Team Showcase
 - **macOS Window Frame**: Window title bar with colored traffic light controls (`#ff5f56`, `#ffbd2e`, `#27c93f`), file moniker (`~/[filename]`), and role tag.
 - **Role Hierarchy**:
   - **Mentor**: **Gunjan Pal** — Project Mentor & Technical Advisor
@@ -135,11 +128,11 @@ flowchart TD
 - **Radiant Gradient Glow Ring**: Highlights the active member with amber (Mentor) or purple/blue (Developer) glows.
 - **Verified Social Badges**: Touch-friendly, high-contrast action pills for LinkedIn, GitHub, and personal portfolio.
 
-### 7. Live Airport Matrix Clock HUD
+### 6. Live Airport Matrix Clock HUD
 - **Real-Time 24h Departures Cockpit**: Mechanical split-flap matrix clock displaying New Delhi (IST) local time with live seconds update.
 - **Ambient Greeting**: Dynamic greeting ("Good morning", "Good afternoon", "Good evening") customized to the operator's verified name.
 
-### 8. Dual Theme Engine (LiquidToggle)
+### 7. Dual Theme Engine (LiquidToggle)
 - **Deep Cyber Dark Mode**: `#07070a` deep obsidian background, neon purple accents, emerald stock badges, and crisp white typography.
 - **Crisp Light Mode**: `#f8fafc` soft slate background, royal blue accents, high-contrast black headers, and dark emerald indicators.
 - **Zero Transparency Bleed**: Solid notification panels, modals, and tables eliminating visual clipping.
@@ -175,7 +168,7 @@ cicr_inventory_/
 │   │   ├── common/             # CicrLogo, Toast, Badge
 │   │   ├── dashboard/          # TopNavbar, DashboardOverview, ComponentVaultView,
 │   │   │                       # RequisitionsView, AdminHubView, MeetTheDevelopers,
-│   │   │                       # OperatorProfileView, CategoryDistribution, StatsOverview
+│   │   │                       # CategoryDistribution, StatsOverview
 │   │   ├── inventory/          # AddEditItemModal, ItemDetailModal, RequestCartModal
 │   │   ├── layout/             # BottomNavbar, AppSidebar, SchemaNoticeModal
 │   │   ├── profile/            # ChangePasswordModal, UserProfile
@@ -244,8 +237,8 @@ Create a `.env` file in the project root:
 
 ```env
 # Supabase Configuration
-VITE_SUPABASE_URL=https://nmwkljtaymujqnmzgyxn.supabase.co
-VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
+SUPABASE_URL=https://nmwkljtaymujqnmzgyxn.supabase.co
+SUPABASE_ANON_KEY=your-supabase-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 NEON_DATABASE_URL=postgresql://user:password@ep-example.neon.tech/neondb?sslmode=require
 ```
@@ -274,7 +267,7 @@ npm run backup:neon
 
 The GitHub Actions workflow at
 [`.github/workflows/backup.yml`](./.github/workflows/backup.yml) runs this mirror
-automatically every 15 minutes. Add `VITE_SUPABASE_URL`,
+automatically every 15 minutes. Add `SUPABASE_URL`,
 `SUPABASE_SERVICE_ROLE_KEY`, and `NEON_DATABASE_URL` as repository secrets under
 **Settings → Secrets and variables → Actions**. You can also run it immediately
 from the repository's **Actions** tab.
@@ -300,10 +293,9 @@ hashes and users are marked `password_reset_required`.
 
 Browser database requests now pass through `/api/db`. The Vercel function tries
 Supabase first and routes database reads and writes to Neon when Supabase has a
-network or server failure. Configure `VITE_SUPABASE_URL`,
-`VITE_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `NEON_DATABASE_URL` as
-Vercel environment variables
-environment variables. Supabase Auth remains primary, so login and signup are
+network or server failure. Configure `SUPABASE_URL`,
+`SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `NEON_DATABASE_URL` as
+Vercel environment variables. Supabase Auth remains primary, so login and signup are
 not available if Supabase Auth itself is down.
 
 ### Email notifications
@@ -321,12 +313,11 @@ Vercel cron is intentionally not configured.
 
 Forked or mirror deployments (such as `https://inventory.cicr.in`) can connect directly to the same shared Supabase and Neon database while authenticating users back to their own domain:
 
-1. Keep the shared database credentials (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NEON_DATABASE_URL`) identical across deployments.
+1. Keep the shared database credentials (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NEON_DATABASE_URL`) identical across deployments.
 2. Configure deployment URL variables in Vercel or `.env`:
-   * `APP_URL`: Canonical origin used in outbound email notification buttons (for example `https://inventory.cicr.in`).
-   * `VITE_APP_URL`: Public frontend origin displayed on Legal pages and used as default fallback.
-   * `VITE_AUTH_REDIRECT_URL`: Optional hard override for Supabase OAuth `redirectTo` and signup `emailRedirectTo`. Leave empty to keep each active origin on its own host automatically.
-   * `VITE_ALLOWED_ORIGINS`: Optional comma separated allowlist of valid origins (for example `https://inventory.cicr.in,https://cicr-inventory.vercel.app`).
+   * `APP_URL`: Canonical origin used in outbound email notification buttons, Legal pages, and fallback links (for example `https://inventory.cicr.in`).
+   * `AUTH_REDIRECT_URL`: Optional hard override for Supabase OAuth `redirectTo` and signup `emailRedirectTo`. Leave empty to keep each active origin on its own host automatically.
+   * `ALLOWED_ORIGINS`: Optional comma separated allowlist of valid origins (for example `https://inventory.cicr.in,https://cicr-inventory.vercel.app`).
 3. In the shared **Supabase Dashboard**, open **Authentication -> URL Configuration -> Redirect URLs** and add the deployment origin and wildcard callback pattern (for example `https://inventory.cicr.in` and `https://inventory.cicr.in/**`).
 
 ### 5. Run Development Server
@@ -353,7 +344,7 @@ The platform is optimized for **zero-configuration Vercel deployment**:
    - **Framework Preset**: `Vite`
    - **Build Command**: `npm run build`
    - **Output Directory**: `dist`
-4. Add environment variables (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) in the Vercel project settings.
+4. Add environment variables (`SUPABASE_URL`, `SUPABASE_ANON_KEY`) in the Vercel project settings.
 5. Deployments run on `https://cicr-inventory.vercel.app`.
 
 ---

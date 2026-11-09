@@ -55,10 +55,7 @@ function normalizeServerOrigin(raw?: string): string {
  */
 function resolveServerAppUrl(req?: VercelRequest): string {
   const explicit = normalizeServerOrigin(
-    process.env.APP_URL ||
-      process.env.VITE_APP_URL ||
-      process.env.VITE_AUTH_REDIRECT_URL ||
-      process.env.AUTH_REDIRECT_URL
+    process.env.APP_URL || process.env.AUTH_REDIRECT_URL
   );
   if (explicit) return explicit;
 
@@ -122,17 +119,17 @@ function renderEmail(event: string, data: Record<string, unknown>, resolvedAppUr
   };
 
   const layouts: Record<string, { label: string; title: string; action: string; path: string }> = {
-    login: { label: 'SECURITY // ACCESS AUTHORIZED', title: 'New login detected', action: 'REVIEW ACCOUNT', path: '/profile' },
+    login: { label: 'SECURITY // ACCESS AUTHORIZED', title: 'New login detected', action: 'OPEN CICR VAULT', path: '/' },
     logout: { label: 'SECURITY // SESSION CLOSED', title: 'Session closed successfully', action: 'OPEN CICR VAULT', path: '/' },
-    account_created: { label: 'ACCOUNT // REVIEW PENDING', title: 'Registration received', action: 'CHECK ACCOUNT STATUS', path: '/profile' },
+    account_created: { label: 'ACCOUNT // REVIEW PENDING', title: 'Registration received', action: 'CHECK ACCOUNT STATUS', path: '/' },
     account_approved: { label: 'ACCOUNT // ACCESS APPROVED', title: 'Your account is ready', action: 'OPEN CICR VAULT', path: '/' },
-    account_rejected: { label: 'ACCOUNT // REVIEW COMPLETE', title: 'Registration update', action: 'CONTACT CICR', path: '/profile' },
+    account_rejected: { label: 'ACCOUNT // REVIEW COMPLETE', title: 'Registration update', action: 'CONTACT CICR', path: '/' },
     role_updated: { label: 'ACCOUNT // ROLE UPDATED', title: 'Account privileges updated', action: 'OPEN CICR VAULT', path: '/' },
     borrow_requested: { label: 'REQUEST // SUBMITTED', title: 'Borrow request submitted', action: 'VIEW MY REQUESTS', path: '/requests' },
     borrow_approved: { label: 'REQUEST // APPROVED', title: 'Borrow request approved', action: 'VIEW EQUIPMENT', path: '/inventory' },
     borrow_rejected: { label: 'REQUEST // DECLINED', title: 'Borrow request needs attention', action: 'VIEW REQUEST DETAILS', path: '/requests' },
     item_returned: { label: 'INVENTORY // RETURN RECORDED', title: 'Return recorded', action: 'VIEW INVENTORY', path: '/inventory' },
-    return_reminder: { label: 'REMINDER // ACTION REQUIRED', title: 'Return reminder', action: 'VIEW ACTIVE LOANS', path: '/profile' },
+    return_reminder: { label: 'REMINDER // ACTION REQUIRED', title: 'Return reminder', action: 'VIEW ACTIVE LOANS', path: '/requests' },
   };
   const layout = layouts[event] || { label: 'SYSTEM // NOTIFICATION', title: 'CICR Inventory update', action: 'OPEN CICR VAULT', path: '/' };
   const accent = event === 'account_rejected' || event === 'borrow_rejected'
@@ -197,8 +194,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(404).json({ error: 'Not found' });
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || DEFAULT_URL;
-  const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || DEFAULT_ANON_KEY;
+  const supabaseUrl = process.env.SUPABASE_URL || DEFAULT_URL;
+  const supabaseKey = process.env.SUPABASE_ANON_KEY || DEFAULT_ANON_KEY;
   if (!supabaseUrl || !supabaseKey) {
     return res.status(503).json({ error: 'Supabase server configuration is missing.' });
   }

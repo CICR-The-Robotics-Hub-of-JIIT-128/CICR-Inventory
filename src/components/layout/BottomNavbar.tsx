@@ -22,13 +22,12 @@ import {
   Compass,
   Wrench,
   Zap,
-  User,
   Key,
   Bug,
   ExternalLink,
 } from 'lucide-react';
 
-export type ActiveView = 'dashboard' | 'inventory' | 'review-requests' | 'logs' | 'developers' | 'profile';
+export type ActiveView = 'dashboard' | 'inventory' | 'review-requests' | 'logs' | 'developers';
 
 interface BottomNavbarProps {
   activeView: ActiveView;
@@ -483,36 +482,6 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                 <span className={activeView === 'developers' ? 'inline' : 'hidden sm:inline'}>Team</span>
               </button>
             </div>
-
-            {/* 6. Profile Page Tab (if currently active on profile view and collapsed) */}
-            {activeView === 'profile' && (
-              <div
-                className={`shrink-0 flex items-center transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-                  !isExpanded
-                    ? 'opacity-100 pointer-events-auto scale-100 overflow-visible'
-                    : 'hidden'
-                }`}
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={true}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (!isExpanded) {
-                      setMobileExpanded(true);
-                    } else {
-                      setMobileExpanded(false);
-                      setIsHovered(false);
-                    }
-                  }}
-                  className="relative flex items-center justify-center gap-1 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-full text-xs font-bold transition-all duration-200 cursor-pointer shrink-0 whitespace-nowrap select-none active:scale-95 bg-purple-600 hover:bg-purple-700 text-white shadow-none"
-                >
-                  <User className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                  <span className="inline">Profile</span>
-                </button>
-              </div>
-            )}
           </div>
 
           {/* Right Section: Divider & User Profile Capsule (Revealed on hover/expand) */}
@@ -539,8 +508,6 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                   className={`flex items-center gap-1.5 sm:gap-2 p-0.5 sm:px-2.5 sm:py-1 rounded-full transition-all duration-200 cursor-pointer border-0 sm:border active:scale-95 ${
                     profileMenuOpen
                       ? 'bg-slate-100 dark:bg-zinc-800 border-slate-300 dark:border-zinc-700'
-                      : activeView === 'profile'
-                      ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-500/50 dark:border-purple-500/50'
                       : 'hover:bg-slate-100 dark:hover:bg-zinc-800/60 border-transparent hover:border-slate-300 dark:hover:border-zinc-700'
                   }`}
                   title="Account Settings & Quick Actions"
@@ -617,22 +584,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
 
                       {/* Actions */}
                       <div className="p-1 space-y-0.5 text-xs font-semibold">
-                        {/* 1. My Profile Page */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveView('profile');
-                            setProfileMenuOpen(false);
-                            setMobileExpanded(false);
-                            setIsHovered(false);
-                          }}
-                          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-200 transition-colors text-left cursor-pointer"
-                        >
-                          <User className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                          <span>My Profile & Stats</span>
-                        </button>
-
-                        {/* 2. Submit Bugs / Feedback Button */}
+                        {/* Submit Bugs / Feedback Button */}
                         <button
                           type="button"
                           onClick={() => {

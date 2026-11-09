@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ***
 
+## [2.18.51] : 2026-11-09
+
+### Operator Profile Hub Removal & Prefix Free Environment Configuration
+* **Removed Complete Operator Profile View ([`UserDashboard.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/dashboard/UserDashboard.tsx), [`DashboardOverview.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/dashboard/DashboardOverview.tsx), [`TopNavbar.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/dashboard/TopNavbar.tsx), [`BottomNavbar.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/layout/BottomNavbar.tsx))**:
+  * Deleted `OperatorProfileView.tsx` along with the Operator Profile Hub card, Active Operator Session credentials box, `#profile` hash route, dashboard `OPERATOR HUD` card, top header `OPERATOR PROFILE` breadcrumb, and `My Profile & Stats` popover menu entry.
+  * Updated [`DashboardOverview.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/dashboard/DashboardOverview.tsx) to a balanced 3 column grid (`lg:grid-cols-3`) for Component Vault, Hardware Clearances, and Meet The Developers while preserving the dock user pill, bug report form shortcut, and sign out controls inside [`BottomNavbar.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/layout/BottomNavbar.tsx).
+  * Updated outbound email CTA links inside [`api/email.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/api/email.ts) and [`api/reminders.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/api/reminders.ts) away from `/profile` to valid active routes (`/` and `/requests`).
+* **Prefix Free Environment Variables ([`vite.config.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/vite.config.ts), [`src/lib/supabase.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/lib/supabase.ts), [`src/lib/appUrl.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/lib/appUrl.ts), [`src/vite-env.d.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/vite-env.d.ts), [`api/accounts.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/api/accounts.ts), [`api/auth.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/api/auth.ts), [`api/email.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/api/email.ts), [`api/reminders.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/api/reminders.ts), [`.env.example`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/.env.example))**:
+  * Replaced all `VITE_` prefixed environment variable keys across frontend Vite build defines, Supabase client bootstrap, URL resolution helpers, serverless API routes, backup scripts, workflows, and documentation with unprefixed keys (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `APP_URL`, `AUTH_REDIRECT_URL`, `ALLOWED_ORIGINS`).
+
+***
+
 ## [2.18.50] : 2026-11-09
 
 ### Environment Driven OAuth Redirects & Multi Deployment Origin Support

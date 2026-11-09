@@ -24,8 +24,14 @@ const DEFAULT_ANON_KEY = decodeFallback(
   'ZXlKaGJHY2lPaUpJVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SnBjM01pT2lKemRYQmhZbUZ6WlNJc0luSmxaaUk2SW01dGQydHNhblJoZVcxMWFuRnViWHBuZVhodUlpd2ljbTlzWlNJNkltRnViMjRpTENKcFlYUWlPakUzT1RNek9EUTBNRFlzSW1WNGNDSTZNakV3T0RrMk1EUXdObjAuTEdFb1g3UVB1Mk85eXh3MExUNzRyZXJJbzRfVGo5Q0hDV2xzVDFob3hUOA=='
 );
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || DEFAULT_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || DEFAULT_ANON_KEY;
+const definedSupabaseUrl =
+  typeof __CICR_ENV_SUPABASE_URL__ !== 'undefined' ? __CICR_ENV_SUPABASE_URL__ : '';
+const definedSupabaseAnonKey =
+  typeof __CICR_ENV_SUPABASE_ANON_KEY__ !== 'undefined' ? __CICR_ENV_SUPABASE_ANON_KEY__ : '';
+const nodeEnv = typeof process !== 'undefined' && process.env ? process.env : undefined;
+
+const supabaseUrl = (definedSupabaseUrl || nodeEnv?.SUPABASE_URL || DEFAULT_URL).trim();
+const supabaseAnonKey = (definedSupabaseAnonKey || nodeEnv?.SUPABASE_ANON_KEY || DEFAULT_ANON_KEY).trim();
 
 // Purge any corrupted legacy session tokens in localStorage on boot to ensure seamless cross-browser compatibility
 if (typeof window !== 'undefined') {

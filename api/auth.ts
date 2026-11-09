@@ -32,8 +32,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const password = typeof body?.password === 'string' ? body.password : '';
   if (!email || !password) return jsonResponse(res, 400, { error: 'Email and password are required.' });
 
-  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || DEFAULT_URL;
-  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || DEFAULT_ANON_KEY;
+  const supabaseUrl = process.env.SUPABASE_URL || DEFAULT_URL;
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || DEFAULT_ANON_KEY;
 
   // 1. Primary Authentication: Authenticate with Supabase backend server-side
   try {

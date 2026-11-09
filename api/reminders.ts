@@ -36,10 +36,7 @@ function normalizeServerOrigin(raw?: string): string {
  */
 function resolveServerAppUrl(req?: VercelRequest): string {
   const explicit = normalizeServerOrigin(
-    process.env.APP_URL ||
-      process.env.VITE_APP_URL ||
-      process.env.VITE_AUTH_REDIRECT_URL ||
-      process.env.AUTH_REDIRECT_URL
+    process.env.APP_URL || process.env.AUTH_REDIRECT_URL
   );
   if (explicit) return explicit;
 
@@ -69,7 +66,7 @@ function escapeHtml(value: unknown) {
 function renderReminderEmail(name: string, item: string, status: string, dueDate: string, resolvedAppUrl?: string) {
   const accent = '#ffc928';
   const appUrl = normalizeServerOrigin(resolvedAppUrl) || resolveServerAppUrl();
-  const html = `<!doctype html><html><body style="margin:0;background:#05070d;color:#eef2f8;font-family:Arial,sans-serif"><div style="padding:28px 12px;background:#05070d"><table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:640px;margin:auto;background:#0d1320;border:1px solid #1e2a3d;border-radius:6px;overflow:hidden"><tr><td style="padding:20px 24px;border-bottom:1px solid #1e2a3d"><div style="font-size:18px;font-weight:800;letter-spacing:2px;color:#f5dc72"><span style="background:#f5dc72;color:#0d1320;padding:2px 5px">CICR</span> <span style="color:#00e5ff">//</span> INVENTORY</div><div style="margin-top:7px;color:#77839d;font-size:9px;letter-spacing:2px">CENTRE FOR INNOVATION, CONTROL &amp; ROBOTICS</div></td></tr><tr><td style="padding:24px"><div style="display:inline-block;padding:6px 9px;border:1px solid ${accent};color:${accent};font:700 10px monospace;letter-spacing:1px">REMINDER // ACTION REQUIRED</div><h1 style="margin:18px 0 8px;color:#f5f7fb;font-size:21px">Return reminder</h1><p style="margin:0;color:#9aa7bc;font-size:13px;line-height:1.6">Hello ${escapeHtml(name)},<br><br>This is a reminder that an equipment return is due soon or overdue.</p><table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;margin:22px 0;padding:12px 16px;background:#080c14;border:1px solid #202b3c;border-radius:5px"><tr><td style="padding:8px 0;color:#77839d;font:11px Arial,sans-serif;letter-spacing:1px;width:34%">ITEM</td><td style="padding:8px 0;color:#f5f7fb;font:600 13px Arial,sans-serif">${escapeHtml(item)}</td></tr><tr><td style="padding:8px 0;color:#77839d;font:11px Arial,sans-serif;letter-spacing:1px;width:34%">STATUS</td><td style="padding:8px 0;color:#f5f7fb;font:600 13px Arial,sans-serif">${escapeHtml(status).toUpperCase()}</td></tr><tr><td style="padding:8px 0;color:#77839d;font:11px Arial,sans-serif;letter-spacing:1px;width:34%">DUE DATE</td><td style="padding:8px 0;color:#f5f7fb;font:600 13px Arial,sans-serif">${escapeHtml(dueDate)}</td></tr></table><a href="${escapeHtml(`${appUrl}/profile`)}" style="display:inline-block;padding:13px 24px;background:#00d9ed;color:#041018;text-decoration:none;font:800 12px Arial,sans-serif;letter-spacing:1px;border-radius:3px">VIEW ACTIVE LOANS</a></td></tr></table></div></body></html>`;
+  const html = `<!doctype html><html><body style="margin:0;background:#05070d;color:#eef2f8;font-family:Arial,sans-serif"><div style="padding:28px 12px;background:#05070d"><table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:640px;margin:auto;background:#0d1320;border:1px solid #1e2a3d;border-radius:6px;overflow:hidden"><tr><td style="padding:20px 24px;border-bottom:1px solid #1e2a3d"><div style="font-size:18px;font-weight:800;letter-spacing:2px;color:#f5dc72"><span style="background:#f5dc72;color:#0d1320;padding:2px 5px">CICR</span> <span style="color:#00e5ff">//</span> INVENTORY</div><div style="margin-top:7px;color:#77839d;font-size:9px;letter-spacing:2px">CENTRE FOR INNOVATION, CONTROL &amp; ROBOTICS</div></td></tr><tr><td style="padding:24px"><div style="display:inline-block;padding:6px 9px;border:1px solid ${accent};color:${accent};font:700 10px monospace;letter-spacing:1px">REMINDER // ACTION REQUIRED</div><h1 style="margin:18px 0 8px;color:#f5f7fb;font-size:21px">Return reminder</h1><p style="margin:0;color:#9aa7bc;font-size:13px;line-height:1.6">Hello ${escapeHtml(name)},<br><br>This is a reminder that an equipment return is due soon or overdue.</p><table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;margin:22px 0;padding:12px 16px;background:#080c14;border:1px solid #202b3c;border-radius:5px"><tr><td style="padding:8px 0;color:#77839d;font:11px Arial,sans-serif;letter-spacing:1px;width:34%">ITEM</td><td style="padding:8px 0;color:#f5f7fb;font:600 13px Arial,sans-serif">${escapeHtml(item)}</td></tr><tr><td style="padding:8px 0;color:#77839d;font:11px Arial,sans-serif;letter-spacing:1px;width:34%">STATUS</td><td style="padding:8px 0;color:#f5f7fb;font:600 13px Arial,sans-serif">${escapeHtml(status).toUpperCase()}</td></tr><tr><td style="padding:8px 0;color:#77839d;font:11px Arial,sans-serif;letter-spacing:1px;width:34%">DUE DATE</td><td style="padding:8px 0;color:#f5f7fb;font:600 13px Arial,sans-serif">${escapeHtml(dueDate)}</td></tr></table><a href="${escapeHtml(`${appUrl}/requests`)}" style="display:inline-block;padding:13px 24px;background:#00d9ed;color:#041018;text-decoration:none;font:800 12px Arial,sans-serif;letter-spacing:1px;border-radius:3px">VIEW ACTIVE LOANS</a></td></tr></table></div></body></html>`;
 
   return {
     subject: 'CICR item return reminder',
@@ -92,11 +89,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(404).json({ error: 'Not found' });
   }
 
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || DEFAULT_URL;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.VITE_SUPABASE_SERVICE_ROLE_KEY ||
-    DEFAULT_SERVICE_ROLE_KEY;
+  const url = process.env.SUPABASE_URL || DEFAULT_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || DEFAULT_SERVICE_ROLE_KEY;
 
   if (!url || !key) {
     return res.status(503).json({ error: 'Service configuration incomplete.' });

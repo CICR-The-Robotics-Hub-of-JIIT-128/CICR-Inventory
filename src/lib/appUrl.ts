@@ -108,7 +108,7 @@ export function stripLegalSubdomainPrefix(rawUrl: string): string {
 /**
  * Parses a comma or whitespace separated list of allowed deployment origins.
  *
- * @param raw Comma separated URL list from VITE_ALLOWED_ORIGINS or ALLOWED_ORIGINS.
+ * @param raw Comma separated URL list from ALLOWED_ORIGINS.
  * @returns Deduplicated array of canonical normalized origins.
  */
 export function parseAllowedOrigins(raw?: string): string[] {
@@ -148,13 +148,9 @@ function readRuntimeEnv(overrideEnv?: AppUrlEnvConfig): Required<AppUrlEnvConfig
   const nodeEnv = typeof process !== 'undefined' && process.env ? process.env : undefined;
 
   return {
-    appUrl: cleanEnvString(definedAppUrl || nodeEnv?.VITE_APP_URL || nodeEnv?.APP_URL),
-    authRedirectUrl: cleanEnvString(
-      definedAuthRedirect || nodeEnv?.VITE_AUTH_REDIRECT_URL || nodeEnv?.AUTH_REDIRECT_URL
-    ),
-    allowedOrigins: cleanEnvString(
-      definedAllowedOrigins || nodeEnv?.VITE_ALLOWED_ORIGINS || nodeEnv?.ALLOWED_ORIGINS
-    ),
+    appUrl: cleanEnvString(definedAppUrl || nodeEnv?.APP_URL),
+    authRedirectUrl: cleanEnvString(definedAuthRedirect || nodeEnv?.AUTH_REDIRECT_URL),
+    allowedOrigins: cleanEnvString(definedAllowedOrigins || nodeEnv?.ALLOWED_ORIGINS),
   };
 }
 
@@ -182,14 +178,14 @@ function getHostnameSafe(urlStr: string): string {
  *
  * Resolution precedence:
  * 1. Local loopback origins (localhost / 127.0.0.1) stay on their local port
- *    unless VITE_AUTH_REDIRECT_URL itself points to a local callback target.
- * 2. Explicit VITE_AUTH_REDIRECT_URL (or AUTH_REDIRECT_URL) overrides all non local logins.
- * 3. When VITE_ALLOWED_ORIGINS (or ALLOWED_ORIGINS) is configured, matching browser
- *    origins remain on their own domain while unrecognized hosts route to VITE_APP_URL.
+ *    unless AUTH_REDIRECT_URL itself points to a local callback target.
+ * 2. Explicit AUTH_REDIRECT_URL overrides all non local logins.
+ * 3. When ALLOWED_ORIGINS is configured, matching browser origins remain on their own
+ *    domain while unrecognized hosts route to APP_URL.
  * 4. By default, active browser origins stay on their own deployment domain (for example
  *    https://inventory.cicr.in stays on https://inventory.cicr.in) so forks never
  *    bounce back to https://cicr-inventory.vercel.app even if APP_URL is unset.
- * 5. Falls back to configured VITE_APP_URL / APP_URL, then DEFAULT_APP_URL.
+ * 5. Falls back to configured APP_URL, then DEFAULT_APP_URL.
  *
  * @param options Optional browser origin and env overrides for deterministic testing.
  * @returns Fully qualified callback URL to pass as Supabase redirectTo / emailRedirectTo.
@@ -239,7 +235,7 @@ export function resolveOAuthRedirectUrl(options?: ResolveUrlOptions): string {
  * Resolves the canonical public application URL displayed in UI views such as Legal notices.
  *
  * Prefers the active non local browser origin (so deployments like inventory.cicr.in
- * display their own domain dynamically), falling back to configured APP_URL / VITE_APP_URL
+ * display their own domain dynamically), falling back to configured APP_URL
  * and finally DEFAULT_APP_URL during local development or non browser rendering.
  *
  * @param options Optional browser origin and env overrides for deterministic testing.

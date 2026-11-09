@@ -18,11 +18,8 @@ const DEFAULT_SERVICE_ROLE_KEY = Buffer.from(
 ).toString('utf8');
 
 function getAdminClient() {
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || DEFAULT_URL;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.VITE_SUPABASE_SERVICE_ROLE_KEY ||
-    DEFAULT_SERVICE_ROLE_KEY;
+  const url = process.env.SUPABASE_URL || DEFAULT_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || DEFAULT_SERVICE_ROLE_KEY;
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
@@ -291,10 +288,7 @@ function normalizeServerOrigin(raw?: string): string {
  */
 function resolveServerAppUrl(req?: VercelRequest): string {
   const explicit = normalizeServerOrigin(
-    process.env.APP_URL ||
-      process.env.VITE_APP_URL ||
-      process.env.VITE_AUTH_REDIRECT_URL ||
-      process.env.AUTH_REDIRECT_URL
+    process.env.APP_URL || process.env.AUTH_REDIRECT_URL
   );
   if (explicit) return explicit;
 

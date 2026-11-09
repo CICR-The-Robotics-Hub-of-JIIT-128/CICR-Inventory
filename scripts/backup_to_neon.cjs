@@ -9,7 +9,7 @@ const neonDatabaseUrl = process.env.NEON_DATABASE_URL;
 const supabaseDatabaseUrl = process.env.SUPABASE_DB_URL;
 
 if (!supabaseUrl || !serviceRoleKey) {
-  throw new Error('VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.');
+  throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.');
 }
 
 if (!neonDatabaseUrl) {

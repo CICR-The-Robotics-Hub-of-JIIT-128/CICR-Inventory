@@ -46,8 +46,6 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
         return 'MANAGEMENT HUB';
       case 'developers':
         return 'MEET DEVELOPERS';
-      case 'profile':
-        return 'OPERATOR PROFILE';
       default:
         return 'DASHBOARD';
     }

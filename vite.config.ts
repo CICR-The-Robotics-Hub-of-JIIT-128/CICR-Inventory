@@ -6,8 +6,8 @@ import path from 'path';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
-  // Forward only safe, non-secret deployment URL configuration into the client bundle
-  // so setting either standard Node keys (APP_URL) or VITE_* keys configures OAuth & UI URLs.
+  // Forward only safe, public non-secret configuration into the client bundle
+  // without requiring VITE_ prefixes in Vercel or local .env files.
   const pickPublicEnv = (...keys: string[]): string => {
     for (const key of keys) {
       const value = (process.env[key] || env[key] || '').trim();
@@ -16,13 +16,17 @@ export default defineConfig(({ mode }) => {
     return '';
   };
 
-  const configuredAppUrl = pickPublicEnv('VITE_APP_URL', 'APP_URL');
-  const configuredAuthRedirectUrl = pickPublicEnv('VITE_AUTH_REDIRECT_URL', 'AUTH_REDIRECT_URL');
-  const configuredAllowedOrigins = pickPublicEnv('VITE_ALLOWED_ORIGINS', 'ALLOWED_ORIGINS');
+  const configuredSupabaseUrl = pickPublicEnv('SUPABASE_URL');
+  const configuredSupabaseAnonKey = pickPublicEnv('SUPABASE_ANON_KEY');
+  const configuredAppUrl = pickPublicEnv('APP_URL');
+  const configuredAuthRedirectUrl = pickPublicEnv('AUTH_REDIRECT_URL');
+  const configuredAllowedOrigins = pickPublicEnv('ALLOWED_ORIGINS');
 
   return {
     plugins: [react()],
     define: {
+      __CICR_ENV_SUPABASE_URL__: JSON.stringify(configuredSupabaseUrl),
+      __CICR_ENV_SUPABASE_ANON_KEY__: JSON.stringify(configuredSupabaseAnonKey),
       __CICR_ENV_APP_URL__: JSON.stringify(configuredAppUrl),
       __CICR_ENV_AUTH_REDIRECT_URL__: JSON.stringify(configuredAuthRedirectUrl),
       __CICR_ENV_ALLOWED_ORIGINS__: JSON.stringify(configuredAllowedOrigins),

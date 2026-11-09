@@ -7,6 +7,11 @@ import { notifyRequisitionSubmitted } from '../../utils/deviceNotification';
 import { DragToConfirm } from '../ui/drag-to-confirm';
 import { PaymentStatus, PaymentReceiptItem } from '../ui/payment-status';
 import {
+  extractIdentityFromEmail,
+  isDirtyOrPlaceholderName,
+  toCleanDisplayName,
+} from '../../lib/identity';
+import {
   X,
   ShoppingBag,
   Trash2,
@@ -58,6 +63,30 @@ export const RequestCartModal: React.FC<RequestCartModalProps> = ({
   } | null>(null);
 
   if (!isOpen) return null;
+
+  const rawEmail = profile?.email || user?.email || '';
+  const extractedIdentity = extractIdentityFromEmail(rawEmail, {
+    ...(user?.user_metadata || {}),
+    full_name:
+      profile?.full_name ||
+      (user?.user_metadata?.full_name as string) ||
+      (user?.user_metadata?.name as string),
+    enrollment_no:
+      profile?.roll_number ||
+      profile?.enrollment_no ||
+      (user?.user_metadata?.enrollment_no as string) ||
+      (user?.user_metadata?.roll_number as string),
+  });
+  const borrowerName =
+    profile?.full_name && !isDirtyOrPlaceholderName(profile.full_name, rawEmail)
+      ? toCleanDisplayName(profile.full_name)
+      : extractedIdentity.fullName || 'Member';
+  const borrowerRoll = (
+    profile?.roll_number ||
+    profile?.enrollment_no ||
+    extractedIdentity.enrollmentNo ||
+    ''
+  ).trim();
 
   const totalUnits = cart.reduce((acc, curr) => acc + curr.quantity, 0);
 
@@ -134,7 +163,7 @@ export const RequestCartModal: React.FC<RequestCartModalProps> = ({
           amountLabel="Requested Units"
           transactionId={confirmedLoanData.transactionId}
           transactionLabel="Requisition Ref"
-          paymentMethod={user?.user_metadata?.full_name || profile?.full_name || user?.email || 'Member'}
+          paymentMethod={`${borrowerName}${borrowerRoll ? ` (${borrowerRoll})` : ''}`}
           paymentMethodLabel="Borrower"
           items={confirmedLoanData.items}
           merchantName="CICR Robotics Lab"
@@ -311,11 +340,18 @@ export const RequestCartModal: React.FC<RequestCartModalProps> = ({
                   <span className="text-slate-500 dark:text-zinc-400 font-bold shrink-0">Borrower Identity</span>
                   <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                     <span className="text-slate-900 dark:text-white font-bold">
-                      {profile?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Member'}
+                      {borrowerName}
                     </span>
-                    <span className="text-slate-500 dark:text-zinc-400 font-mono text-[11px] truncate">
-                      ({user?.email})
-                    </span>
+                    {borrowerRoll && (
+                      <span className="px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-purple-950/60 border border-blue-200 dark:border-purple-800/70 text-blue-700 dark:text-purple-300 font-mono text-[10px] font-bold">
+                        Roll: {borrowerRoll}
+                      </span>
+                    )}
+                    {rawEmail && (
+                      <span className="text-slate-500 dark:text-zinc-400 font-mono text-[11px] truncate">
+                        ({rawEmail})
+                      </span>
+                    )}
                   </div>
                 </div>
 

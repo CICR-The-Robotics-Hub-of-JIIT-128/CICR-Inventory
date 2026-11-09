@@ -58,6 +58,211 @@ async function requireAdmin(req: VercelRequest, supabase: ReturnType<typeof getA
   return data.user;
 }
 
+const GENERIC_PLACEHOLDER_NAMES = new Set([
+  'member',
+  'new member',
+  'student',
+  'student member',
+  'user',
+  'applicant',
+  'administrator',
+  'admin',
+  'system',
+  'system operator',
+  'unknown',
+]);
+
+function toCleanDisplayName(raw?: string | null): string {
+  if (!raw || typeof raw !== 'string') return '';
+  const collapsed = raw.replace(/\s+/g, ' ').trim();
+  if (!collapsed) return '';
+  return collapsed
+    .split(' ')
+    .filter(Boolean)
+    .map((token) => {
+      if (token.length === 1) return token.toUpperCase();
+      if (token === token.toUpperCase() || token === token.toLowerCase()) {
+        return token.charAt(0).toUpperCase() + token.slice(1).toLowerCase();
+      }
+      return token;
+    })
+    .join(' ');
+}
+
+function stripRollTokensFromName(raw?: string | null): string {
+  if (!raw || typeof raw !== 'string') return '';
+  const cleaned = raw
+    .replace(/(^|[\s([._\-+'"`])(?:[jJ]|[jJ]?['"`])?\d{6,}(?=$|[\s)\]._\-+,|/'"`])/g, ' ')
+    .replace(/\d{6,}/g, ' ')
+    .replace(/\(\s*\)|\[\s*\]|['"`]\s*['"`]/g, ' ')
+    .replace(/(^|\s)['"`]+|['"`]+(?=\s|$|[.,])/g, '$1')
+    .replace(/^[\s\-_|/,'"`]+|[\s\-_|/,'"`]+$/g, '')
+    .replace(/\s+[.,;:]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned || !/[a-zA-Z]/.test(cleaned) || /^[jJ]?\d{4,}$/.test(cleaned) || GENERIC_PLACEHOLDER_NAMES.has(cleaned.toLowerCase())) {
+    return '';
+  }
+  return toCleanDisplayName(cleaned);
+}
+
+function extractEnrollmentDigits(raw?: string | null): string {
+  if (!raw || typeof raw !== 'string') return '';
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  const jPrefixed = trimmed.match(/(?:^|[\s._\-+('"`])[jJ]?(\d{6,})(?=$|[\s._\-+),|/'"`])/);
+  if (jPrefixed?.[1]) return jPrefixed[1];
+  const genericLongDigits = trimmed.match(/\d{6,}/);
+  if (genericLongDigits?.[0]) return genericLongDigits[0];
+  return '';
+}
+
+function extractNameFromEmailLocal(emailLocal: string): string {
+  if (!emailLocal) return '';
+  const withoutRoll = emailLocal
+    .replace(/(^|[._\-+])[jJ]\d{6,}(?=$|[._\-+])/g, ' ')
+    .replace(/\d{6,}/g, ' ')
+    .replace(/[._\-+]+/g, ' ')
+    .trim();
+  if (!withoutRoll) return '';
+  const words = withoutRoll
+    .split(/\s+/)
+    .map((token) => token.replace(/^\d+|\d+$/g, '').trim())
+    .filter((token) => token.length > 0 && /[a-zA-Z]/.test(token));
+  if (words.length === 0) return '';
+  if (words.length === 1 && words[0].length < 2) return '';
+  const joined = words.join(' ');
+  if (GENERIC_PLACEHOLDER_NAMES.has(joined.toLowerCase())) return '';
+  return toCleanDisplayName(joined);
+}
+
+function isDirtyOrPlaceholderName(name?: string | null, email?: string | null): boolean {
+  if (!name || typeof name !== 'string') return true;
+  const trimmed = name.trim();
+  if (!trimmed) return true;
+  const lower = trimmed.toLowerCase();
+  if (GENERIC_PLACEHOLDER_NAMES.has(lower) || !/[a-zA-Z]/.test(trimmed) || /^[jJ'"]?\d{4,}$/.test(trimmed) || /\d{6,}/.test(trimmed)) return true;
+  if (/(^|[\s([._\-+'"`])(?:[jJ]|[jJ]?['"`])?\d{6,}(?=$|[\s)\]._\-+,|/'"`])/.test(trimmed)) return true;
+  if (/['"`]$/.test(trimmed)) return true;
+  const emailLocal = (email || '').toLowerCase().trim().split('@')[0];
+  if (emailLocal && lower === emailLocal && /[._\-\d]/.test(emailLocal)) return true;
+  return false;
+}
+
+function extractIdentityFromEmail(email?: string | null, metadata?: Record<string, unknown> | null) {
+  const normalizedEmail = (email || '').toLowerCase().trim();
+  const emailPrefix = normalizedEmail.includes('@') ? normalizedEmail.split('@')[0] : normalizedEmail;
+  const enrollmentFromEmail =
+    extractEnrollmentDigits(emailPrefix) ||
+    (/^\d{4,}$/.test(emailPrefix) ? emailPrefix : '');
+
+  const metaNameRaw =
+    (typeof metadata?.full_name === 'string' && metadata.full_name) ||
+    (typeof metadata?.name === 'string' && metadata.name) ||
+    '';
+  const enrollmentFromMetaName = extractEnrollmentDigits(metaNameRaw);
+
+  let explicitMetaEnrollment = '';
+  for (const cand of [metadata?.enrollment_no, metadata?.enrollmentNo, metadata?.roll_number, metadata?.rollNumber]) {
+    if (typeof cand !== 'string') continue;
+    const trimmed = cand.trim();
+    if (!trimmed || GENERIC_PLACEHOLDER_NAMES.has(trimmed.toLowerCase())) continue;
+    const digits = extractEnrollmentDigits(trimmed);
+    if (digits) {
+      explicitMetaEnrollment = digits;
+      break;
+    }
+    if (/^[a-zA-Z0-9\-/]{5,}$/.test(trimmed) && /\d{4,}/.test(trimmed)) {
+      explicitMetaEnrollment = trimmed;
+      break;
+    }
+  }
+
+  const enrollmentNo = enrollmentFromEmail || enrollmentFromMetaName || explicitMetaEnrollment || '';
+  const nameFromEmail = extractNameFromEmailLocal(emailPrefix);
+
+  const combinedGivenFamily = [
+    typeof metadata?.given_name === 'string' ? metadata.given_name : typeof metadata?.first_name === 'string' ? metadata.first_name : '',
+    typeof metadata?.family_name === 'string' ? metadata.family_name : typeof metadata?.last_name === 'string' ? metadata.last_name : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  let nameFromMeta = '';
+  for (const cand of [metadata?.full_name, metadata?.name, metadata?.display_name, combinedGivenFamily]) {
+    if (typeof cand !== 'string') continue;
+    const cleaned = stripRollTokensFromName(cand);
+    if (!cleaned) continue;
+    if (emailPrefix && /^\d+$/.test(emailPrefix) && cleaned === emailPrefix) continue;
+    nameFromMeta = cleaned;
+    break;
+  }
+
+  let fullName = '';
+  if (!nameFromEmail && !nameFromMeta) {
+    // Never fall back to enrollment numbers or numeric email prefixes in display names
+    fullName = 'Member';
+  } else if (!nameFromEmail) {
+    fullName = nameFromMeta;
+  } else if (!nameFromMeta) {
+    fullName = nameFromEmail;
+  } else {
+    const emailWords = nameFromEmail.split(/\s+/).filter(Boolean);
+    const metaWords = nameFromMeta.split(/\s+/).filter(Boolean);
+    const emailHasInitialOnly = emailWords.some((w) => w.length === 1);
+    const metaHasInitialOnly = metaWords.some((w) => w.length === 1);
+    if (
+      metaWords.length > emailWords.length ||
+      (emailHasInitialOnly && !metaHasInitialOnly && metaWords.length >= emailWords.length)
+    ) {
+      fullName = nameFromMeta;
+    } else {
+      fullName = nameFromEmail;
+    }
+  }
+
+  if (!fullName || !/[a-zA-Z]/.test(fullName) || /^[jJ'"]?\d{4,}$/.test(fullName.trim())) {
+    fullName = 'Member';
+  }
+
+  return { fullName, enrollmentNo, emailPrefix, enrollmentFromEmail };
+}
+
+async function resolveAdminActor(
+  supabase: ReturnType<typeof getAdminClient>,
+  adminUser: { id: string; email?: string; user_metadata?: Record<string, unknown> }
+) {
+  const { data: prof } = await supabase
+    .from('profiles')
+    .select('full_name, email, roll_number, role')
+    .eq('id', adminUser.id)
+    .maybeSingle();
+
+  const email = (prof?.email || adminUser.email || '').toLowerCase();
+  const identity = extractIdentityFromEmail(email, {
+    ...(adminUser.user_metadata || {}),
+    full_name:
+      prof?.full_name && !isDirtyOrPlaceholderName(prof.full_name, email)
+        ? prof.full_name
+        : adminUser.user_metadata?.full_name || adminUser.user_metadata?.name || prof?.full_name,
+    enrollment_no: prof?.roll_number || adminUser.user_metadata?.enrollment_no || adminUser.user_metadata?.roll_number,
+  });
+
+  const name =
+    prof?.full_name && !isDirtyOrPlaceholderName(prof.full_name, email)
+      ? toCleanDisplayName(prof.full_name)
+      : identity.fullName || 'Administrator';
+  const roll = identity.enrollmentNo || prof?.roll_number || '';
+
+  return {
+    id: adminUser.id,
+    name,
+    email,
+    roll,
+    role: prof?.role || 'admin',
+  };
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -172,8 +377,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .maybeSingle();
 
       const { data: targetAuth } = await supabase.auth.admin.getUserById(targetId);
-      const targetEmail = targetProfile?.email || targetAuth?.user?.email || '';
-      const targetName = targetProfile?.full_name || targetAuth?.user?.user_metadata?.full_name || targetEmail || 'Member';
+      const targetEmail = (targetProfile?.email || targetAuth?.user?.email || '').toLowerCase();
+      const targetMeta = (targetAuth?.user?.user_metadata || {}) as Record<string, unknown>;
+      const targetIdentity = extractIdentityFromEmail(targetEmail, {
+        ...targetMeta,
+        full_name:
+          targetProfile?.full_name && !isDirtyOrPlaceholderName(targetProfile.full_name, targetEmail)
+            ? targetProfile.full_name
+            : targetMeta.full_name || targetMeta.name || targetProfile?.full_name,
+        enrollment_no: targetProfile?.roll_number || targetMeta.enrollment_no || targetMeta.roll_number,
+      });
+      const targetName =
+        targetProfile?.full_name && !isDirtyOrPlaceholderName(targetProfile.full_name, targetEmail)
+          ? toCleanDisplayName(targetProfile.full_name)
+          : targetIdentity.fullName || 'Member';
+      const resolvedTargetRoll = targetIdentity.enrollmentNo || targetProfile?.roll_number || '';
 
       if (
         targetEmail &&
@@ -189,17 +407,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return response(res, 403, { error: 'Unauthorized: Only Master Superadmins can grant Administrator privileges.' });
       }
 
-      // 1. Update Supabase profiles table
+      // 1. Update Supabase profiles table (also backfill clean full_name and roll_number)
       const { error: profileError } = await supabase
         .from('profiles')
-        .update({ role, updated_at: new Date().toISOString() })
+        .update({
+          role,
+          full_name: targetName,
+          ...(resolvedTargetRoll ? { roll_number: resolvedTargetRoll } : {}),
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', targetId);
       requireDatabaseSuccess(profileError, 'Role update');
 
       // 2. Update Supabase Auth user_metadata
-      const currentMeta = targetAuth?.user?.user_metadata || {};
       const { error: authError } = await supabase.auth.admin.updateUserById(targetId, {
-        user_metadata: { ...currentMeta, role },
+        user_metadata: {
+          ...targetMeta,
+          role,
+          full_name: targetName,
+          ...(resolvedTargetRoll ? { enrollment_no: resolvedTargetRoll, roll_number: resolvedTargetRoll } : {}),
+        },
       });
       requireDatabaseSuccess(authError, 'Auth role update');
 
@@ -209,22 +436,56 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const pgClient = new Client({
             connectionString: process.env.NEON_DATABASE_URL,
             ssl: { rejectUnauthorized: true },
+            connectionTimeoutMillis: 3000,
           });
           await pgClient.connect();
-          await pgClient.query('UPDATE profiles SET role = $1, updated_at = NOW() WHERE id = $2', [role, targetId]);
+          await pgClient.query('UPDATE profiles SET role = $1, full_name = $2, roll_number = COALESCE(NULLIF(roll_number, \'\'), $3), updated_at = NOW() WHERE id = $4', [
+            role,
+            targetName,
+            resolvedTargetRoll,
+            targetId,
+          ]);
           await pgClient.end();
         } catch (neonErr) {
           console.warn('Neon role sync notice:', neonErr);
         }
       }
 
-      // 4. Record audit log
-      const adminName = adminUser?.user_metadata?.full_name || adminUser?.email || 'Administrator';
+      // 4. Record full audit log (Actor = Admin, Target = Member ID, Assigned Role)
+      const actor = await resolveAdminActor(supabase, adminUser);
+      const oldRole = (targetProfile?.role || targetMeta?.role || 'member').toString().toUpperCase();
+      const targetRoll = resolvedTargetRoll;
+      const roleGiven = role.toUpperCase();
+      const targetIdentifier = targetRoll || targetEmail || targetId;
+      const roleSummary =
+        targetIdentifier && targetName.toLowerCase() !== targetIdentifier.toLowerCase()
+          ? `${actor.name} updated ${targetName} (ID: ${targetIdentifier}) role to ${roleGiven}`
+          : `${actor.name} updated ID ${targetIdentifier} role to ${roleGiven}`;
+      const eventTs = new Date().toISOString();
+
       const { error: logError } = await supabase.from('activity_logs').insert([{
-        user_id: targetId,
-        user_name: targetName,
+        user_id: actor.id,
+        user_name: actor.name,
         action: 'ROLE_UPDATED',
-        details: `${targetName}'s role was updated to ${role.toUpperCase()} by ${adminName}.`,
+        details: JSON.stringify({
+          summary: roleSummary,
+          actorId: actor.id,
+          actorName: actor.name,
+          actorEmail: actor.email,
+          actorRoll: actor.roll,
+          actorRole: 'admin',
+          targetId,
+          targetName,
+          targetEmail,
+          targetRoll,
+          targetType: 'account',
+          where: 'Management Hub > Club Members',
+          route: '/api/accounts',
+          changes: [`Role: ${oldRole} -> ${roleGiven}`],
+          oldRole,
+          newRole: roleGiven,
+          timestamp: eventTs,
+        }),
       }]);
       requireDatabaseSuccess(logError, 'Role update logging');
 
@@ -243,13 +504,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (action === 'register') {
       const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
       const password = typeof body?.password === 'string' ? body.password : '';
-      const fullName = typeof body?.full_name === 'string' ? body.full_name.trim() : '';
-      const emailPrefix = email.split('@')[0];
-      const rollMatch = emailPrefix.match(/\d{6,}/) || emailPrefix.match(/\d+/);
-      const enrollmentNo =
-        typeof body?.enrollment_no === 'string' && body.enrollment_no.trim()
-          ? body.enrollment_no.trim()
-          : (rollMatch ? rollMatch[0] : emailPrefix);
+      const rawFullName = typeof body?.full_name === 'string' ? body.full_name.trim() : '';
+      const rawEnrollmentNo = typeof body?.enrollment_no === 'string' ? body.enrollment_no.trim() : '';
+      const identity = extractIdentityFromEmail(email, {
+        full_name: rawFullName,
+        enrollment_no: rawEnrollmentNo,
+      });
+      const fullName =
+        rawFullName && !isDirtyOrPlaceholderName(rawFullName, email)
+          ? toCleanDisplayName(rawFullName)
+          : identity.fullName;
+      const enrollmentNo = rawEnrollmentNo || identity.enrollmentNo;
       const phone = typeof body?.phone === 'string' ? body.phone : '';
       const role = typeof body?.role === 'string' ? body.role : 'member';
       const avatarUrl = typeof body?.avatar_url === 'string' ? body.avatar_url : '';
@@ -274,7 +539,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         email,
         password,
         email_confirm: true,
-        user_metadata: { full_name: fullName, enrollment_no: enrollmentNo, phone, role, status: 'pending', avatar_url: avatarUrl || undefined },
+        user_metadata: {
+          full_name: fullName,
+          enrollment_no: enrollmentNo,
+          roll_number: enrollmentNo,
+          phone,
+          role,
+          status: 'pending',
+          avatar_url: avatarUrl || undefined,
+        },
       });
       if (createError || !created.user) return response(res, 400, { error: createError?.message || 'Account creation failed.' });
 
@@ -285,15 +558,230 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }]);
       requireDatabaseSuccess(profileError, 'Profile creation');
 
+      const regTs = new Date().toISOString();
       const { error: logError } = await supabase.from('activity_logs').insert([{
         user_id: userId,
         user_name: fullName,
         action: 'ACCOUNT_REQUEST',
-        details: JSON.stringify({ userId, email, fullName, enrollmentNo, phone, role, status: 'pending', created_at: new Date().toISOString() }),
+        details: JSON.stringify({
+          userId,
+          email,
+          fullName,
+          enrollmentNo,
+          roll_number: enrollmentNo,
+          phone,
+          role,
+          status: 'pending',
+          created_at: regTs,
+          summary: `${fullName} (${email}) submitted an institutional registration request`,
+          actorId: userId,
+          actorName: fullName,
+          actorEmail: email,
+          actorRoll: enrollmentNo,
+          actorRole: role,
+          targetId: userId,
+          targetName: fullName,
+          targetEmail: email,
+          targetRoll: enrollmentNo,
+          targetType: 'account',
+          where: 'Auth Portal › Registration',
+          route: '/api/accounts',
+          timestamp: regTs,
+        }),
       }]);
       requireDatabaseSuccess(logError, 'Account request logging');
       await sendAccountEmail('account_created', email, { name: fullName, email, role, status: 'pending' });
       return response(res, 201, { success: true });
+    }
+
+    if (action === 'list_roster') {
+      await requireAdmin(req, supabase);
+
+      const [profRes, usersRes, reqLogsRes] = await Promise.all([
+        supabase.from('profiles').select('*').order('full_name', { ascending: true }),
+        supabase.auth.admin.listUsers({ page: 1, perPage: 1000 }),
+        supabase.from('activity_logs').select('*').eq('action', 'ACCOUNT_REQUEST').order('created_at', { ascending: false }).limit(200),
+      ]);
+
+      requireDatabaseSuccess(profRes.error, 'Fetch member profiles');
+      if (usersRes.error) throw usersRes.error;
+
+      const profData = (profRes.data || []) as Array<Record<string, any>>;
+      const authUsers = (usersRes.data?.users || []) as Array<{ id: string; email?: string; user_metadata?: Record<string, unknown>; created_at?: string }>;
+      const reqLogs = (reqLogsRes.data || []) as Array<Record<string, any>>;
+
+      const authById = new Map<string, (typeof authUsers)[number]>();
+      const authByEmail = new Map<string, (typeof authUsers)[number]>();
+      for (const au of authUsers) {
+        if (au.id) authById.set(au.id, au);
+        const e = (au.email || '').toLowerCase().trim();
+        if (e && !authByEmail.has(e)) authByEmail.set(e, au);
+      }
+
+      const parsedReqLogs = reqLogs.map((log) => {
+        let details: Record<string, any> = {};
+        try {
+          details = typeof log.details === 'string' ? JSON.parse(log.details) : log.details || {};
+        } catch {
+          details = {};
+        }
+        return { log, details };
+      });
+
+      const reqDetailsById = new Map<string, Record<string, any>>();
+      const reqDetailsByEmail = new Map<string, Record<string, any>>();
+      for (const { log, details } of parsedReqLogs) {
+        const uid = String(details?.userId || log.user_id || '').trim();
+        const em = String(details?.email || '').toLowerCase().trim();
+        if (uid && !reqDetailsById.has(uid)) reqDetailsById.set(uid, details);
+        if (em && !reqDetailsByEmail.has(em)) reqDetailsByEmail.set(em, details);
+      }
+
+      const healTasks: PromiseLike<unknown>[] = [];
+
+      const enrichedProfiles: Array<Record<string, any>> = profData.map((p): Record<string, any> => {
+        const email = String(p.email || '').toLowerCase().trim();
+        const au = authById.get(p.id) || (email ? authByEmail.get(email) : undefined);
+        const authMeta = (au?.user_metadata || {}) as Record<string, unknown>;
+        const reqDetail = reqDetailsById.get(p.id) || (email ? reqDetailsByEmail.get(email) : undefined) || {};
+
+        const pHasCleanName = !isDirtyOrPlaceholderName(p.full_name, email);
+        const fallbackNameCand =
+          (typeof authMeta.full_name === 'string' ? authMeta.full_name : '') ||
+          (typeof authMeta.name === 'string' ? authMeta.name : '') ||
+          (typeof authMeta.display_name === 'string' ? authMeta.display_name : '') ||
+          (typeof reqDetail.fullName === 'string' ? reqDetail.fullName : '') ||
+          (typeof reqDetail.full_name === 'string' ? reqDetail.full_name : '') ||
+          '';
+
+        const identity = extractIdentityFromEmail(email, {
+          ...authMeta,
+          full_name: pHasCleanName ? p.full_name : fallbackNameCand || p.full_name,
+          enrollment_no:
+            p.roll_number ||
+            reqDetail.enrollmentNo ||
+            reqDetail.roll_number ||
+            authMeta.enrollment_no ||
+            authMeta.roll_number,
+        });
+
+        const resolvedName = pHasCleanName
+          ? toCleanDisplayName(p.full_name) || identity.fullName
+          : identity.fullName;
+        const safeName = isDirtyOrPlaceholderName(resolvedName, email) ? 'Member' : resolvedName;
+        const resolvedRoll = identity.enrollmentNo || String(p.roll_number || '').trim();
+
+        const metaAvatar =
+          (typeof authMeta.avatar_url === 'string' && !authMeta.avatar_url.startsWith('status:') ? authMeta.avatar_url : '') ||
+          (typeof authMeta.picture === 'string' ? authMeta.picture : '');
+        const resolvedAvatar =
+          typeof p.avatar_url === 'string' && p.avatar_url && !p.avatar_url.startsWith('status:')
+            ? p.avatar_url
+            : metaAvatar || p.avatar_url || '';
+
+        const patch: Record<string, unknown> = {};
+        if (isDirtyOrPlaceholderName(p.full_name, email) && safeName !== p.full_name) {
+          patch.full_name = safeName;
+        }
+        if (resolvedRoll && (!p.roll_number || String(p.roll_number).trim() === '' || (identity.enrollmentFromEmail && p.roll_number !== identity.enrollmentFromEmail))) {
+          patch.roll_number = resolvedRoll;
+        }
+        if (metaAvatar && (!p.avatar_url || String(p.avatar_url).startsWith('status:'))) {
+          patch.avatar_url = metaAvatar;
+        }
+
+        if (Object.keys(patch).length > 0 && p.id) {
+          patch.updated_at = new Date().toISOString();
+          healTasks.push(supabase.from('profiles').update(patch).eq('id', p.id));
+        }
+
+        return {
+          ...p,
+          full_name: safeName,
+          roll_number: resolvedRoll,
+          enrollment_no: resolvedRoll,
+          avatar_url: resolvedAvatar,
+        };
+      });
+
+      if (healTasks.length > 0) {
+        await Promise.allSettled(healTasks);
+      }
+
+      const members = enrichedProfiles.filter(
+        (m) => m.status === 'approved' || m.role === 'admin' || m.avatar_url === 'status:approved'
+      );
+
+      const isProfileResolved = (p: Record<string, any>) =>
+        p.status === 'approved' ||
+        p.status === 'rejected' ||
+        p.role === 'admin' ||
+        p.avatar_url === 'status:approved' ||
+        p.avatar_url === 'status:rejected';
+
+      const resolvedEmails = new Set(
+        enrichedProfiles
+          .filter(isProfileResolved)
+          .map((p) => String(p.email || '').toLowerCase().trim())
+          .filter(Boolean)
+      );
+      const resolvedUserIds = new Set(enrichedProfiles.filter(isProfileResolved).map((p) => p.id));
+
+      const pendingMap = new Map<string, Record<string, any>>();
+      for (const p of enrichedProfiles) {
+        const emailKey = String(p.email || '').toLowerCase().trim();
+        const isPending = p.status === 'pending' || p.avatar_url === 'status:pending' || !p.status;
+        if (!isProfileResolved(p) && isPending && emailKey && !resolvedEmails.has(emailKey)) {
+          pendingMap.set(emailKey, p);
+        }
+      }
+
+      for (const { log, details } of parsedReqLogs) {
+        const email = String(details?.email || '').toLowerCase().trim();
+        const userId = details?.userId || log.user_id;
+        const isPending = !details?.status || details?.status === 'pending';
+        if (
+          isPending &&
+          email &&
+          !resolvedEmails.has(email) &&
+          (!userId || !resolvedUserIds.has(userId)) &&
+          !pendingMap.has(email)
+        ) {
+          const au = (userId ? authById.get(userId) : undefined) || authByEmail.get(email);
+          const authMeta = (au?.user_metadata || {}) as Record<string, unknown>;
+          const rawLogName = details?.fullName || details?.full_name || log.user_name || '';
+          const fallbackMetaName =
+            (typeof authMeta.full_name === 'string' ? authMeta.full_name : '') ||
+            (typeof authMeta.name === 'string' ? authMeta.name : '') ||
+            '';
+          const identity = extractIdentityFromEmail(email, {
+            ...authMeta,
+            full_name: !isDirtyOrPlaceholderName(rawLogName, email) ? rawLogName : fallbackMetaName || rawLogName,
+            enrollment_no: details?.enrollmentNo || details?.roll_number || authMeta.enrollment_no || authMeta.roll_number,
+          });
+          pendingMap.set(email, {
+            id: userId || log.id,
+            full_name: isDirtyOrPlaceholderName(identity.fullName, email) ? 'Member' : identity.fullName,
+            email: details?.email || email,
+            roll_number: identity.enrollmentNo || '',
+            enrollment_no: identity.enrollmentNo || '',
+            phone: details?.phone || '',
+            role: details?.role || 'member',
+            status: 'pending',
+            avatar_url:
+              (typeof authMeta.avatar_url === 'string' && !authMeta.avatar_url.startsWith('status:') ? authMeta.avatar_url : '') ||
+              (typeof authMeta.picture === 'string' ? authMeta.picture : '') ||
+              '',
+            created_at: log.created_at,
+          });
+        }
+      }
+
+      return response(res, 200, {
+        success: true,
+        members,
+        pendingAccounts: Array.from(pendingMap.values()),
+      });
     }
 
     if (action === 'verify_role') {
@@ -322,10 +810,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Both 'approve' and 'reject' strictly require verified administrator privileges!
-    await requireAdmin(req, supabase);
+    const adminUser = await requireAdmin(req, supabase);
+    const actor = await resolveAdminActor(supabase, adminUser);
 
     const targetId = typeof body?.target_id === 'string' ? body.target_id : '';
     const bodyEmail = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
+    const bodyTargetName = typeof body?.target_name === 'string' ? body.target_name.trim() : '';
     if (!targetId || !['approve', 'reject'].includes(action)) return response(res, 400, { error: 'Invalid account action.' });
 
     const { data: logs, error: logsError } = await supabase
@@ -355,21 +845,72 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       details = {};
     }
 
-    const email = bodyEmail || (typeof details?.email === 'string' ? details.email.toLowerCase() : '');
-    const fullName = typeof details?.fullName === 'string' ? details.fullName : targetLog?.user_name || 'Member';
-    const status = action === 'approve' ? 'approved' : 'rejected';
-
     const { data: users, error: usersError } = await supabase.auth.admin.listUsers();
     if (usersError) throw usersError;
+    const tentativeEmail = bodyEmail || (typeof details?.email === 'string' ? details.email.toLowerCase() : '');
     const existing = (users.users as Array<{ id: string; email?: string; user_metadata?: Record<string, unknown> }>).find(
-      (user) => user.id === targetId || (!!email && user.email?.toLowerCase() === email)
+      (user) => user.id === targetId || (!!tentativeEmail && user.email?.toLowerCase() === tentativeEmail)
     );
     const resolvedUserId = existing?.id || targetId;
+
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('full_name, email, roll_number, phone, role, avatar_url')
+      .eq('id', resolvedUserId)
+      .maybeSingle();
+
+    const email = (tentativeEmail || existing?.email || existingProfile?.email || '').toLowerCase();
+    const existingMeta = (existing?.user_metadata || {}) as Record<string, unknown>;
+    const rawNameCand =
+      (typeof existingProfile?.full_name === 'string' && !isDirtyOrPlaceholderName(existingProfile.full_name, email) ? existingProfile.full_name : '') ||
+      (typeof details?.fullName === 'string' && !isDirtyOrPlaceholderName(details.fullName, email) ? details.fullName : '') ||
+      (typeof bodyTargetName === 'string' && !isDirtyOrPlaceholderName(bodyTargetName, email) ? bodyTargetName : '') ||
+      (typeof existingMeta?.full_name === 'string' ? existingMeta.full_name : '') ||
+      (typeof existingMeta?.name === 'string' ? existingMeta.name : '') ||
+      (typeof targetLog?.user_name === 'string' ? targetLog.user_name : '');
+
+    const identity = extractIdentityFromEmail(email, {
+      ...existingMeta,
+      full_name: rawNameCand || existingMeta.full_name || existingMeta.name,
+      enrollment_no:
+        existingProfile?.roll_number ||
+        details?.enrollmentNo ||
+        details?.roll_number ||
+        existingMeta?.enrollment_no ||
+        existingMeta?.roll_number,
+    });
+
+    const fullName =
+      rawNameCand && !isDirtyOrPlaceholderName(rawNameCand, email)
+        ? toCleanDisplayName(rawNameCand)
+        : identity.fullName;
+
+    const rollNumber = identity.enrollmentNo || existingProfile?.roll_number || '';
+    const status = action === 'approve' ? 'approved' : 'rejected';
+
+    // Preserve real Google/uploaded photo URLs rather than overwriting avatar_url with status:...
+    const preservedAvatar =
+      (typeof existingProfile?.avatar_url === 'string' && !existingProfile.avatar_url.startsWith('status:')
+        ? existingProfile.avatar_url
+        : '') ||
+      (typeof existingMeta?.avatar_url === 'string' && !String(existingMeta.avatar_url).startsWith('status:')
+        ? String(existingMeta.avatar_url)
+        : '') ||
+      (typeof existingMeta?.picture === 'string' ? String(existingMeta.picture) : '');
+
+    const finalAvatarValue = preservedAvatar || `status:${status}`;
 
     if (existing) {
       await supabase.auth.admin.updateUserById(existing.id, {
         email_confirm: true,
-        user_metadata: { ...existing.user_metadata, status },
+        user_metadata: {
+          ...existingMeta,
+          status,
+          full_name: fullName,
+          enrollment_no: rollNumber,
+          roll_number: rollNumber,
+          ...(preservedAvatar ? { avatar_url: preservedAvatar } : {}),
+        },
       });
     }
 
@@ -378,11 +919,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         id: resolvedUserId,
         full_name: fullName,
         email: email || existing?.email,
-        role: details?.role || 'member',
+        role: existingProfile?.role || details?.role || 'member',
         status: 'approved',
-        roll_number: details?.enrollmentNo || '',
-        phone: details?.phone || '',
-        avatar_url: 'status:approved',
+        roll_number: rollNumber,
+        phone: existingProfile?.phone || details?.phone || '',
+        avatar_url: finalAvatarValue,
         updated_at: new Date().toISOString(),
       }]);
       requireDatabaseSuccess(profileError, 'Approved profile update');
@@ -391,11 +932,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         id: resolvedUserId,
         full_name: fullName,
         email: email || existing?.email,
-        role: details?.role || 'member',
+        role: existingProfile?.role || details?.role || 'member',
         status: 'rejected',
-        avatar_url: 'status:rejected',
-        roll_number: details?.enrollmentNo || '',
-        phone: details?.phone || '',
+        avatar_url: finalAvatarValue,
+        roll_number: rollNumber,
+        phone: existingProfile?.phone || details?.phone || '',
         updated_at: new Date().toISOString(),
       }]);
       requireDatabaseSuccess(profileError, 'Rejected profile update');
@@ -407,19 +948,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const pgClient = new Client({
           connectionString: process.env.NEON_DATABASE_URL,
           ssl: { rejectUnauthorized: true },
+          connectionTimeoutMillis: 3000,
         });
         await pgClient.connect();
-        await pgClient.query('UPDATE profiles SET status = $1, avatar_url = $2, updated_at = NOW() WHERE id = $3 OR email = $4', [
-          status,
-          `status:${status}`,
-          resolvedUserId,
-          email || '',
-        ]);
+        await pgClient.query(
+          'UPDATE profiles SET status = $1, full_name = $2, roll_number = COALESCE(NULLIF(roll_number, \'\'), $3), avatar_url = $4, updated_at = NOW() WHERE id = $5 OR email = $6',
+          [status, fullName, rollNumber, finalAvatarValue, resolvedUserId, email || '']
+        );
         await pgClient.end();
       } catch (neonErr) {
         console.warn('Neon status sync notice:', neonErr);
       }
     }
+
+    const decisionTs = new Date().toISOString();
 
     // Update ALL matching ACCOUNT_REQUEST logs so they are permanently marked
     for (const log of logs || []) {
@@ -439,17 +981,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         await supabase
           .from('activity_logs')
           .update({
-            details: JSON.stringify({ ...lDetails, status, [`${status}_at`]: new Date().toISOString() }),
+            user_name: fullName,
+            details: JSON.stringify({
+              ...lDetails,
+              fullName,
+              enrollmentNo: rollNumber,
+              roll_number: rollNumber,
+              status,
+              [`${status}_at`]: decisionTs,
+              [`${status}_by`]: actor.name,
+            }),
           })
           .eq('id', log.id);
       }
     }
 
     const { error: actionLogError } = await supabase.from('activity_logs').insert([{
-      user_id: resolvedUserId,
-      user_name: fullName,
+      user_id: actor.id,
+      user_name: actor.name,
       action: action === 'approve' ? 'ACCOUNT_APPROVED' : 'ACCOUNT_REJECTED',
-      details: `Account for ${fullName} was ${status}.`,
+      details: JSON.stringify({
+        summary: `${actor.name} ${status} registration account for ${fullName}${email ? ` (${email})` : ''}`,
+        actorId: actor.id,
+        actorName: actor.name,
+        actorEmail: actor.email,
+        actorRoll: actor.roll,
+        actorRole: 'admin',
+        targetId: resolvedUserId,
+        targetName: fullName,
+        targetEmail: email,
+        targetRoll: rollNumber,
+        targetType: 'account',
+        where: 'Management Hub › Account Requests',
+        route: '/api/accounts',
+        changes: [`Account Status: PENDING → ${status.toUpperCase()}`],
+        timestamp: decisionTs,
+      }),
     }]);
     requireDatabaseSuccess(actionLogError, 'Account action logging');
     if (email) { void sendAccountEmail(action === 'approve' ? 'account_approved' : 'account_rejected', email, { name: fullName, email, role: details?.role, status }).catch(err => console.warn('Background email notice:', err)); }

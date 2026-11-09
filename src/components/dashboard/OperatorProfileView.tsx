@@ -1,16 +1,22 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { CicrLogo } from '../common/CicrLogo';
 import {
-  Wrench,
   Construction,
   ShieldCheck,
   CheckCircle2,
-  Sparkles,
+  Hash,
 } from 'lucide-react';
+import {
+  extractIdentityFromEmail,
+  isDirtyOrPlaceholderName,
+  toCleanDisplayName,
+} from '../../lib/identity';
 
 interface OperatorProfileViewProps {
   userName: string;
   userEmail?: string;
+  enrollmentNo?: string;
+  avatarUrl?: string;
   roleName: string;
   editName: string;
   setEditName: (name: string) => void;
@@ -29,8 +35,42 @@ interface OperatorProfileViewProps {
 export const OperatorProfileView: React.FC<OperatorProfileViewProps> = ({
   userName,
   userEmail,
+  enrollmentNo,
+  avatarUrl,
   roleName,
+  editName,
+  editEnrollment,
+  editAvatarUrl,
 }) => {
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
+
+  const resolvedAvatar =
+    (avatarUrl && !avatarUrl.startsWith('status:') ? avatarUrl : '') ||
+    (editAvatarUrl && !editAvatarUrl.startsWith('status:') ? editAvatarUrl : '');
+
+  useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [resolvedAvatar]);
+
+  const extracted = extractIdentityFromEmail(userEmail, {
+    full_name: editName || userName,
+    enrollment_no: editEnrollment || enrollmentNo,
+  });
+
+  const resolvedName =
+    editName && !isDirtyOrPlaceholderName(editName, userEmail)
+      ? toCleanDisplayName(editName)
+      : userName && !isDirtyOrPlaceholderName(userName, userEmail)
+      ? toCleanDisplayName(userName)
+      : extracted.fullName || 'Member';
+
+  const resolvedEnrollment = (
+    editEnrollment ||
+    enrollmentNo ||
+    extracted.enrollmentNo ||
+    ''
+  ).trim();
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 sm:py-12 flex flex-col items-center justify-center text-center space-y-8 animate-in fade-in duration-300">
       {/* CICR Inventory Logo with Pulse Ambient Glow */}
@@ -72,19 +112,62 @@ export const OperatorProfileView: React.FC<OperatorProfileViewProps> = ({
           </span>
         </div>
 
+        {/* Identity Highlight Banner */}
+        <div className="flex items-center gap-3.5 p-3 rounded-2xl bg-slate-50 dark:bg-[#13131f] border border-slate-200/80 dark:border-zinc-800/80">
+          <div className="w-12 h-12 rounded-2xl bg-purple-600 text-white font-black text-base flex items-center justify-center shrink-0 relative overflow-hidden shadow-sm">
+            <span className="select-none">{resolvedName.charAt(0).toUpperCase()}</span>
+            {resolvedAvatar &&
+              !avatarLoadFailed &&
+              (resolvedAvatar.startsWith('data:image') || resolvedAvatar.startsWith('http')) && (
+                <img
+                  src={resolvedAvatar}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  onError={() => setAvatarLoadFailed(true)}
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+              )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-black text-sm sm:text-base text-slate-900 dark:text-white truncate">
+              {resolvedName}
+            </p>
+            {resolvedEnrollment ? (
+              <div className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md bg-blue-50 dark:bg-purple-950/50 border border-blue-200 dark:border-purple-800/70 text-[11px] font-mono font-bold text-blue-700 dark:text-purple-300">
+                <Hash className="w-3 h-3 shrink-0" />
+                <span>{resolvedEnrollment}</span>
+              </div>
+            ) : (
+              <span className="text-[11px] font-mono text-slate-400 dark:text-zinc-500 block mt-0.5">
+                Enrollment Pending Assignment
+              </span>
+            )}
+          </div>
+        </div>
+
         <div className="space-y-2.5 text-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-slate-500 dark:text-zinc-500">Operator:</span>
-            <span className="font-bold text-slate-900 dark:text-white">{userName}</span>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-slate-500 dark:text-zinc-500 shrink-0">Operator Name:</span>
+            <span className="font-bold text-slate-900 dark:text-white text-right truncate">{resolvedName}</span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-slate-500 dark:text-zinc-500 shrink-0">Enrollment / Roll No:</span>
+            {resolvedEnrollment ? (
+              <span className="font-mono font-bold text-slate-900 dark:text-zinc-100">
+                {resolvedEnrollment}
+              </span>
+            ) : (
+              <span className="font-mono text-slate-400 dark:text-zinc-500">Not Assigned</span>
+            )}
           </div>
           {userEmail && (
-            <div className="flex items-center justify-between">
-              <span className="text-slate-500 dark:text-zinc-500">Email:</span>
-              <span className="font-mono text-slate-700 dark:text-zinc-300">{userEmail}</span>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-slate-500 dark:text-zinc-500 shrink-0">Email:</span>
+              <span className="font-mono text-slate-700 dark:text-zinc-300 truncate">{userEmail}</span>
             </div>
           )}
-          <div className="flex items-center justify-between">
-            <span className="text-slate-500 dark:text-zinc-500">System Clearance:</span>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-slate-500 dark:text-zinc-500 shrink-0">System Clearance:</span>
             <span className="flex items-center gap-1.5 font-bold text-emerald-600 dark:text-emerald-400">
               <CheckCircle2 className="w-3.5 h-3.5" />
               Verified &amp; Online

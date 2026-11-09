@@ -79,6 +79,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const client = new Client({
       connectionString: process.env.NEON_DATABASE_URL,
       ssl: { rejectUnauthorized: true },
+      connectionTimeoutMillis: 3000,
     });
 
     try {

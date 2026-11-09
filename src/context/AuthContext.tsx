@@ -1,8 +1,15 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { UserProfile, UserRole } from '../types/inventory';
 import { notifyEmail } from '../lib/notifications';
+import { buildAuditDetails } from '../lib/audit';
+import {
+  extractIdentityFromEmail,
+  hydrateMemberIdentity,
+  isDirtyOrPlaceholderName,
+  toCleanDisplayName,
+} from '../lib/identity';
 
 export const MASTER_ADMIN_EMAILS = [
   'vardaansaxena096@gmail.com',
@@ -58,8 +65,8 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<{ success: boolean; error?: string }>;
   refreshProfile: () => Promise<void>;
-  approveUserAccount: (userId: string, email?: string) => Promise<{ success: boolean; error?: string }>;
-  rejectUserAccount: (userId: string, email?: string) => Promise<{ success: boolean; error?: string }>;
+  approveUserAccount: (userId: string, email?: string, targetName?: string) => Promise<{ success: boolean; error?: string }>;
+  rejectUserAccount: (userId: string, email?: string, targetName?: string) => Promise<{ success: boolean; error?: string }>;
   updateUserRole: (userId: string, newRole: 'admin' | 'member') => Promise<{ success: boolean; error?: string }>;
   updatePassword: (password: string) => Promise<{ success: boolean; error?: string }>;
 }
@@ -102,10 +109,95 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const loggedSignInMarkersRef = useRef<Set<string>>(new Set());
+  const provisioningPromisesRef = useRef<Map<string, Promise<{ allowed: boolean; error?: string }>>>(new Map());
+  const syncedMetadataUserIdsRef = useRef<Set<string>>(new Set());
 
-  const loadProfile = async (currentUser: User) => {
+  const logUserSignInIfNeeded = async (
+    currentUser: User,
+    resolvedProf?: Partial<UserProfile> | null,
+    forceLog?: boolean
+  ) => {
     try {
-      const email = (currentUser.email || '').toLowerCase().trim();
+      const marker = currentUser.last_sign_in_at || (forceLog ? `session-${Date.now()}` : '');
+      if (!marker) return;
+
+      const lsKey = `cicr_last_signin_logged_${currentUser.id}`;
+      const memKey = `${currentUser.id}:${marker}`;
+
+      if (!forceLog) {
+        if (loggedSignInMarkersRef.current.has(memKey)) return;
+        try {
+          if (localStorage.getItem(lsKey) === marker) {
+            loggedSignInMarkersRef.current.add(memKey);
+            return;
+          }
+        } catch {}
+      }
+
+      loggedSignInMarkersRef.current.add(memKey);
+      try {
+        localStorage.setItem(lsKey, marker);
+      } catch {}
+
+      const email = (resolvedProf?.email || currentUser.email || '').toLowerCase().trim();
+      const validProfName =
+        resolvedProf?.full_name && !isDirtyOrPlaceholderName(resolvedProf.full_name, email)
+          ? resolvedProf.full_name
+          : '';
+      const rawMetaName =
+        (currentUser.user_metadata?.full_name as string) ||
+        (currentUser.user_metadata?.name as string) ||
+        '';
+      const extracted = extractIdentityFromEmail(email, {
+        ...(currentUser.user_metadata || {}),
+        full_name: validProfName || rawMetaName || resolvedProf?.full_name,
+        enrollment_no: resolvedProf?.roll_number || resolvedProf?.enrollment_no || currentUser.user_metadata?.enrollment_no,
+      });
+      const actorName = validProfName
+        ? toCleanDisplayName(validProfName)
+        : extracted.fullName;
+      const actorRoll =
+        extracted.enrollmentNo ||
+        resolvedProf?.roll_number ||
+        resolvedProf?.enrollment_no ||
+        (currentUser.user_metadata?.enrollment_no as string) ||
+        '';
+      const isMaster = MASTER_ADMIN_EMAILS.includes(email);
+      const actorRole = isMaster ? 'admin' : resolvedProf?.role || 'member';
+      const providerRaw = (currentUser.app_metadata?.provider || '').toLowerCase();
+      const whereModule = providerRaw === 'google' ? 'Auth Portal > Google OAuth SSO' : 'Auth Portal > Credentials Login';
+
+      await supabase.from('activity_logs').insert([
+        {
+          user_id: currentUser.id,
+          user_name: actorName,
+          action: 'USER_SIGNIN',
+          details: buildAuditDetails({
+            summary: `${actorName} logged in`,
+            actorId: currentUser.id,
+            actorName,
+            actorEmail: email,
+            actorRoll,
+            actorRole,
+            targetType: 'account',
+            where: whereModule,
+            meta: {
+              auth_provider: providerRaw || 'credentials',
+            },
+          }),
+        },
+      ]);
+    } catch (logErr) {
+      console.warn('Sign-in audit log notice:', logErr);
+    }
+  };
+
+  const loadProfile = async (currentUser: User): Promise<UserProfile> => {
+    const email = (currentUser.email || '').toLowerCase().trim();
+    const meta = currentUser.user_metadata || {};
+
+    try {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -121,17 +213,75 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const resolvedRole: UserRole = isMasterAdmin
           ? 'admin'
           : (data.role === 'admin' ? 'admin' : (data.role as UserRole) || 'member');
+
+        const validDataName =
+          data.full_name && !isDirtyOrPlaceholderName(data.full_name, email) ? data.full_name : '';
+        const rawMetaName = (meta.full_name as string) || (meta.name as string) || '';
+        const extracted = extractIdentityFromEmail(email, {
+          ...meta,
+          full_name: validDataName || rawMetaName || data.full_name,
+          enrollment_no: data.roll_number || meta.enrollment_no || meta.roll_number,
+        });
+
+        const cleanName = validDataName
+          ? toCleanDisplayName(validDataName)
+          : extracted.fullName;
+        const cleanRoll = extracted.enrollmentNo || data.roll_number || '';
+        const metaAvatar = (meta.avatar_url as string) || (meta.picture as string) || '';
+        const resolvedAvatar =
+          data.avatar_url && !data.avatar_url.startsWith('status:')
+            ? data.avatar_url
+            : metaAvatar;
+
+        const profileNeedsPatch =
+          data.id === currentUser.id &&
+          ((isDirtyOrPlaceholderName(data.full_name, email) && cleanName !== data.full_name) ||
+            ((!data.roll_number || data.roll_number.trim() === '') && Boolean(cleanRoll)) ||
+            (Boolean(extracted.enrollmentFromEmail) && data.roll_number !== extracted.enrollmentFromEmail) ||
+            (!data.avatar_url && Boolean(metaAvatar)));
+
+        if (profileNeedsPatch) {
+          const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+          if (isDirtyOrPlaceholderName(data.full_name, email) && cleanName !== data.full_name) {
+            patch.full_name = cleanName;
+          }
+          if ((!data.roll_number || data.roll_number.trim() === '' || (extracted.enrollmentFromEmail && data.roll_number !== extracted.enrollmentFromEmail)) && cleanRoll) {
+            patch.roll_number = cleanRoll;
+          }
+          if (!data.avatar_url && metaAvatar) {
+            patch.avatar_url = metaAvatar;
+          }
+          supabase.from('profiles').update(patch).eq('id', currentUser.id).then(() => {}, () => {});
+        }
+
+        const metaNeedsSync =
+          !syncedMetadataUserIdsRef.current.has(currentUser.id) &&
+          ((Boolean(cleanRoll) && (meta.enrollment_no !== cleanRoll || meta.roll_number !== cleanRoll)) ||
+            (Boolean(cleanName) && isDirtyOrPlaceholderName(meta.full_name, email)));
+
+        if (metaNeedsSync) {
+          syncedMetadataUserIdsRef.current.add(currentUser.id);
+          supabase.auth
+            .updateUser({
+              data: {
+                full_name: cleanName,
+                ...(cleanRoll ? { enrollment_no: cleanRoll, roll_number: cleanRoll } : {}),
+              },
+            })
+            .then(() => {}, () => {});
+        }
+
         const resolvedProfile: UserProfile = {
           id: data.id,
           email: data.email || currentUser.email || '',
-          full_name: data.full_name || currentUser.user_metadata?.full_name || 'Member',
-          username: data.username || currentUser.user_metadata?.username || '',
-          enrollment_no: data.roll_number || currentUser.user_metadata?.enrollment_no || '',
-          roll_number: data.roll_number || currentUser.user_metadata?.enrollment_no || '',
+          full_name: cleanName,
+          username: data.username || meta.username || '',
+          enrollment_no: cleanRoll,
+          roll_number: cleanRoll,
           role: resolvedRole,
           status: rawStatus as 'pending' | 'approved' | 'rejected',
-          phone: data.phone || currentUser.user_metadata?.phone || '',
-          avatar_url: data.avatar_url && !data.avatar_url.startsWith('status:') ? data.avatar_url : (currentUser.user_metadata?.avatar_url || ''),
+          phone: data.phone || meta.phone || '',
+          avatar_url: resolvedAvatar,
           created_at: data.created_at || currentUser.created_at,
           last_sign_in: currentUser.last_sign_in_at,
         };
@@ -140,29 +290,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           localStorage.setItem('cicr-active-user', JSON.stringify(currentUser));
           localStorage.setItem('cicr-active-profile', JSON.stringify(resolvedProfile));
         } catch {}
-        return;
+        return resolvedProfile;
       }
     } catch {
       // ignore
     }
 
-    const meta = currentUser.user_metadata || {};
-    const isMasterAdmin = MASTER_ADMIN_EMAILS.includes((currentUser.email || '').toLowerCase());
+    const isMasterAdmin = MASTER_ADMIN_EMAILS.includes(email);
+    const extracted = extractIdentityFromEmail(email, meta);
     const fallbackProfile: UserProfile = {
       id: currentUser.id,
       email: currentUser.email || '',
-      full_name: meta.full_name || currentUser.email?.split('@')[0] || 'Member',
+      full_name: extracted.fullName,
       username: meta.username || '',
-      enrollment_no: meta.enrollment_no || meta.roll_number || '',
-      roll_number: meta.enrollment_no || meta.roll_number || '',
+      enrollment_no: extracted.enrollmentNo,
+      roll_number: extracted.enrollmentNo,
       role: isMasterAdmin ? 'admin' : 'member',
       status: isMasterAdmin ? 'approved' : 'pending',
       phone: meta.phone || '',
-      avatar_url: meta.avatar_url || '',
+      avatar_url: meta.avatar_url || meta.picture || '',
       created_at: currentUser.created_at,
       last_sign_in: currentUser.last_sign_in_at,
     };
     setProfile(fallbackProfile);
+    return fallbackProfile;
   };
 
   const checkUserApproval = async (
@@ -233,7 +384,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let mounted = true;
 
-    async function validateAndProvisionOAuthUser(u: User): Promise<{ allowed: boolean; error?: string }> {
+    async function runOAuthProvisioning(u: User): Promise<{ allowed: boolean; error?: string }> {
       const email = (u.email || '').toLowerCase().trim();
       const isJiit = email.endsWith('@mail.jiit.ac.in') || email.endsWith('@jiit.ac.in');
       const isMaster = MASTER_ADMIN_EMAILS.includes(email);
@@ -245,65 +396,207 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
       }
 
-      // Check if user already exists in profiles table
+      const meta = u.user_metadata || {};
+      const extracted = extractIdentityFromEmail(email, meta);
+      const googleAvatarUrl =
+        (typeof meta.avatar_url === 'string' && meta.avatar_url.startsWith('http') ? meta.avatar_url : '') ||
+        (typeof meta.picture === 'string' && meta.picture.startsWith('http') ? meta.picture : '');
+      const initialStatus = isMaster ? 'approved' : 'pending';
+      const roleLabel = isMaster ? 'admin' : 'member';
+
       try {
         const { data: existingProf } = await supabase
           .from('profiles')
-          .select('id, email, status, role')
+          .select('id, email, full_name, roll_number, status, role, avatar_url, phone')
           .or(`id.eq.${u.id},email.ilike.${email}`)
           .maybeSingle();
 
+        // Compute cleanest Name and Enrollment/Roll Number by blending DB + Email + Google metadata
+        const mergedIdentity = extractIdentityFromEmail(email, {
+          ...meta,
+          full_name:
+            existingProf?.full_name && !isDirtyOrPlaceholderName(existingProf.full_name, email)
+              ? existingProf.full_name
+              : (meta.full_name || meta.name || existingProf?.full_name),
+          enrollment_no: existingProf?.roll_number || meta.enrollment_no || meta.roll_number,
+        });
+
+        const existingClean =
+          existingProf?.full_name && !isDirtyOrPlaceholderName(existingProf.full_name, email)
+            ? toCleanDisplayName(existingProf.full_name)
+            : '';
+
+        const existingLooksLikeBareEmailWord =
+          Boolean(existingClean) &&
+          existingClean.toLowerCase() === extracted.emailPrefix &&
+          extracted.fullName.split(/\s+/).length > existingClean.split(/\s+/).length;
+
+        const resolvedName =
+          existingClean && !existingLooksLikeBareEmailWord
+            ? existingClean
+            : mergedIdentity.fullName || extracted.fullName;
+
+        const resolvedRoll =
+          mergedIdentity.enrollmentNo ||
+          extracted.enrollmentNo ||
+          existingProf?.roll_number ||
+          '';
+
+        const resolvedStatus = isMaster
+          ? 'approved'
+          : (existingProf?.status as 'pending' | 'approved' | 'rejected') ||
+            (existingProf?.avatar_url === 'status:approved'
+              ? 'approved'
+              : existingProf?.avatar_url === 'status:rejected'
+              ? 'rejected'
+              : initialStatus);
+
+        const resolvedRole = isMaster ? 'admin' : existingProf?.role || roleLabel;
+        const resolvedAvatar =
+          (existingProf?.avatar_url && !existingProf.avatar_url.startsWith('status:')
+            ? existingProf.avatar_url
+            : '') ||
+          googleAvatarUrl ||
+          (resolvedStatus ? `status:${resolvedStatus}` : '');
+
         if (!existingProf) {
-          // Account is not registered in our database: create request and send to Admin Portal
-          const meta = u.user_metadata || {};
-          const fullName = meta.full_name || meta.name || email.split('@')[0];
-          const avatarUrl = meta.avatar_url || meta.picture || '';
-          const emailPrefix = email.split('@')[0];
-          // Automatically fetch student enrollment number directly from college email ID (e.g. 992501030399@mail.jiit.ac.in -> 992501030399)
-          const rollMatch = emailPrefix.match(/\d{6,}/) || emailPrefix.match(/\d+/);
-          const rollNumber = rollMatch ? rollMatch[0] : emailPrefix;
-          const initialStatus = isMaster ? 'approved' : 'pending';
-
-          await supabase.from('profiles').upsert([{
-            id: u.id,
-            full_name: fullName,
-            email,
-            roll_number: rollNumber,
-            role: isMaster ? 'admin' : 'member',
-            status: initialStatus,
-            avatar_url: avatarUrl || (isMaster ? 'status:approved' : 'status:pending'),
-            updated_at: new Date().toISOString(),
-          }]);
-
-          await supabase.from('activity_logs').insert([{
-            user_id: u.id,
-            user_name: fullName,
-            action: 'ACCOUNT_REQUEST',
-            details: JSON.stringify({
-              userId: u.id,
+          await supabase.from('profiles').upsert([
+            {
+              id: u.id,
+              full_name: resolvedName,
               email,
-              fullName,
-              enrollmentNo: rollNumber,
-              role: isMaster ? 'admin' : 'member',
-              status: initialStatus,
-              auth_provider: 'google',
-              created_at: new Date().toISOString(),
-            }),
-          }]);
-        } else if (existingProf.id !== u.id) {
-          // Sync existing record ID to OAuth UID if needed
+              roll_number: resolvedRoll,
+              role: resolvedRole,
+              status: resolvedStatus,
+              avatar_url: resolvedAvatar,
+              updated_at: new Date().toISOString(),
+            },
+          ]);
+        } else {
+          // Backfill missing/dirty name, enrollment roll number, Google avatar, or UID mismatch
+          // (Handles rows pre-created by Postgres handle_new_user() trigger on auth.users INSERT)
+          const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+          let needsPatch = false;
+
+          if (existingProf.id !== u.id) {
+            patch.id = u.id;
+            needsPatch = true;
+          }
+          if (
+            (isDirtyOrPlaceholderName(existingProf.full_name, email) && resolvedName !== existingProf.full_name) ||
+            existingLooksLikeBareEmailWord ||
+            (resolvedName && resolvedName !== existingProf.full_name && existingProf.full_name !== toCleanDisplayName(existingProf.full_name))
+          ) {
+            patch.full_name = resolvedName;
+            needsPatch = true;
+          }
+          if (resolvedRoll && (!existingProf.roll_number || existingProf.roll_number.trim() === '' || (extracted.enrollmentFromEmail && existingProf.roll_number !== extracted.enrollmentFromEmail))) {
+            patch.roll_number = resolvedRoll;
+            needsPatch = true;
+          }
+          if (googleAvatarUrl && (!existingProf.avatar_url || existingProf.avatar_url.startsWith('status:'))) {
+            patch.avatar_url = googleAvatarUrl;
+            needsPatch = true;
+          }
+          if (isMaster && (existingProf.role !== 'admin' || existingProf.status !== 'approved')) {
+            patch.role = 'admin';
+            patch.status = 'approved';
+            needsPatch = true;
+          }
+
+          if (needsPatch) {
+            try {
+              if (existingProf.id === u.id) {
+                await supabase.from('profiles').update(patch).eq('id', u.id);
+              } else {
+                await supabase.from('profiles').update(patch).ilike('email', email);
+              }
+            } catch {}
+          }
+        }
+
+        // Persist clean full_name, enrollment_no & roll_number back into Supabase Auth user_metadata
+        const metaNeedsSync =
+          !syncedMetadataUserIdsRef.current.has(u.id) &&
+          ((Boolean(resolvedRoll) &&
+            (meta.enrollment_no !== resolvedRoll || meta.roll_number !== resolvedRoll)) ||
+            (Boolean(resolvedName) && isDirtyOrPlaceholderName(meta.full_name, email)));
+
+        if (metaNeedsSync) {
+          syncedMetadataUserIdsRef.current.add(u.id);
           try {
-            await supabase
-              .from('profiles')
-              .update({ id: u.id, updated_at: new Date().toISOString() })
-              .eq('email', email);
+            await supabase.auth.updateUser({
+              data: {
+                full_name: resolvedName,
+                ...(resolvedRoll ? { enrollment_no: resolvedRoll, roll_number: resolvedRoll } : {}),
+                ...(googleAvatarUrl ? { avatar_url: googleAvatarUrl } : {}),
+              },
+            });
           } catch {}
+        }
+
+        // Ensure pending SSO registrations always appear in Management Hub -> Account Requests
+        if (!isMaster && (!existingProf || resolvedStatus === 'pending')) {
+          const { data: existingReqLogs } = await supabase
+            .from('activity_logs')
+            .select('id')
+            .eq('action', 'ACCOUNT_REQUEST')
+            .or(`user_id.eq.${u.id},details->>email.ilike.${email}`)
+            .limit(1);
+
+          if (!existingReqLogs || existingReqLogs.length === 0) {
+            const regTs = new Date().toISOString();
+            await supabase.from('activity_logs').insert([
+              {
+                user_id: u.id,
+                user_name: resolvedName,
+                action: 'ACCOUNT_REQUEST',
+                details: buildAuditDetails({
+                  summary: `${resolvedName} (${email}) submitted an institutional Google SSO registration request`,
+                  actorId: u.id,
+                  actorName: resolvedName,
+                  actorEmail: email,
+                  actorRoll: resolvedRoll,
+                  actorRole: resolvedRole,
+                  targetId: u.id,
+                  targetName: resolvedName,
+                  targetEmail: email,
+                  targetRoll: resolvedRoll,
+                  targetType: 'account',
+                  where: 'Auth Portal › Google SSO Registration',
+                  timestamp: regTs,
+                  meta: {
+                    userId: u.id,
+                    email,
+                    fullName: resolvedName,
+                    enrollmentNo: resolvedRoll,
+                    roll_number: resolvedRoll,
+                    role: resolvedRole,
+                    status: resolvedStatus,
+                    auth_provider: 'google',
+                    created_at: regTs,
+                  },
+                }),
+              },
+            ]);
+          }
         }
       } catch (e) {
         console.warn('OAuth profile provisioning notice:', e);
       }
 
       return { allowed: true };
+    }
+
+    async function validateAndProvisionOAuthUser(u: User): Promise<{ allowed: boolean; error?: string }> {
+      const inFlight = provisioningPromisesRef.current.get(u.id);
+      if (inFlight) return inFlight;
+
+      const task = runOAuthProvisioning(u).finally(() => {
+        provisioningPromisesRef.current.delete(u.id);
+      });
+      provisioningPromisesRef.current.set(u.id, task);
+      return task;
     }
 
     // Scrub sensitive OAuth tokens from the browser address bar immediately
@@ -376,7 +669,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
           setSession(session);
           setUser(currentUser);
-          await loadProfile(currentUser);
+          const loadedProfile = await loadProfile(currentUser);
+          void logUserSignInIfNeeded(currentUser, loadedProfile);
         } else {
           setSession(null);
           setUser(null);
@@ -393,11 +687,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       if (!mounted) return;
 
       // Clean tokens from URL bar immediately when auth state change fires
       cleanUrlHash();
+
+      if (event === 'USER_UPDATED' && newSession?.user) {
+        setSession(newSession);
+        setUser(newSession.user);
+        return;
+      }
 
       if (!newSession?.user) {
         setSession(null);
@@ -442,7 +742,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setSession(newSession);
       setUser(newSession.user);
-      await loadProfile(newSession.user);
+      const loadedProfile = await loadProfile(newSession.user);
+      void logUserSignInIfNeeded(newSession.user, loadedProfile);
       setLoading(false);
     });
 
@@ -505,21 +806,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setSession(null);
               }
               setUser(fallbackUser);
-              if (fallbackData.profile) {
-                setProfile(fallbackData.profile);
+              let resolvedFailoverProfile = fallbackData.profile
+                ? hydrateMemberIdentity(fallbackData.profile, fallbackUser.user_metadata)
+                : null;
+              if (resolvedFailoverProfile) {
+                setProfile(resolvedFailoverProfile);
                 try {
-                  localStorage.setItem('cicr-active-profile', JSON.stringify(fallbackData.profile));
+                  localStorage.setItem('cicr-active-profile', JSON.stringify(resolvedFailoverProfile));
                 } catch {}
               } else {
-                await loadProfile(fallbackUser);
+                resolvedFailoverProfile = await loadProfile(fallbackUser);
               }
               try {
                 localStorage.setItem('cicr-active-user', JSON.stringify(fallbackUser));
               } catch {}
+              void logUserSignInIfNeeded(fallbackUser, resolvedFailoverProfile, !fallbackUser.last_sign_in_at);
               await notifyEmail('login', fallbackUser.email, {
-                name: fallbackUser.user_metadata?.full_name,
+                name: resolvedFailoverProfile?.full_name || fallbackUser.user_metadata?.full_name,
                 email: fallbackUser.email,
-                role: fallbackData.profile?.role || 'member',
+                role: resolvedFailoverProfile?.role || 'member',
               });
               return { success: true };
             }
@@ -582,29 +887,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         setUser(res.data.user);
         setSession(res.data.session);
-        await loadProfile(res.data.user);
+        const loadedProf = await loadProfile(res.data.user);
 
-        // Real-time log sign-in to activity_logs
+        // Real-time log sign-in to activity_logs (deduplicated with onAuthStateChange)
         try {
-          const { data: profData } = await supabase
-            .from('profiles')
-            .select('full_name, role')
-            .eq('id', res.data.user.id)
-            .maybeSingle();
-
-          await supabase.from('activity_logs').insert([
-            {
-              user_id: res.data.user.id,
-              user_name: profData?.full_name || res.data.user.user_metadata?.full_name || emailToAuth.split('@')[0],
-              action: 'USER_SIGNIN',
-              details: `${profData?.full_name || emailToAuth.split('@')[0]} signed in to CICR Inventory Vault`,
-            },
-          ]);
-
+          void logUserSignInIfNeeded(res.data.user, loadedProf, !res.data.user.last_sign_in_at);
           await notifyEmail('login', res.data.user.email, {
-            name: profData?.full_name || res.data.user.user_metadata?.full_name,
+            name: loadedProf.full_name || res.data.user.user_metadata?.full_name,
             email: res.data.user.email,
-            role: profData?.role || 'member',
+            role: loadedProf.role || 'member',
           });
         } catch (logErr) {
           console.warn('Sign-in log error:', logErr);
@@ -668,10 +959,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         emailToRegister = `${emailToRegister.toLowerCase()}@mail.jiit.ac.in`;
       }
 
-      // Automatically fetch student enrollment number directly from college email ID (e.g. 992501030399@mail.jiit.ac.in -> 992501030399)
-      const emailPrefix = emailToRegister.split('@')[0];
-      const rollMatch = emailPrefix.match(/\d{6,}/) || emailPrefix.match(/\d+/);
-      const effectiveEnrollmentNo = enrollment_no?.trim() || (rollMatch ? rollMatch[0] : emailPrefix);
+      // Automatically fetch full name & student enrollment number directly from college email / input
+      const extracted = extractIdentityFromEmail(emailToRegister, { full_name, enrollment_no });
+      const effectiveFullName =
+        full_name?.trim() && !isDirtyOrPlaceholderName(full_name, emailToRegister)
+          ? toCleanDisplayName(full_name)
+          : extracted.fullName;
+      const effectiveEnrollmentNo = enrollment_no?.trim() || extracted.enrollmentNo;
 
       const isMasterAdminEmail = MASTER_ADMIN_EMAILS.includes(emailToRegister.toLowerCase());
       const enforcedRole = isMasterAdminEmail ? 'admin' : 'member';
@@ -711,7 +1005,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             action: 'register',
             email: emailToRegister,
             password,
-            full_name,
+            full_name: effectiveFullName,
             enrollment_no: effectiveEnrollmentNo,
             phone,
             role: enforcedRole,
@@ -752,8 +1046,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         password,
         options: {
           data: {
-            full_name,
+            full_name: effectiveFullName,
             enrollment_no: effectiveEnrollmentNo,
+            roll_number: effectiveEnrollmentNo,
             phone,
             role: enforcedRole,
             status: initialStatus,
@@ -777,7 +1072,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await supabase.from('profiles').upsert([
           {
             id: authData.user.id,
-            full_name,
+            full_name: effectiveFullName,
             email: emailToRegister,
             role: enforcedRole,
             status: initialStatus,
@@ -786,21 +1081,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             avatar_url: avatar_url || `status:${initialStatus}`,
           },
         ]);
+        const regTs = new Date().toISOString();
         await supabase.from('activity_logs').insert([
           {
             user_id: authData.user.id,
-            user_name: full_name,
+            user_name: effectiveFullName,
             action: 'ACCOUNT_REQUEST',
-            details: JSON.stringify({
-              userId: authData.user.id,
-              email: emailToRegister,
-              fullName: full_name,
-              enrollmentNo: effectiveEnrollmentNo,
-              phone,
-              role: enforcedRole,
-              status: initialStatus,
-              avatar_url: avatar_url || undefined,
-              created_at: new Date().toISOString(),
+            details: buildAuditDetails({
+              summary: `${effectiveFullName} (${emailToRegister}) submitted a registration request`,
+              actorId: authData.user.id,
+              actorName: effectiveFullName,
+              actorEmail: emailToRegister,
+              actorRoll: effectiveEnrollmentNo,
+              actorRole: enforcedRole,
+              targetId: authData.user.id,
+              targetName: effectiveFullName,
+              targetEmail: emailToRegister,
+              targetRoll: effectiveEnrollmentNo,
+              targetType: 'account',
+              where: 'Auth Portal › Registration',
+              timestamp: regTs,
+              meta: {
+                userId: authData.user.id,
+                email: emailToRegister,
+                fullName: effectiveFullName,
+                enrollmentNo: effectiveEnrollmentNo,
+                roll_number: effectiveEnrollmentNo,
+                phone,
+                role: enforcedRole,
+                status: initialStatus,
+                avatar_url: avatar_url || undefined,
+                created_at: regTs,
+              },
             }),
           },
         ]);
@@ -816,7 +1128,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const approveUserAccount = async (targetId: string, email?: string) => {
+  const approveUserAccount = async (targetId: string, email?: string, targetName?: string) => {
+    const targetIdentity = extractIdentityFromEmail(email, { full_name: targetName });
+    const resolvedTarget =
+      targetName && !isDirtyOrPlaceholderName(targetName, email)
+        ? toCleanDisplayName(targetName)
+        : targetIdentity.fullName;
+    const resolvedTargetRoll = targetIdentity.enrollmentNo;
+
+    const actorEmail = (profile?.email || user?.email || '').toLowerCase();
+    const validActorProfName =
+      profile?.full_name && !isDirtyOrPlaceholderName(profile.full_name, actorEmail)
+        ? profile.full_name
+        : '';
+    const actorMetaName =
+      (user?.user_metadata?.full_name as string) || (user?.user_metadata?.name as string) || '';
+    const actorIdentity = extractIdentityFromEmail(actorEmail, {
+      ...(user?.user_metadata || {}),
+      full_name: validActorProfName || actorMetaName || profile?.full_name,
+      enrollment_no: profile?.roll_number || user?.user_metadata?.enrollment_no,
+    });
+    const actorName = validActorProfName
+      ? toCleanDisplayName(validActorProfName)
+      : actorIdentity.fullName || 'Administrator';
+    const actorRoll = profile?.roll_number || actorIdentity.enrollmentNo || '';
+
+    const logApprovalFallback = async () => {
+      try {
+        await supabase.from('activity_logs').insert([
+          {
+            user_id: user?.id,
+            user_name: actorName,
+            action: 'ACCOUNT_APPROVED',
+            details: buildAuditDetails({
+              summary: `${actorName} approved registration account for ${resolvedTarget}${email ? ` (${email})` : ''}`,
+              actorId: user?.id,
+              actorName,
+              actorEmail,
+              actorRoll,
+              actorRole: 'admin',
+              targetId,
+              targetName: resolvedTarget,
+              targetEmail: email,
+              targetRoll: resolvedTargetRoll,
+              targetType: 'account',
+              where: 'Management Hub › Account Requests',
+              changes: ['Account Status: PENDING → APPROVED'],
+            }),
+          },
+        ]);
+      } catch {}
+    };
+
     try {
       const isCallerAdmin =
         MASTER_ADMIN_EMAILS.includes((user?.email || '').toLowerCase()) ||
@@ -831,17 +1194,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           'content-type': 'application/json',
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
-        body: JSON.stringify({ action: 'approve', target_id: targetId, email }),
+        body: JSON.stringify({ action: 'approve', target_id: targetId, email, target_name: resolvedTarget }),
       });
       if (response.ok) {
         return { success: true };
       }
-      // If server returns error, execute direct fallback
+      // If server returns error, execute direct fallback without clobbering Google avatar URL
+      const fallbackPatch: Record<string, unknown> = {
+        status: 'approved',
+        full_name: resolvedTarget,
+        ...(resolvedTargetRoll ? { roll_number: resolvedTargetRoll } : {}),
+        updated_at: new Date().toISOString(),
+      };
       const { error: profError } = await supabase
         .from('profiles')
-        .update({ status: 'approved', avatar_url: 'status:approved', updated_at: new Date().toISOString() })
+        .update(fallbackPatch)
         .match(email ? { email } : { id: targetId });
       if (!profError) {
+        await logApprovalFallback();
         return { success: true };
       }
       const errData = await response.json().catch(() => ({}));
@@ -849,17 +1219,77 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // Network failure fallback
       try {
+        const fallbackPatch: Record<string, unknown> = {
+          status: 'approved',
+          full_name: resolvedTarget,
+          ...(resolvedTargetRoll ? { roll_number: resolvedTargetRoll } : {}),
+          updated_at: new Date().toISOString(),
+        };
         const { error: profError } = await supabase
           .from('profiles')
-          .update({ status: 'approved', avatar_url: 'status:approved', updated_at: new Date().toISOString() })
+          .update(fallbackPatch)
           .match(email ? { email } : { id: targetId });
-        if (!profError) return { success: true };
+        if (!profError) {
+          await logApprovalFallback();
+          return { success: true };
+        }
       } catch {}
       return { success: false, error: 'Approval failed.' };
     }
   };
 
-  const rejectUserAccount = async (targetId: string, email?: string) => {
+  const rejectUserAccount = async (targetId: string, email?: string, targetName?: string) => {
+    const targetIdentity = extractIdentityFromEmail(email, { full_name: targetName });
+    const resolvedTarget =
+      targetName && !isDirtyOrPlaceholderName(targetName, email)
+        ? toCleanDisplayName(targetName)
+        : targetIdentity.fullName;
+    const resolvedTargetRoll = targetIdentity.enrollmentNo;
+
+    const actorEmail = (profile?.email || user?.email || '').toLowerCase();
+    const validActorProfName =
+      profile?.full_name && !isDirtyOrPlaceholderName(profile.full_name, actorEmail)
+        ? profile.full_name
+        : '';
+    const actorMetaName =
+      (user?.user_metadata?.full_name as string) || (user?.user_metadata?.name as string) || '';
+    const actorIdentity = extractIdentityFromEmail(actorEmail, {
+      ...(user?.user_metadata || {}),
+      full_name: validActorProfName || actorMetaName || profile?.full_name,
+      enrollment_no: profile?.roll_number || user?.user_metadata?.enrollment_no,
+    });
+    const actorName = validActorProfName
+      ? toCleanDisplayName(validActorProfName)
+      : actorIdentity.fullName || 'Administrator';
+    const actorRoll = profile?.roll_number || actorIdentity.enrollmentNo || '';
+
+    const logRejectionFallback = async () => {
+      try {
+        await supabase.from('activity_logs').insert([
+          {
+            user_id: user?.id,
+            user_name: actorName,
+            action: 'ACCOUNT_REJECTED',
+            details: buildAuditDetails({
+              summary: `${actorName} rejected registration account for ${resolvedTarget}${email ? ` (${email})` : ''}`,
+              actorId: user?.id,
+              actorName,
+              actorEmail,
+              actorRoll,
+              actorRole: 'admin',
+              targetId,
+              targetName: resolvedTarget,
+              targetEmail: email,
+              targetRoll: resolvedTargetRoll,
+              targetType: 'account',
+              where: 'Management Hub › Account Requests',
+              changes: ['Account Status: PENDING → REJECTED'],
+            }),
+          },
+        ]);
+      } catch {}
+    };
+
     try {
       const isCallerAdmin =
         MASTER_ADMIN_EMAILS.includes((user?.email || '').toLowerCase()) ||
@@ -874,7 +1304,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           'content-type': 'application/json',
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
-        body: JSON.stringify({ action: 'reject', target_id: targetId, email }),
+        body: JSON.stringify({ action: 'reject', target_id: targetId, email, target_name: resolvedTarget }),
       });
       if (response.ok) {
         return { success: true };
@@ -885,11 +1315,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .upsert([{
           id: targetId,
           ...(email ? { email } : {}),
+          full_name: resolvedTarget,
+          ...(resolvedTargetRoll ? { roll_number: resolvedTargetRoll } : {}),
           status: 'rejected',
-          avatar_url: 'status:rejected',
           updated_at: new Date().toISOString(),
         }]);
       if (!profError) {
+        await logRejectionFallback();
         return { success: true };
       }
       const errData = await response.json().catch(() => ({}));
@@ -902,11 +1334,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .upsert([{
             id: targetId,
             ...(email ? { email } : {}),
+            full_name: resolvedTarget,
+            ...(resolvedTargetRoll ? { roll_number: resolvedTargetRoll } : {}),
             status: 'rejected',
-            avatar_url: 'status:rejected',
             updated_at: new Date().toISOString(),
           }]);
-        if (!profError) return { success: true };
+        if (!profError) {
+          await logRejectionFallback();
+          return { success: true };
+        }
       } catch {}
       return { success: false, error: 'Rejection failed.' };
     }
@@ -963,11 +1399,72 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await supabase.auth.updateUser({
         data: {
           ...(updates.full_name !== undefined ? { full_name: updates.full_name } : {}),
-          ...(updates.roll_number !== undefined ? { enrollment_no: updates.roll_number } : {}),
+          ...(updates.roll_number !== undefined ? { enrollment_no: updates.roll_number, roll_number: updates.roll_number } : {}),
           ...(updates.phone !== undefined ? { phone: updates.phone } : {}),
           ...(updates.avatar_url !== undefined ? { avatar_url: updates.avatar_url } : {}),
         },
       });
+
+      const changes: string[] = [];
+      if (updates.full_name !== undefined && updates.full_name !== (profile?.full_name || '')) {
+        changes.push(`Name: "${profile?.full_name || '—'}" → "${updates.full_name}"`);
+      }
+      if (updates.roll_number !== undefined && updates.roll_number !== (profile?.roll_number || '')) {
+        changes.push(`Roll No: "${profile?.roll_number || '—'}" → "${updates.roll_number}"`);
+      }
+      if (updates.phone !== undefined && updates.phone !== (profile?.phone || '')) {
+        changes.push(`Phone: "${profile?.phone || '—'}" → "${updates.phone}"`);
+      }
+      if (updates.avatar_url !== undefined && updates.avatar_url !== (profile?.avatar_url || '')) {
+        changes.push(updates.avatar_url ? 'Profile photo updated' : 'Profile photo removed');
+      }
+
+      const actorEmail = (user.email || '').toLowerCase();
+      const rawActorCand =
+        (updates.full_name && !isDirtyOrPlaceholderName(updates.full_name, actorEmail) ? updates.full_name : '') ||
+        (profile?.full_name && !isDirtyOrPlaceholderName(profile.full_name, actorEmail) ? profile.full_name : '') ||
+        (user.user_metadata?.full_name as string) ||
+        (user.user_metadata?.name as string) ||
+        updates.full_name ||
+        profile?.full_name ||
+        '';
+      const actorIdentity = extractIdentityFromEmail(actorEmail, {
+        ...(user.user_metadata || {}),
+        full_name: rawActorCand,
+        enrollment_no: updates.roll_number ?? profile?.roll_number,
+      });
+      const actorName =
+        rawActorCand && !isDirtyOrPlaceholderName(rawActorCand, actorEmail)
+          ? toCleanDisplayName(rawActorCand)
+          : actorIdentity.fullName;
+      const actorRole = MASTER_ADMIN_EMAILS.includes(actorEmail) ? 'admin' : (profile?.role || 'member');
+
+      if (changes.length > 0) {
+        try {
+          await supabase.from('activity_logs').insert([
+            {
+              user_id: user.id,
+              user_name: actorName,
+              action: 'PROFILE_UPDATED',
+              details: buildAuditDetails({
+                summary: `${actorName} updated their operator profile (${changes.join(', ')})`,
+                actorId: user.id,
+                actorName,
+                actorEmail,
+                actorRoll: updates.roll_number ?? profile?.roll_number,
+                actorRole,
+                targetId: user.id,
+                targetName: actorName,
+                targetEmail: actorEmail,
+                targetRoll: updates.roll_number ?? profile?.roll_number,
+                targetType: 'account',
+                where: 'Operator Profile › Settings',
+                changes,
+              }),
+            },
+          ]);
+        } catch {}
+      }
 
       setProfile((prev) => (prev ? { ...prev, ...updates } : null));
       return { success: true };
@@ -991,30 +1488,56 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('cicr-cached-logs');
     localStorage.removeItem('cicr-cached-members');
     localStorage.removeItem('cicr-cached-pending-accounts');
+    if (userToLog?.id) {
+      try {
+        localStorage.removeItem(`cicr_last_signin_logged_${userToLog.id}`);
+      } catch {}
+    }
 
-    // 2. Perform Supabase session invalidation and audit logging asynchronously in the background (non-blocking)
+    // 2. Log sign-out BEFORE revoking session JWT (so RLS authenticated insert succeeds)
     (async () => {
       try {
-        await supabase.auth.signOut();
         if (userToLog) {
+          const actorEmail = (profileToLog?.email || userToLog.email || '').toLowerCase();
+          const rawActorCand =
+            (profileToLog?.full_name && !isDirtyOrPlaceholderName(profileToLog.full_name, actorEmail) ? profileToLog.full_name : '') ||
+            (userToLog.user_metadata?.full_name as string) ||
+            (userToLog.user_metadata?.name as string) ||
+            profileToLog?.full_name ||
+            '';
+          const actorIdentity = extractIdentityFromEmail(actorEmail, {
+            ...(userToLog.user_metadata || {}),
+            full_name: rawActorCand,
+            enrollment_no: profileToLog?.roll_number,
+          });
+          const actorName =
+            rawActorCand && !isDirtyOrPlaceholderName(rawActorCand, actorEmail)
+              ? toCleanDisplayName(rawActorCand)
+              : actorIdentity.fullName;
+          const actorRoll = profileToLog?.roll_number || actorIdentity.enrollmentNo || '';
+          const actorRole = MASTER_ADMIN_EMAILS.includes(actorEmail)
+            ? 'admin'
+            : profileToLog?.role || 'member';
+
           await supabase.from('activity_logs').insert([
             {
               user_id: userToLog.id,
-              user_name:
-                profileToLog?.full_name ||
-                userToLog.user_metadata?.full_name ||
-                userToLog.email?.split('@')[0] ||
-                'User',
+              user_name: actorName,
               action: 'USER_SIGNOUT',
-              details: `${
-                profileToLog?.full_name ||
-                userToLog.user_metadata?.full_name ||
-                userToLog.email?.split('@')[0] ||
-                'User'
-              } signed out of CICR Inventory Vault`,
+              details: buildAuditDetails({
+                summary: `${actorName} logged out`,
+                actorId: userToLog.id,
+                actorName,
+                actorEmail,
+                actorRoll,
+                actorRole,
+                targetType: 'account',
+                where: 'CICR Portal > Session Sign-Out',
+              }),
             },
           ]);
         }
+        await supabase.auth.signOut();
       } catch (err) {
         console.warn('Background sign out error:', err);
       }

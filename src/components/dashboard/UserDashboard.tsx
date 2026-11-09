@@ -12,6 +12,12 @@ import { supabase } from '../../lib/supabase';
 import { useToast } from '../common/Toast';
 import { Notification } from '../ui/notification-bell';
 import { notifyAccountApproved, notifyAccountRejected, requestDeviceNotificationPermission } from '../../utils/deviceNotification';
+import {
+  extractIdentityFromEmail,
+  hydrateMemberIdentity,
+  isDirtyOrPlaceholderName,
+  toCleanDisplayName,
+} from '../../lib/identity';
 
 // Code-split heavy sub-views and modals on-demand so initial page load is 0ms instant and smooth
 const RequisitionsView = lazy(() =>
@@ -100,14 +106,34 @@ export const UserDashboard: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
-  // Profile edit fields
-  const [editName, setEditName] = useState(profile?.full_name || (user?.user_metadata?.full_name as string) || '');
-  const [editEnrollment, setEditEnrollment] = useState(profile?.roll_number || (user?.user_metadata?.enrollment_no as string) || '');
+  // Profile edit fields (auto-hydrated from college email / Google metadata when missing)
+  const initialEmail = profile?.email || user?.email;
+  const initialMetaName =
+    (user?.user_metadata?.full_name as string) || (user?.user_metadata?.name as string) || '';
+  const initialValidProfName =
+    profile?.full_name && !isDirtyOrPlaceholderName(profile.full_name, initialEmail)
+      ? profile.full_name
+      : '';
+  const initialIdentity = extractIdentityFromEmail(initialEmail, {
+    ...(user?.user_metadata || {}),
+    full_name: initialValidProfName || initialMetaName || profile?.full_name,
+    enrollment_no:
+      profile?.roll_number ||
+      profile?.enrollment_no ||
+      user?.user_metadata?.enrollment_no ||
+      user?.user_metadata?.roll_number,
+  });
+  const [editName, setEditName] = useState(
+    initialValidProfName ? toCleanDisplayName(initialValidProfName) : initialIdentity.fullName
+  );
+  const [editEnrollment, setEditEnrollment] = useState(
+    profile?.roll_number || profile?.enrollment_no || initialIdentity.enrollmentNo || ''
+  );
   const [editPhone, setEditPhone] = useState(profile?.phone || (user?.user_metadata?.phone as string) || '');
   const [editAvatarUrl, setEditAvatarUrl] = useState(
     (profile?.avatar_url && !profile.avatar_url.startsWith('status:'))
       ? profile.avatar_url
-      : ((user?.user_metadata?.avatar_url as string) || '')
+      : ((user?.user_metadata?.avatar_url as string) || (user?.user_metadata?.picture as string) || '')
   );
   const [savingProfile, setSavingProfile] = useState(false);
 
@@ -405,19 +431,37 @@ export const UserDashboard: React.FC = () => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
   };
 
-  // Update profile edit state when profile changes
+  // Update profile edit state when profile or user changes
   useEffect(() => {
-    if (profile) {
-      setEditName(profile.full_name || '');
-      setEditEnrollment(profile.roll_number || '');
-      setEditPhone(profile.phone || '');
-      if (profile.avatar_url && !profile.avatar_url.startsWith('status:')) {
-        setEditAvatarUrl(profile.avatar_url);
+    if (profile || user) {
+      const email = profile?.email || user?.email || '';
+      const validProfName =
+        profile?.full_name && !isDirtyOrPlaceholderName(profile.full_name, email)
+          ? profile.full_name
+          : '';
+      const metaName =
+        (user?.user_metadata?.full_name as string) || (user?.user_metadata?.name as string) || '';
+      const hydrated = extractIdentityFromEmail(email, {
+        ...(user?.user_metadata || {}),
+        full_name: validProfName || metaName || profile?.full_name,
+        enrollment_no: profile?.roll_number || profile?.enrollment_no || (user?.user_metadata?.enrollment_no as string) || (user?.user_metadata?.roll_number as string),
+      });
+      const resolvedName = validProfName ? toCleanDisplayName(validProfName) : hydrated.fullName;
+      setEditName(resolvedName);
+      setEditEnrollment(profile?.roll_number || profile?.enrollment_no || hydrated.enrollmentNo || '');
+      setEditPhone(profile?.phone || (user?.user_metadata?.phone as string) || '');
+      const avatarCand =
+        (profile?.avatar_url && !profile.avatar_url.startsWith('status:') ? profile.avatar_url : '') ||
+        (user?.user_metadata?.avatar_url as string) ||
+        (user?.user_metadata?.picture as string) ||
+        '';
+      if (avatarCand) {
+        setEditAvatarUrl(avatarCand);
       }
     }
-  }, [profile]);
+  }, [profile, user]);
 
-  // Unified parallel fetch for Admin Hub roster & pending requests with local storage persistence
+  // Unified parallel fetch for Admin Hub roster & pending requests with Auth metadata hydration & cache
   const syncAdminHubData = useCallback(async () => {
     if (!isAdmin) return;
     try {
@@ -425,6 +469,49 @@ export const UserDashboard: React.FC = () => {
         if (curr.length === 0) setLoadingMembers(true);
         return curr;
       });
+
+      // 1. Prefer server-side roster sync (/api/accounts) so auth.users.user_metadata recovers real names
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData?.session?.access_token;
+        if (accessToken) {
+          const serverRes = await fetch('/api/accounts', {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({ action: 'list_roster' }),
+          });
+          if (serverRes.ok) {
+            const serverData = await serverRes.json();
+            if (Array.isArray(serverData?.members)) {
+              const serverMembers = serverData.members.map((m: any) => hydrateMemberIdentity(m));
+              setAllMembers(serverMembers);
+              try {
+                localStorage.setItem('cicr-cached-members', JSON.stringify(serverMembers));
+              } catch {}
+
+              const serverPending = Array.isArray(serverData?.pendingAccounts)
+                ? serverData.pendingAccounts
+                    .map((a: any) => hydrateMemberIdentity(a))
+                    .filter(
+                      (a: any) =>
+                        !locallyProcessedIds.has(a.id) &&
+                        (!a.email || !locallyProcessedIds.has(String(a.email).toLowerCase()))
+                    )
+                : [];
+              setPendingAccounts(serverPending);
+              try {
+                localStorage.setItem('cicr-cached-pending-accounts', JSON.stringify(serverPending));
+              } catch {}
+              return;
+            }
+          }
+        }
+      } catch (serverSyncErr) {
+        console.warn('Server roster sync notice, falling back to direct Supabase query:', serverSyncErr);
+      }
 
       const [profRes, reqLogsRes] = await Promise.all([
         supabase.from('profiles').select('*').order('full_name', { ascending: true }),
@@ -434,42 +521,33 @@ export const UserDashboard: React.FC = () => {
       const profData = profRes.data || [];
       const reqLogs = reqLogsRes.data || [];
 
-      // 1. Process Approved Roster Members
-      const approvedMembers = profData.filter(
-        (m) => m.status === 'approved' || m.role === 'admin' || m.avatar_url === 'status:approved'
-      );
+      // 1. Process Approved Roster Members and hydrate identity from institutional email when missing
+      const approvedMembers = profData
+        .filter((m) => m.status === 'approved' || m.role === 'admin' || m.avatar_url === 'status:approved')
+        .map((m) => hydrateMemberIdentity(m));
       setAllMembers(approvedMembers);
       try {
         localStorage.setItem('cicr-cached-members', JSON.stringify(approvedMembers));
       } catch {}
 
-      // 2. Process Pending Signups
+      // 2. Process Pending Signups (strictly treat only approved/rejected as resolved, NOT status:pending)
+      const isProfileResolved = (p: any) =>
+        p.status === 'approved' ||
+        p.status === 'rejected' ||
+        p.role === 'admin' ||
+        p.avatar_url === 'status:approved' ||
+        p.avatar_url === 'status:rejected';
+
       const resolvedEmails = new Set(
         profData
-          .filter(
-            (p) =>
-              p.status === 'approved' ||
-              p.status === 'rejected' ||
-              p.role === 'admin' ||
-              p.avatar_url === 'status:approved' ||
-              p.avatar_url === 'status:rejected' ||
-              (typeof p.avatar_url === 'string' && p.avatar_url.startsWith('status:'))
-          )
+          .filter(isProfileResolved)
           .map((p) => p.email?.toLowerCase())
           .filter(Boolean)
       );
 
       const resolvedUserIds = new Set(
         profData
-          .filter(
-            (p) =>
-              p.status === 'approved' ||
-              p.status === 'rejected' ||
-              p.role === 'admin' ||
-              p.avatar_url === 'status:approved' ||
-              p.avatar_url === 'status:rejected' ||
-              (typeof p.avatar_url === 'string' && p.avatar_url.startsWith('status:'))
-          )
+          .filter(isProfileResolved)
           .map((p) => p.id)
       );
 
@@ -478,12 +556,7 @@ export const UserDashboard: React.FC = () => {
       profData.forEach((p) => {
         const emailKey = p.email?.toLowerCase();
         const isResolved =
-          p.role === 'admin' ||
-          p.status === 'approved' ||
-          p.status === 'rejected' ||
-          p.avatar_url === 'status:approved' ||
-          p.avatar_url === 'status:rejected' ||
-          (typeof p.avatar_url === 'string' && p.avatar_url.startsWith('status:')) ||
+          isProfileResolved(p) ||
           locallyProcessedIds.has(p.id) ||
           (emailKey && locallyProcessedIds.has(emailKey));
 
@@ -494,7 +567,7 @@ export const UserDashboard: React.FC = () => {
             !p.status;
 
           if (isPending && emailKey && !resolvedEmails.has(emailKey)) {
-            pendingMap.set(emailKey, p);
+            pendingMap.set(emailKey, hydrateMemberIdentity(p));
           }
         }
       });
@@ -520,16 +593,19 @@ export const UserDashboard: React.FC = () => {
           !locallyProcessedIds.has(email) &&
           !pendingMap.has(email)
         ) {
-          pendingMap.set(email, {
-            id: userId || log.id,
-            full_name: details?.fullName || log.user_name || 'New Member',
-            email: details?.email,
-            roll_number: details?.enrollmentNo || '',
-            phone: details?.phone || '',
-            role: details?.role || 'member',
-            status: 'pending',
-            created_at: log.created_at,
-          });
+          pendingMap.set(
+            email,
+            hydrateMemberIdentity({
+              id: userId || log.id,
+              full_name: details?.fullName || details?.full_name || log.user_name || '',
+              email: details?.email,
+              roll_number: details?.enrollmentNo || details?.roll_number || '',
+              phone: details?.phone || '',
+              role: details?.role || 'member',
+              status: 'pending',
+              created_at: log.created_at,
+            })
+          );
         }
       });
 
@@ -806,7 +882,7 @@ export const UserDashboard: React.FC = () => {
 
     setProcessingUserId(targetUserId);
     try {
-      const res = await approveUserAccount(targetUserId, targetEmail);
+      const res = await approveUserAccount(targetUserId, targetEmail, targetName);
       if (!res.success) {
         // Rollback only if approval truly failed
         setLocallyProcessedIds((prev) => {
@@ -821,7 +897,7 @@ export const UserDashboard: React.FC = () => {
         } catch {}
         showToast('error', 'Approval Failed', res.error || 'Could not approve account');
       } else {
-        syncAdminHubData().catch(() => {});
+        Promise.all([syncAdminHubData(), refreshData()]).catch(() => {});
       }
     } catch {
       setLocallyProcessedIds((prev) => {
@@ -865,7 +941,7 @@ export const UserDashboard: React.FC = () => {
 
     setProcessingUserId(targetUserId);
     try {
-      const res = await rejectUserAccount(targetUserId, targetEmail);
+      const res = await rejectUserAccount(targetUserId, targetEmail, targetName);
       if (!res.success) {
         setLocallyProcessedIds((prev) => {
           const next = new Set(prev);
@@ -879,7 +955,7 @@ export const UserDashboard: React.FC = () => {
         } catch {}
         showToast('error', 'Rejection Failed', res.error || 'Could not reject account');
       } else {
-        syncAdminHubData().catch(() => {});
+        Promise.all([syncAdminHubData(), refreshData()]).catch(() => {});
       }
     } catch {
       setLocallyProcessedIds((prev) => {
@@ -920,7 +996,7 @@ export const UserDashboard: React.FC = () => {
     });
     setSavingProfile(false);
     if (res.success) {
-      await refreshProfile();
+      await Promise.all([refreshProfile(), refreshData()]);
       showToast('success', 'Profile Updated', 'Your profile details have been saved to the database.');
     } else {
       showToast('error', 'Update Failed', res.error || 'Could not update profile.');
@@ -928,7 +1004,27 @@ export const UserDashboard: React.FC = () => {
   };
 
   const lowReservesCount = items.filter((i) => isLowReserveItem(i)).length;
-  const userName = profile?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Member';
+  const activeEmail = profile?.email || user?.email;
+  const validProfileName =
+    profile?.full_name && !isDirtyOrPlaceholderName(profile.full_name, activeEmail)
+      ? profile.full_name
+      : '';
+  const fallbackMetaUserName =
+    (user?.user_metadata?.full_name as string) || (user?.user_metadata?.name as string) || '';
+  const userIdentity = extractIdentityFromEmail(activeEmail, {
+    ...(user?.user_metadata || {}),
+    full_name: validProfileName || fallbackMetaUserName || profile?.full_name,
+    enrollment_no: profile?.roll_number || profile?.enrollment_no || user?.user_metadata?.enrollment_no || user?.user_metadata?.roll_number,
+  });
+  const userName = validProfileName
+    ? toCleanDisplayName(validProfileName)
+    : userIdentity.fullName || 'Member';
+  const enrollmentNo = profile?.roll_number || profile?.enrollment_no || userIdentity.enrollmentNo || '';
+  const avatarUrl =
+    (profile?.avatar_url && !profile.avatar_url.startsWith('status:') ? profile.avatar_url : '') ||
+    (user?.user_metadata?.avatar_url as string) ||
+    (user?.user_metadata?.picture as string) ||
+    '';
   const roleName = profile?.role === 'admin' ? 'ADMIN' : profile?.role === 'lead' ? 'LEAD' : 'MEMBER';
 
   return (
@@ -956,6 +1052,7 @@ export const UserDashboard: React.FC = () => {
           <DashboardOverview
             userName={userName}
             roleName={roleName}
+            enrollmentNo={enrollmentNo}
             setActiveView={handleNavigateView}
           />
         )}
@@ -992,6 +1089,7 @@ export const UserDashboard: React.FC = () => {
             <RequisitionsView
               requests={requests}
               items={items}
+              allMembers={allMembers}
               isLeadOrAdmin={isLeadOrAdmin}
               userEmail={user?.email}
               userId={user?.id}
@@ -1007,6 +1105,7 @@ export const UserDashboard: React.FC = () => {
           <AdminHubView
             isAdmin={isAdmin}
             logs={logs}
+            items={items}
             requests={requests}
             allMembers={allMembers}
             loadingMembers={loadingMembers}
@@ -1034,6 +1133,8 @@ export const UserDashboard: React.FC = () => {
             <OperatorProfileView
               userName={userName}
               userEmail={user?.email}
+              enrollmentNo={enrollmentNo}
+              avatarUrl={avatarUrl}
               roleName={roleName}
               editName={editName}
               setEditName={setEditName}

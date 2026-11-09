@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { IOSSearchBar } from '../ui/ios-search-bar';
-import { BorrowRequest } from '../../types/inventory';
+import { BorrowRequest, InventoryItem } from '../../types/inventory';
+import { parseAuditLog, ParsedAuditEntry, AuditBadgeVariant } from '../../lib/audit';
+import { hydrateMemberIdentity } from '../../lib/identity';
 import {
   ScrollText,
   Users,
@@ -22,18 +24,16 @@ import {
   Trash2,
   ShieldCheck,
   Shield,
-  ChevronDown,
-  ChevronUp,
   RefreshCw,
-  Mail,
-  Hash,
-  Phone,
-  Calendar,
+  ArrowRight,
+  User,
+  Layers,
 } from 'lucide-react';
 
 interface AdminHubViewProps {
   isAdmin: boolean;
   logs: any[];
+  items?: InventoryItem[];
   requests: BorrowRequest[];
   allMembers: any[];
   loadingMembers: boolean;
@@ -45,28 +45,100 @@ interface AdminHubViewProps {
   onRefresh: () => void;
 }
 
-const parseActivityDetails = (raw: string | undefined): { cleanSummary: string; meta?: any } => {
-  if (!raw) return { cleanSummary: 'System activity recorded.' };
-  const trimmed = raw.trim();
-  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      const name = parsed.fullName || parsed.full_name || parsed.name || 'Member';
-      const email = parsed.email || '';
-      const roll = parsed.enrollmentNo || parsed.enrollment_no || parsed.roll_number || '';
-      const role = parsed.role ? `[${parsed.role.toUpperCase()}]` : '';
-      const summary = `Registration request submitted by ${name} (${email})${roll ? ` • Roll: ${roll}` : ''} ${role}`;
-      return { cleanSummary: summary, meta: parsed };
-    } catch {
-      return { cleanSummary: raw };
-    }
+const getAuditBadgeStyle = (variant: AuditBadgeVariant) => {
+  switch (variant) {
+    case 'signin':
+      return {
+        badgeClass: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/35',
+        Icon: LogIn,
+      };
+    case 'signout':
+      return {
+        badgeClass: 'bg-slate-500/15 text-slate-700 dark:text-slate-300 border-slate-500/35',
+        Icon: LogOut,
+      };
+    case 'account_request':
+      return {
+        badgeClass: 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/35',
+        Icon: UserPlus,
+      };
+    case 'account_approved':
+      return {
+        badgeClass: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/40',
+        Icon: CheckCircle2,
+      };
+    case 'account_rejected':
+      return {
+        badgeClass: 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/40',
+        Icon: XCircle,
+      };
+    case 'role_updated':
+      return {
+        badgeClass: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/40',
+        Icon: ShieldCheck,
+      };
+    case 'profile_updated':
+      return {
+        badgeClass: 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/40',
+        Icon: UserCheck,
+      };
+    case 'borrow_request':
+      return {
+        badgeClass: 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/40',
+        Icon: ShoppingBag,
+      };
+    case 'borrow_approved':
+      return {
+        badgeClass: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/40',
+        Icon: CheckCircle2,
+      };
+    case 'borrow_rejected':
+      return {
+        badgeClass: 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/40',
+        Icon: XCircle,
+      };
+    case 'return_request':
+      return {
+        badgeClass: 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/40',
+        Icon: RotateCcw,
+      };
+    case 'return_cleared':
+      return {
+        badgeClass: 'bg-teal-500/15 text-teal-700 dark:text-teal-300 border-teal-500/40',
+        Icon: CheckCircle2,
+      };
+    case 'return_declined':
+      return {
+        badgeClass: 'bg-orange-500/15 text-orange-700 dark:text-orange-300 border-orange-500/40',
+        Icon: XCircle,
+      };
+    case 'item_created':
+      return {
+        badgeClass: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/40',
+        Icon: Plus,
+      };
+    case 'item_edited':
+      return {
+        badgeClass: 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/40',
+        Icon: Pencil,
+      };
+    case 'item_deleted':
+      return {
+        badgeClass: 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/40',
+        Icon: Trash2,
+      };
+    default:
+      return {
+        badgeClass: 'bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300 border-slate-200 dark:border-zinc-700',
+        Icon: Clock,
+      };
   }
-  return { cleanSummary: raw };
 };
 
 export const AdminHubView: React.FC<AdminHubViewProps> = ({
   isAdmin,
   logs,
+  items = [],
   requests,
   allMembers,
   loadingMembers,
@@ -84,15 +156,26 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
 
   // Activity logs state
   const [logSearch, setLogSearch] = useState('');
-  const [logDaysFilter, setLogDaysFilter] = useState<'24h' | '3d'>('24h');
+  const [logDaysFilter, setLogDaysFilter] = useState<'24h' | '3d' | '7d'>('24h');
   const [logCategoryFilter, setLogCategoryFilter] = useState<'all' | 'borrow' | 'return' | 'account' | 'inventory'>('all');
-  const [inspectingLog, setInspectingLog] = useState<any | null>(null);
+  const [inspectingLog, setInspectingLog] = useState<ParsedAuditEntry | null>(null);
   const [logDisplayCount, setLogDisplayCount] = useState<number>(50);
+
+  // Hydrate cached or server-fetched members and pending accounts with clean Name + Enrollment
+  const normalizedMembers = useMemo(
+    () => allMembers.map((m) => hydrateMemberIdentity(m)),
+    [allMembers]
+  );
+
+  const normalizedPendingAccounts = useMemo(
+    () => pendingAccounts.map((acc) => hydrateMemberIdentity(acc)),
+    [pendingAccounts]
+  );
 
   // Memoized Member Groups to eliminate re-filtering/re-sorting bottlenecks
   const { adminGroup, memberGroup, totalFilteredMembers } = useMemo(() => {
     const q = memberSearch.toLowerCase().trim();
-    const filtered = allMembers.filter((m) => {
+    const filtered = normalizedMembers.filter((m) => {
       const matchesQ =
         !q ||
         (m.full_name && m.full_name.toLowerCase().includes(q)) ||
@@ -111,7 +194,13 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
       .sort((a, b) => (a.full_name || a.email || '').localeCompare(b.full_name || b.email || ''));
 
     return { adminGroup: admins, memberGroup: members, totalFilteredMembers: filtered.length };
-  }, [allMembers, memberSearch, memberRoleFilter]);
+  }, [normalizedMembers, memberSearch, memberRoleFilter]);
+
+  // Parse all logs with member, inventory, and requisition enrichment
+  const parsedLogs = useMemo(() => {
+    const now = Date.now();
+    return logs.map((log) => parseAuditLog(log, normalizedMembers, items, now, requests));
+  }, [logs, normalizedMembers, items, requests]);
 
   // Memoized Filtered Activity Logs
   const filteredLogs = useMemo(() => {
@@ -119,55 +208,50 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
     const cutoffMs = {
       '24h': now - 24 * 60 * 60 * 1000,
       '3d': now - 3 * 24 * 60 * 60 * 1000,
+      '7d': now - 7 * 24 * 60 * 60 * 1000,
     }[logDaysFilter];
 
     const q = logSearch.toLowerCase().trim();
 
-    return logs.filter((log) => {
-      const logTime = new Date(log.created_at).getTime();
-      if (cutoffMs > 0 && logTime < cutoffMs) return false;
+    return parsedLogs.filter((entry) => {
+      if (cutoffMs > 0 && entry.when.ms < cutoffMs) return false;
 
-      if (logCategoryFilter === 'borrow') {
-        const isBorrow =
-          log.action?.toLowerCase().includes('borrow') ||
-          log.action?.toLowerCase().includes('approved') ||
-          log.details?.toLowerCase().includes('borrow') ||
-          log.details?.toLowerCase().includes('requested');
-        if (!isBorrow) return false;
-      } else if (logCategoryFilter === 'return') {
-        const isReturn =
-          log.action?.toLowerCase().includes('return') ||
-          log.details?.toLowerCase().includes('returned');
-        if (!isReturn) return false;
-      } else if (logCategoryFilter === 'account') {
-        const isAccount =
-          log.action?.toLowerCase().includes('user') ||
-          log.action?.toLowerCase().includes('account') ||
-          log.action?.toLowerCase().includes('role') ||
-          log.action?.toLowerCase().includes('sign') ||
-          log.details?.toLowerCase().includes('account') ||
-          log.details?.toLowerCase().includes('registration') ||
-          log.details?.toLowerCase().includes('signed');
-        if (!isAccount) return false;
-      } else if (logCategoryFilter === 'inventory') {
-        const isItem =
-          log.action?.toLowerCase().includes('item') ||
-          log.details?.toLowerCase().includes('component') ||
-          log.details?.toLowerCase().includes('inventory');
-        if (!isItem) return false;
+      if (logCategoryFilter !== 'all' && entry.category !== logCategoryFilter) {
+        return false;
       }
 
       if (q) {
-        const matches =
-          (log.user_name && log.user_name.toLowerCase().includes(q)) ||
-          (log.details && log.details.toLowerCase().includes(q)) ||
-          (log.action && log.action.toLowerCase().includes(q));
-        if (!matches) return false;
+        const haystack = [
+          entry.actor.name,
+          entry.actor.email,
+          entry.actor.roll,
+          entry.actor.role,
+          entry.target.id,
+          entry.target.name,
+          entry.target.email,
+          entry.target.roll,
+          entry.targetIdentifier,
+          entry.assignedRole,
+          entry.componentName,
+          entry.adminName,
+          entry.requester?.name,
+          entry.requester?.email,
+          entry.requester?.roll,
+          entry.actionLabel,
+          entry.rawAction,
+          entry.summary,
+          ...entry.changes,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+
+        if (!haystack.includes(q)) return false;
       }
 
       return true;
     });
-  }, [logs, logDaysFilter, logCategoryFilter, logSearch]);
+  }, [parsedLogs, logDaysFilter, logCategoryFilter, logSearch]);
 
   if (!isAdmin) {
     return (
@@ -183,9 +267,7 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
 
   const nowMs = Date.now();
   const sevenDaysAgoMs = nowMs - 7 * 24 * 60 * 60 * 1000;
-  const sevenDayLogsCount = logs.filter(
-    (l) => new Date(l.created_at).getTime() >= sevenDaysAgoMs
-  ).length;
+  const sevenDayLogsCount = parsedLogs.filter((l) => l.when.ms >= sevenDaysAgoMs).length;
   const activeLoansCount = requests.filter((r) => r.status === 'approved').length;
 
   return (
@@ -218,7 +300,7 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
             <Users className="w-4 h-4 text-blue-600 dark:text-purple-400" />
           </div>
           <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
-            {allMembers.length > 0 ? allMembers.length : (loadingMembers ? '...' : 0)}
+            {normalizedMembers.length > 0 ? normalizedMembers.length : (loadingMembers ? '...' : 0)}
           </div>
           <p className="text-[10px] text-slate-500 dark:text-zinc-500">Registered laboratory roster</p>
         </div>
@@ -242,8 +324,8 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
             <UserCheck className="w-4 h-4 text-amber-500 dark:text-amber-400" />
           </div>
           <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2">
-            <span>{pendingAccounts.length}</span>
-            {pendingAccounts.length > 0 && (
+            <span>{normalizedPendingAccounts.length}</span>
+            {normalizedPendingAccounts.length > 0 && (
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/40 font-bold">
                 Action Needed
               </span>
@@ -284,7 +366,7 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
             <Users className="w-3.5 h-3.5 text-blue-600 dark:text-purple-400" />
             <span>Club Members</span>
             <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-800 dark:bg-zinc-800 dark:text-zinc-300 text-[10px] font-extrabold border border-slate-300 dark:border-zinc-700">
-              {allMembers.length}
+              {normalizedMembers.length}
             </span>
           </button>
 
@@ -324,11 +406,11 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
             <UserCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
             <span>Account Requests</span>
             <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
-              pendingAccounts.length > 0
+              normalizedPendingAccounts.length > 0
                 ? 'bg-amber-500 text-black animate-pulse border-amber-600'
                 : 'bg-slate-200 text-slate-800 dark:bg-zinc-800 dark:text-zinc-400 border-slate-300 dark:border-zinc-700'
             }`}>
-              {pendingAccounts.length}
+              {normalizedPendingAccounts.length}
             </span>
           </button>
         </div>
@@ -363,9 +445,9 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
             <div className="flex items-center gap-1.5">
               {(
                 [
-                  { key: 'all', label: 'All Roles', count: allMembers.length },
-                  { key: 'admin', label: 'Admins', count: allMembers.filter((m) => m.role === 'admin').length },
-                  { key: 'member', label: 'Members', count: allMembers.filter((m) => m.role !== 'admin').length },
+                  { key: 'all', label: 'All Roles', count: normalizedMembers.length },
+                  { key: 'admin', label: 'Admins', count: normalizedMembers.filter((m) => m.role === 'admin').length },
+                  { key: 'member', label: 'Members', count: normalizedMembers.filter((m) => m.role !== 'admin').length },
                 ] as const
               ).map((tab) => (
                 <button
@@ -396,7 +478,7 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
           {/* Members Table */}
           {(() => {
             if (totalFilteredMembers === 0) {
-              if (loadingMembers && allMembers.length === 0) {
+              if (loadingMembers && normalizedMembers.length === 0) {
                 return (
                   <div className="p-12 text-center rounded-2xl bg-slate-50 dark:bg-[#14141c] border-2 border-slate-200 dark:border-zinc-800 space-y-3">
                     <div className="flex items-center justify-center gap-2.5 text-slate-500 dark:text-zinc-400">
@@ -417,48 +499,69 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
               );
             }
 
-            const renderMemberRow = (member: any, isAdminMember: boolean) => (
-              <tr
-                key={member.id}
-                className="hover:bg-slate-50/80 dark:hover:bg-zinc-800/30 transition-colors"
-              >
-                {/* Member Avatar + Name */}
-                <td className="py-3.5 px-4 sm:px-6">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`w-9 h-9 rounded-xl font-bold text-xs flex items-center justify-center shrink-0 border ${
-                        isAdminMember
-                          ? 'bg-purple-100 text-purple-700 border-purple-300 dark:bg-[#1e1730] dark:text-purple-300 dark:border-purple-800/60'
-                          : 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700'
-                      }`}
-                    >
-                      {(member.full_name || member.email || 'M').charAt(0).toUpperCase()}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-bold text-sm text-slate-900 dark:text-white truncate">
-                          {member.full_name || 'Member'}
+            const renderMemberRow = (member: any, isAdminMember: boolean) => {
+              const memberAvatar =
+                typeof member.avatar_url === 'string' &&
+                !member.avatar_url.startsWith('status:') &&
+                (member.avatar_url.startsWith('http') || member.avatar_url.startsWith('data:image'))
+                  ? member.avatar_url
+                  : '';
+
+              return (
+                <tr
+                  key={member.id}
+                  className="hover:bg-slate-50/80 dark:hover:bg-zinc-800/30 transition-colors"
+                >
+                  {/* Member Avatar + Name */}
+                  <td className="py-3.5 px-4 sm:px-6">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-9 h-9 rounded-xl font-bold text-xs flex items-center justify-center shrink-0 border relative overflow-hidden ${
+                          isAdminMember
+                            ? 'bg-purple-100 text-purple-700 border-purple-300 dark:bg-[#1e1730] dark:text-purple-300 dark:border-purple-800/60'
+                            : 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700'
+                        }`}
+                      >
+                        <span className="select-none">
+                          {(member.full_name || member.email || 'M').charAt(0).toUpperCase()}
                         </span>
-                        {isAdminMember && (
-                          <ShieldCheck className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+                        {memberAvatar && (
+                          <img
+                            src={memberAvatar}
+                            alt=""
+                            referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLElement).style.display = 'none';
+                            }}
+                            className="absolute inset-0 w-full h-full object-cover"
+                          />
                         )}
                       </div>
-                      <span className="text-[10px] text-slate-500 dark:text-zinc-400 md:hidden font-mono block truncate">
-                        {member.email}
-                      </span>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-sm text-slate-900 dark:text-white truncate">
+                            {member.full_name || 'Member'}
+                          </span>
+                          {isAdminMember && (
+                            <ShieldCheck className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+                          )}
+                        </div>
+                        <span className="text-[10px] text-slate-500 dark:text-zinc-400 md:hidden font-mono block truncate">
+                          {member.email}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                </td>
+                  </td>
 
-                {/* Email Address */}
-                <td className="py-3.5 px-4 font-mono text-[11px] text-slate-600 dark:text-zinc-300 whitespace-nowrap">
-                  {member.email}
-                </td>
+                  {/* Email Address */}
+                  <td className="py-3.5 px-4 font-mono text-[11px] text-slate-600 dark:text-zinc-300 whitespace-nowrap">
+                    {member.email}
+                  </td>
 
-                {/* Roll Number */}
-                <td className="py-3.5 px-4 font-mono text-[11px] text-slate-600 dark:text-zinc-400 whitespace-nowrap">
-                  {member.roll_number || '—'}
-                </td>
+                  {/* Roll Number */}
+                  <td className="py-3.5 px-4 font-mono text-[11px] text-slate-700 dark:text-zinc-300 whitespace-nowrap">
+                    {member.roll_number || '—'}
+                  </td>
 
                 {/* Clearance Role */}
                 <td className="py-3.5 px-4 whitespace-nowrap">
@@ -502,7 +605,8 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
                   )}
                 </td>
               </tr>
-            );
+              );
+            };
 
             return (
               <div className="overflow-x-auto rounded-2xl border-2 border-slate-200 dark:border-zinc-800 bg-white dark:bg-[#14141c] shadow-sm">
@@ -577,7 +681,7 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
                 <IOSSearchBar
                   value={logSearch}
                   onChange={setLogSearch}
-                  placeholder="Search logs by actor, action, details..."
+                  placeholder="Search by name, ID, role, component, action..."
                   className="w-full"
                   collapsedWidth="100%"
                   expandedWidth="100%"
@@ -588,6 +692,7 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
                 {[
                   { key: '24h', label: 'Last 24 Hours' },
                   { key: '3d', label: 'Last 3 Days' },
+                  { key: '7d', label: 'Last 7 Days' },
                 ].map((tf) => (
                   <button
                     key={tf.key}
@@ -631,7 +736,6 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
 
           {/* Filtered Log Stream */}
           {(() => {
-            const now = Date.now();
             if (filteredLogs.length === 0) {
               return (
                 <div className="py-16 text-center rounded-2xl bg-slate-50 dark:bg-[#14141c]/60 border border-slate-200 dark:border-zinc-800 space-y-2">
@@ -648,115 +752,202 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
 
             return (
               <div className="space-y-3">
-                <div className="text-[11px] text-slate-500 dark:text-zinc-500 font-mono pb-1 flex items-center justify-between">
-                  <span>Showing {displayedLogs.length} of {filteredLogs.length} events logged in chronological timeline</span>
+                <div className="text-[11px] text-slate-500 dark:text-zinc-500 font-mono pb-1 flex flex-wrap items-center justify-between gap-2">
+                  <span>Showing {displayedLogs.length} of {filteredLogs.length} activity logs</span>
                 </div>
 
                 <div className="rounded-2xl bg-white dark:bg-[#0f0f15] border-2 border-slate-200 dark:border-zinc-800/90 divide-y divide-slate-100 dark:divide-zinc-800/80 overflow-hidden shadow-sm">
-                  {displayedLogs.map((log) => {
-                    const actionUpper = (log.action || '').toUpperCase();
-                    const detailsLower = (log.details || '').toLowerCase();
+                  {displayedLogs.map((entry) => {
+                    const { badgeClass, Icon: ActionIcon } = getAuditBadgeStyle(entry.badgeVariant);
+                    const isActorAdmin = entry.actor.role === 'admin' || entry.actor.role === 'lead';
+                    const isSessionEvent = entry.badgeVariant === 'signin' || entry.badgeVariant === 'signout';
+                    const isRoleUpdate = entry.badgeVariant === 'role_updated';
+                    const isIssueOrReturn =
+                      entry.badgeVariant === 'borrow_request' ||
+                      entry.badgeVariant === 'borrow_approved' ||
+                      entry.badgeVariant === 'borrow_rejected' ||
+                      entry.badgeVariant === 'return_request' ||
+                      entry.badgeVariant === 'return_cleared' ||
+                      entry.badgeVariant === 'return_declined';
 
-                    let badgeClass = 'bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300 border-slate-200 dark:border-zinc-700';
-                    let label = log.action ? log.action.replace(/_/g, ' ') : 'Activity';
-                    let ActionIcon = Clock;
+                    const showGenericTargetPill = Boolean(
+                      !isSessionEvent &&
+                        !isRoleUpdate &&
+                        !isIssueOrReturn &&
+                        entry.target.name &&
+                        entry.target.name.toLowerCase() !== entry.actor.name.toLowerCase()
+                    );
 
-                    if (actionUpper === 'USER_SIGNIN' || detailsLower.includes('signed in')) {
-                      badgeClass = 'bg-cyan-500/20 text-cyan-600 dark:text-cyan-300 border-cyan-500/40';
-                      label = 'Member Sign In';
-                      ActionIcon = LogIn;
-                    } else if (actionUpper === 'USER_SIGNOUT' || detailsLower.includes('signed out')) {
-                      badgeClass = 'bg-slate-500/20 text-slate-600 dark:text-slate-300 border-slate-500/40';
-                      label = 'Member Sign Out';
-                      ActionIcon = LogOut;
-                    } else if (actionUpper === 'ACCOUNT_REQUEST' || detailsLower.includes('registration request')) {
-                      badgeClass = 'bg-blue-500/20 text-blue-700 dark:text-purple-300 border-blue-500/40';
-                      label = 'Registration Request';
-                      ActionIcon = UserPlus;
-                    } else if (actionUpper.includes('BORROW') || detailsLower.includes('requested')) {
-                      badgeClass = 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/40';
-                      label = 'Requisition';
-                      ActionIcon = ShoppingBag;
-                    } else if (actionUpper.includes('APPROV') || detailsLower.includes('approved')) {
-                      badgeClass = 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 border-emerald-500/40';
-                      label = 'Approved';
-                      ActionIcon = CheckCircle2;
-                    } else if (actionUpper.includes('REJECT') || detailsLower.includes('rejected')) {
-                      badgeClass = 'bg-rose-500/20 text-rose-600 dark:text-rose-300 border-rose-500/40';
-                      label = 'Rejected';
-                      ActionIcon = XCircle;
-                    } else if (actionUpper.includes('RETURN') || detailsLower.includes('returned')) {
-                      badgeClass = 'bg-teal-500/20 text-teal-600 dark:text-teal-300 border-teal-500/40';
-                      label = 'Returned';
-                      ActionIcon = RotateCcw;
-                    } else if (actionUpper === 'UPDATE_ITEM' || actionUpper.includes('UPDATE') || detailsLower.includes('edited') || detailsLower.includes('updated component')) {
-                      badgeClass = 'bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-500/40';
-                      label = 'Component Edited';
-                      ActionIcon = Pencil;
-                    } else if (actionUpper.includes('ROLE') || detailsLower.includes('role')) {
-                      badgeClass = 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/40';
-                      label = 'Account Operation';
-                      ActionIcon = UserCheck;
-                    }
-
-                    const logDate = new Date(log.created_at);
-                    const diffMinutes = Math.floor((now - logDate.getTime()) / (60 * 1000));
-                    const diffHours = Math.floor(diffMinutes / 60);
-                    const diffDays = Math.floor(diffHours / 24);
-
-                    let relativeTime = 'Just now';
-                    if (diffMinutes >= 1 && diffMinutes < 60) relativeTime = `${diffMinutes}m ago`;
-                    else if (diffHours >= 1 && diffHours < 24) relativeTime = `${diffHours}h ago`;
-                    else if (diffDays === 1) relativeTime = 'Yesterday';
-                    else if (diffDays > 1) relativeTime = `${diffDays}d ago`;
-
-                    const { cleanSummary } = parseActivityDetails(log.details);
+                    const extraChanges = entry.changes.filter(
+                      (chg) =>
+                        !/^(Borrower|Roll|Qty|Status|Available Qty|Role):/i.test(chg) &&
+                        !(isRoleUpdate && /^Role updated to /i.test(chg))
+                    );
 
                     return (
                       <div
-                        key={log.id}
-                        className="px-4 py-3.5 sm:px-5 sm:py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/80 dark:hover:bg-[#141420] transition-colors"
+                        key={entry.id}
+                        className="px-4 py-3.5 sm:px-5 sm:py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 hover:bg-slate-50/80 dark:hover:bg-[#141420] transition-colors"
                       >
-                        <div className="flex items-start sm:items-center gap-3.5 min-w-0 flex-1">
-                          <div className="w-9 h-9 rounded-full bg-blue-50 dark:bg-purple-950/60 border border-blue-200 dark:border-purple-500/40 text-blue-600 dark:text-purple-300 font-bold text-xs flex items-center justify-center shrink-0">
-                            {(log.user_name || 'U').charAt(0).toUpperCase()}
+                        <div className="flex items-start gap-3.5 min-w-0 flex-1">
+                          <div
+                            className={`w-9 h-9 rounded-xl font-bold text-xs flex items-center justify-center shrink-0 border mt-0.5 ${
+                              isActorAdmin && !isSessionEvent
+                                ? 'bg-purple-100 text-purple-700 border-purple-300 dark:bg-[#1e1730] dark:text-purple-300 dark:border-purple-700/60'
+                                : 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700'
+                            }`}
+                          >
+                            {(entry.actor.name || 'U').charAt(0).toUpperCase()}
                           </div>
-                          <div className="min-w-0 space-y-0.5 flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
+
+                          <div className="min-w-0 space-y-1.5 flex-1">
+                            {/* Line 1: Person/Actor + Action Badge (+ Target for generic events) */}
+                            <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="font-bold text-xs text-slate-900 dark:text-white">
-                                {log.user_name || 'System Member'}
+                                {entry.actor.name}
                               </span>
+
+                              {!isSessionEvent && (
+                                <>
+                                  {isActorAdmin ? (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase font-mono bg-purple-100 text-purple-700 dark:bg-purple-950/70 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60">
+                                      <ShieldCheck className="w-2.5 h-2.5" />
+                                      {entry.actor.role.toUpperCase()}
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase font-mono bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700">
+                                      <User className="w-2.5 h-2.5" />
+                                      {entry.actor.role.toUpperCase()}
+                                    </span>
+                                  )}
+                                </>
+                              )}
+
                               <span
                                 className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase border flex items-center gap-1 ${badgeClass}`}
                               >
                                 <ActionIcon className="w-3 h-3" />
-                                <span>{label}</span>
+                                <span>{entry.actionLabel}</span>
                               </span>
+
+                              {showGenericTargetPill && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-zinc-800/90 text-slate-800 dark:text-zinc-200 border border-slate-200 dark:border-zinc-700">
+                                  <ArrowRight className="w-2.5 h-2.5 text-slate-400 shrink-0" />
+                                  <span className="truncate max-w-[220px]">{entry.target.name}</span>
+                                  {(entry.target.roll || entry.target.email) && (
+                                    <span className="text-slate-500 dark:text-zinc-400 font-mono font-normal">
+                                      ({entry.target.roll || entry.target.email})
+                                    </span>
+                                  )}
+                                </span>
+                              )}
                             </div>
+
+                            {/* Line 2: Clear Action Detail */}
                             <p className="text-xs text-slate-700 dark:text-zinc-300 leading-snug line-clamp-2">
-                              {cleanSummary}
+                              {entry.summary}
                             </p>
+
+                            {/* Line 3: Purpose-Specific Structured Pills (Role Updates / Issues & Returns / Field Diffs) */}
+                            {isRoleUpdate && (
+                              <div className="flex items-center gap-2 flex-wrap text-[10px]">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-[#171722] text-slate-700 dark:text-zinc-300 border border-slate-200 dark:border-zinc-800">
+                                  <span className="text-slate-400 dark:text-zinc-500 font-medium">Updated by:</span>
+                                  <span className="font-bold text-slate-900 dark:text-white">{entry.actor.name}</span>
+                                </span>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50/90 dark:bg-blue-950/30 text-blue-800 dark:text-blue-200 border border-blue-200 dark:border-blue-800/50">
+                                  <span className="text-blue-600/80 dark:text-blue-300/80 font-medium">ID Updated:</span>
+                                  <span className="font-bold">
+                                    {entry.target.name || 'Member'}
+                                    {entry.targetIdentifier &&
+                                    entry.targetIdentifier.toLowerCase() !== (entry.target.name || '').toLowerCase()
+                                      ? ` (${entry.targetIdentifier})`
+                                      : ''}
+                                  </span>
+                                </span>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono font-extrabold bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50">
+                                  <span>Role Given:</span>
+                                  <span>{entry.assignedRole || 'MEMBER'}</span>
+                                </span>
+                              </div>
+                            )}
+
+                            {isIssueOrReturn && (
+                              <div className="flex items-center gap-2 flex-wrap text-[10px]">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-[#171722] text-slate-700 dark:text-zinc-300 border border-slate-200 dark:border-zinc-800">
+                                  <span className="text-slate-400 dark:text-zinc-500 font-medium">Person:</span>
+                                  <span className="font-bold text-slate-900 dark:text-white">
+                                    {entry.requester?.name || entry.actor.name}
+                                  </span>
+                                  {entry.requester?.roll && (
+                                    <span className="font-mono text-slate-500 dark:text-zinc-400">
+                                      ({entry.requester.roll})
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50/90 dark:bg-purple-950/30 text-blue-800 dark:text-purple-200 border border-blue-200 dark:border-purple-800/50">
+                                  <span className="text-blue-600/80 dark:text-purple-300/80 font-medium">Component:</span>
+                                  <span className="font-bold">{entry.componentName || entry.target.name}</span>
+                                </span>
+                                {entry.adminName ? (
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border font-medium ${
+                                      entry.decision === 'rejected' || entry.decision === 'declined'
+                                        ? 'bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-200 border-rose-200 dark:border-rose-800/50'
+                                        : 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800/50'
+                                    }`}
+                                  >
+                                    <span>
+                                      {entry.decision === 'rejected' || entry.decision === 'declined'
+                                        ? 'Rejected by:'
+                                        : 'Approved by:'}
+                                    </span>
+                                    <span className="font-bold">{entry.adminName}</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50/90 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50 font-medium">
+                                    <span>Admin:</span>
+                                    <span className="font-bold">Pending Review</span>
+                                  </span>
+                                )}
+                                {extraChanges.slice(0, 2).map((chg, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="inline-flex items-center px-1.5 py-0.5 rounded-md font-mono bg-slate-100 dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 border border-slate-200/80 dark:border-zinc-800"
+                                  >
+                                    {chg}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
+                            {!isSessionEvent && !isRoleUpdate && !isIssueOrReturn && extraChanges.length > 0 && (
+                              <div className="flex items-center gap-2 flex-wrap text-[10px] text-slate-500 dark:text-zinc-400">
+                                {extraChanges.slice(0, 3).map((chg, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="inline-flex items-center px-1.5 py-0.5 rounded-md font-mono bg-slate-100 dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 border border-slate-200/80 dark:border-zinc-800"
+                                  >
+                                    {chg}
+                                  </span>
+                                ))}
+                                {extraChanges.length > 3 && (
+                                  <span className="text-[10px] font-mono text-slate-400 dark:text-zinc-500">
+                                    +{extraChanges.length - 3} more
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-3 self-end sm:self-auto shrink-0 pl-12 sm:pl-0">
-                          <div className="text-left sm:text-right font-mono text-[11px]">
-                            <span className="block text-slate-800 dark:text-zinc-300 font-bold">
-                              {relativeTime}
-                            </span>
-                            <span className="text-[10px] text-slate-400 dark:text-zinc-500">
-                              {logDate.toLocaleTimeString('en-GB', {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })}
-                            </span>
-                          </div>
-
+                        {/* Right: Inspect Only (Zero Timestamps) */}
+                        <div className="flex items-center justify-end gap-3 shrink-0 pl-12 lg:pl-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-zinc-800/70">
                           <button
                             type="button"
-                            onClick={() => setInspectingLog(log)}
-                            className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300 transition-colors cursor-pointer"
-                            title="Inspect Details"
+                            onClick={() => setInspectingLog(entry)}
+                            className="px-3 py-1.5 rounded-xl text-[11px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 border border-slate-200 dark:border-zinc-700 transition-colors cursor-pointer shrink-0"
+                            title="Inspect Audit Record"
                           >
                             Inspect
                           </button>
@@ -786,7 +977,7 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
       {/* SUB-TAB 3: ACCOUNT REQUESTS */}
       {adminLogsTab === 'requests' && (
         <div className="space-y-4">
-          {pendingAccounts.length === 0 ? (
+          {normalizedPendingAccounts.length === 0 ? (
             <div className="p-12 text-center bg-slate-50 dark:bg-[#14141c]/50 border border-slate-200 dark:border-zinc-800/80 rounded-2xl space-y-2">
               <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
               <p className="text-sm font-bold text-slate-900 dark:text-white">All Member Registrations Clear</p>
@@ -796,148 +987,336 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
             </div>
           ) : (
             <div className="space-y-3">
-              {pendingAccounts.map((account) => (
-                <div
-                  key={account.id}
-                  className="p-4 rounded-2xl bg-white dark:bg-[#14141c] border-2 border-slate-200 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm"
-                >
-                  <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
-                    <div className="w-10 h-10 rounded-full bg-amber-50 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-500/40 font-bold flex items-center justify-center shrink-0">
-                      {(account.full_name || account.email || 'U').charAt(0).toUpperCase()}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <h4 className="font-bold text-sm text-slate-900 dark:text-white break-words">
-                        {account.full_name || 'New Member'}
-                      </h4>
-                      <span className="text-[11px] text-slate-500 dark:text-zinc-400 block font-mono break-all mt-0.5">
-                        {account.email}
-                      </span>
-                      {account.roll_number && (
-                        <span className="text-[10px] text-slate-400 dark:text-zinc-500 block font-mono mt-0.5">
-                          Roll: {account.roll_number}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+              {normalizedPendingAccounts.map((account) => {
+                const accountAvatar =
+                  typeof account.avatar_url === 'string' &&
+                  !account.avatar_url.startsWith('status:') &&
+                  (account.avatar_url.startsWith('http') || account.avatar_url.startsWith('data:image'))
+                    ? account.avatar_url
+                    : '';
+                const requestedDateStr = account.created_at
+                  ? new Date(account.created_at).toLocaleString([], {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })
+                  : '';
 
-                  <div className="flex items-center gap-2 sm:shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-zinc-800/80">
-                    <button
-                      type="button"
-                      disabled={processingUserId === account.id}
-                      onClick={() => onRejectAccount(account.id, account.full_name || account.email, account.email)}
-                      className="flex-1 sm:flex-none px-4 py-2 sm:py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400 border border-red-300 dark:border-red-800 text-xs font-bold transition-all cursor-pointer disabled:opacity-50 text-center"
-                    >
-                      {processingUserId === account.id ? 'Rejecting...' : 'Reject'}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={processingUserId === account.id}
-                      onClick={() => onApproveAccount(account.id, account.full_name || account.email, account.email)}
-                      className="flex-1 sm:flex-none px-4 py-2 sm:py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition-all cursor-pointer shadow-md disabled:opacity-50 text-center"
-                    >
-                      {processingUserId === account.id ? 'Approving...' : 'Approve Account'}
-                    </button>
+                return (
+                  <div
+                    key={account.id}
+                    className="p-4 rounded-2xl bg-white dark:bg-[#14141c] border-2 border-slate-200 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm"
+                  >
+                    <div className="flex items-start sm:items-center gap-3.5 min-w-0 flex-1">
+                      <div className="w-11 h-11 rounded-full bg-amber-50 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-500/40 font-bold flex items-center justify-center shrink-0 relative overflow-hidden">
+                        <span className="select-none">
+                          {(account.full_name || account.email || 'U').charAt(0).toUpperCase()}
+                        </span>
+                        {accountAvatar && (
+                          <img
+                            src={accountAvatar}
+                            alt=""
+                            referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLElement).style.display = 'none';
+                            }}
+                            className="absolute inset-0 w-full h-full object-cover"
+                          />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="font-bold text-sm text-slate-900 dark:text-white break-words">
+                            {account.full_name || 'Applicant'}
+                          </h4>
+                          <span className="px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 text-[10px] font-bold uppercase tracking-wider">
+                            Pending Verification
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-purple-950/50 text-blue-700 dark:text-purple-300 border border-blue-200 dark:border-purple-800/60 text-[11px] font-mono font-bold">
+                            Enrollment: {account.roll_number || 'Not Assigned'}
+                          </span>
+                          <span className="text-[11px] text-slate-500 dark:text-zinc-400 font-mono break-all">
+                            {account.email}
+                          </span>
+                        </div>
+                        {requestedDateStr && (
+                          <span className="text-[10px] text-slate-400 dark:text-zinc-500 block font-mono">
+                            Requested: {requestedDateStr}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 sm:shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-zinc-800/80">
+                      <button
+                        type="button"
+                        disabled={processingUserId === account.id}
+                        onClick={() => onRejectAccount(account.id, account.full_name || account.email, account.email)}
+                        className="flex-1 sm:flex-none px-4 py-2 sm:py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400 border border-red-300 dark:border-red-800 text-xs font-bold transition-all cursor-pointer disabled:opacity-50 text-center"
+                      >
+                        {processingUserId === account.id ? 'Rejecting...' : 'Reject'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={processingUserId === account.id}
+                        onClick={() => onApproveAccount(account.id, account.full_name || account.email, account.email)}
+                        className="flex-1 sm:flex-none px-4 py-2 sm:py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition-all cursor-pointer shadow-md disabled:opacity-50 text-center"
+                      >
+                        {processingUserId === account.id ? 'Approving...' : 'Approve Account'}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
       )}
 
-      {/* Activity Details Inspector Modal */}
-      {inspectingLog && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150"
-          onClick={() => setInspectingLog(null)}
-        >
-          <div
-            className="w-full max-w-lg bg-white dark:bg-[#14141c] border-2 border-slate-200 dark:border-zinc-800 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-zinc-800 pb-3.5">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-purple-950/60 text-blue-600 dark:text-purple-300 flex items-center justify-center font-bold text-xs">
-                  {(inspectingLog.user_name || 'U').charAt(0).toUpperCase()}
-                </div>
-                <div>
-                  <h3 className="font-black text-sm text-slate-900 dark:text-white">
-                    {inspectingLog.user_name || 'Member'}
-                  </h3>
-                  <p className="text-[11px] text-slate-400 font-mono">
-                    {new Date(inspectingLog.created_at).toLocaleString('en-GB')}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setInspectingLog(null)}
-                className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {/* Activity Details Inspector Modal (Zero Where / Zero Timestamps) */}
+      {inspectingLog && (() => {
+        const { badgeClass, Icon: ModalActionIcon } = getAuditBadgeStyle(inspectingLog.badgeVariant);
+        const isActorAdmin = inspectingLog.actor.role === 'admin' || inspectingLog.actor.role === 'lead';
+        const isSessionModal = inspectingLog.badgeVariant === 'signin' || inspectingLog.badgeVariant === 'signout';
+        const isRoleModal = inspectingLog.badgeVariant === 'role_updated';
+        const isIssueOrReturnModal =
+          inspectingLog.badgeVariant === 'borrow_request' ||
+          inspectingLog.badgeVariant === 'borrow_approved' ||
+          inspectingLog.badgeVariant === 'borrow_rejected' ||
+          inspectingLog.badgeVariant === 'return_request' ||
+          inspectingLog.badgeVariant === 'return_cleared' ||
+          inspectingLog.badgeVariant === 'return_declined';
 
-            {/* Modal Body */}
-            {(() => {
-              const { cleanSummary, meta } = parseActivityDetails(inspectingLog.details);
-              return (
-                <div className="space-y-4 text-xs">
-                  <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#151520] border border-slate-200 dark:border-zinc-800 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500 dark:text-zinc-400">Action</span>
-                      <span className="font-bold text-slate-900 dark:text-white uppercase font-mono">
-                        {inspectingLog.action || 'Activity'}
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150"
+            onClick={() => setInspectingLog(null)}
+          >
+            <div
+              className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-white dark:bg-[#14141c] border-2 border-slate-200 dark:border-zinc-800 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="flex items-start justify-between gap-3 border-b border-slate-200 dark:border-zinc-800 pb-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm border shrink-0 ${
+                      isActorAdmin && !isSessionModal
+                        ? 'bg-purple-100 text-purple-700 border-purple-300 dark:bg-[#1e1730] dark:text-purple-300 dark:border-purple-700/60'
+                        : 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700'
+                    }`}
+                  >
+                    {(inspectingLog.actor.name || 'U').charAt(0).toUpperCase()}
+                  </div>
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase border inline-flex items-center gap-1 ${badgeClass}`}
+                      >
+                        <ModalActionIcon className="w-3 h-3" />
+                        <span>{inspectingLog.actionLabel}</span>
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400 dark:text-zinc-500">
+                        {inspectingLog.rawAction}
                       </span>
                     </div>
+                    <h3 className="font-black text-sm text-slate-900 dark:text-white truncate">
+                      {inspectingLog.actor.name}
+                    </h3>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInspectingLog(null)}
+                  className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer shrink-0"
+                  aria-label="Close inspector"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {isSessionModal ? (
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-[#151520] border border-slate-200 dark:border-zinc-800 space-y-2 text-xs">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-cyan-600 dark:text-cyan-400 block">
+                    Session Activity
+                  </span>
+                  <p className="font-bold text-sm text-slate-900 dark:text-white">
+                    {inspectingLog.actor.name}
+                  </p>
+                  <p className="text-slate-700 dark:text-zinc-300">{inspectingLog.summary}</p>
+                </div>
+              ) : (
+                <div className="space-y-3 text-xs">
+                  {/* Actor */}
+                  <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-[#151520] border border-slate-200 dark:border-zinc-800 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-500 dark:text-zinc-400">Timestamp</span>
-                      <span className="font-mono text-slate-800 dark:text-zinc-300">
-                        {new Date(inspectingLog.created_at).toLocaleString('en-GB')}
+                      <span className="text-[10px] font-black uppercase tracking-wider text-purple-600 dark:text-purple-400 flex items-center gap-1.5">
+                        <Shield className="w-3.5 h-3.5" />
+                        {isRoleModal ? 'Updated By' : 'Performed By'}
                       </span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase font-mono border ${
+                          isActorAdmin
+                            ? 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800/60'
+                            : 'bg-slate-200 text-slate-700 border-slate-300 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700'
+                        }`}
+                      >
+                        {inspectingLog.actor.role}
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="font-bold text-slate-900 dark:text-white text-sm">
+                        {inspectingLog.actor.name}
+                      </p>
+                      {inspectingLog.actor.roll && (
+                        <p className="text-[11px] font-mono text-slate-500 dark:text-zinc-400">
+                          Enrollment ID: <span className="text-slate-800 dark:text-zinc-200 font-semibold">{inspectingLog.actor.roll}</span>
+                        </p>
+                      )}
+                      {inspectingLog.actor.email && (
+                        <p className="text-[11px] font-mono text-slate-500 dark:text-zinc-400 break-all">
+                          {inspectingLog.actor.email}
+                        </p>
+                      )}
                     </div>
                   </div>
 
-                  {meta ? (
-                    <div className="space-y-2">
-                      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
-                        Record Details
-                      </p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {meta.fullName && (
-                          <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#151520] border border-slate-200 dark:border-zinc-800">
-                            <span className="text-[10px] text-zinc-500 block uppercase font-mono">Full Name</span>
-                            <span className="font-bold text-slate-900 dark:text-white">{meta.fullName}</span>
-                          </div>
+                  {/* Action & Structured Details */}
+                  <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-[#151520] border border-slate-200 dark:border-zinc-800 space-y-2.5">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5" />
+                      Action Details
+                    </span>
+                    <p className="text-slate-800 dark:text-zinc-100 font-medium leading-relaxed text-xs sm:text-sm">
+                      {inspectingLog.summary}
+                    </p>
+
+                    {isRoleModal && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                        <div className="p-2.5 rounded-xl bg-white dark:bg-[#101018] border border-slate-200 dark:border-zinc-800/90 space-y-0.5">
+                          <span className="text-[10px] font-mono uppercase text-slate-400 dark:text-zinc-500 block">
+                            Account / ID Updated
+                          </span>
+                          <p className="font-bold text-slate-900 dark:text-white">
+                            {inspectingLog.target.name || 'Member'}
+                          </p>
+                          {(inspectingLog.target.roll || inspectingLog.targetIdentifier) && (
+                            <p className="text-[11px] font-mono text-slate-600 dark:text-zinc-300">
+                              ID: {inspectingLog.target.roll || inspectingLog.targetIdentifier}
+                            </p>
+                          )}
+                          {inspectingLog.target.email && (
+                            <p className="text-[10px] font-mono text-slate-500 dark:text-zinc-400 break-all">
+                              {inspectingLog.target.email}
+                            </p>
+                          )}
+                          {inspectingLog.target.id && (
+                            <p className="text-[10px] font-mono text-slate-400 dark:text-zinc-500 break-all">
+                              UUID: {inspectingLog.target.id}
+                            </p>
+                          )}
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-white dark:bg-[#101018] border border-slate-200 dark:border-zinc-800/90 space-y-1">
+                          <span className="text-[10px] font-mono uppercase text-slate-400 dark:text-zinc-500 block">
+                            Role Given
+                          </span>
+                          <span className="inline-flex px-2.5 py-1 rounded-lg font-mono text-xs font-extrabold bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60">
+                            {inspectingLog.assignedRole || 'MEMBER'}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {isIssueOrReturnModal && (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                        <div className="p-2.5 rounded-xl bg-white dark:bg-[#101018] border border-slate-200 dark:border-zinc-800/90 space-y-0.5">
+                          <span className="text-[10px] font-mono uppercase text-slate-400 dark:text-zinc-500 block">
+                            Person Name
+                          </span>
+                          <p className="font-bold text-slate-900 dark:text-white">
+                            {inspectingLog.requester?.name || inspectingLog.actor.name}
+                          </p>
+                          {inspectingLog.requester?.roll && (
+                            <p className="text-[10px] font-mono text-slate-500 dark:text-zinc-400">
+                              ID: {inspectingLog.requester.roll}
+                            </p>
+                          )}
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-white dark:bg-[#101018] border border-slate-200 dark:border-zinc-800/90 space-y-0.5">
+                          <span className="text-[10px] font-mono uppercase text-slate-400 dark:text-zinc-500 block">
+                            Component Name
+                          </span>
+                          <p className="font-bold text-slate-900 dark:text-white">
+                            {inspectingLog.componentName || inspectingLog.target.name}
+                          </p>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-white dark:bg-[#101018] border border-slate-200 dark:border-zinc-800/90 space-y-0.5">
+                          <span className="text-[10px] font-mono uppercase text-slate-400 dark:text-zinc-500 block">
+                            {inspectingLog.decision === 'rejected' || inspectingLog.decision === 'declined'
+                              ? 'Admin Rejected'
+                              : inspectingLog.decision === 'approved'
+                              ? 'Admin Approved'
+                              : 'Admin Status'}
+                          </span>
+                          <p className="font-bold text-slate-900 dark:text-white">
+                            {inspectingLog.adminName || 'Pending Review'}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {!isRoleModal && !isIssueOrReturnModal && inspectingLog.target.name && (
+                      <div className="p-2.5 rounded-xl bg-white dark:bg-[#101018] border border-slate-200 dark:border-zinc-800/90 space-y-0.5">
+                        <span className="text-[10px] font-mono uppercase text-slate-400 dark:text-zinc-500 block">
+                          Affected Target
+                        </span>
+                        <p className="font-bold text-slate-900 dark:text-white">{inspectingLog.target.name}</p>
+                        {inspectingLog.target.roll && (
+                          <p className="text-[10px] font-mono text-slate-500 dark:text-zinc-400">
+                            ID: {inspectingLog.target.roll}
+                          </p>
                         )}
-                        {meta.email && (
-                          <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#151520] border border-slate-200 dark:border-zinc-800">
-                            <span className="text-[10px] text-zinc-500 block uppercase font-mono">Email Address</span>
-                            <span className="font-bold text-slate-900 dark:text-white break-all">{meta.email}</span>
-                          </div>
-                        )}
-                        {(meta.enrollmentNo || meta.enrollment_no) && (
-                          <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#151520] border border-slate-200 dark:border-zinc-800">
-                            <span className="text-[10px] text-zinc-500 block uppercase font-mono">Enrollment No</span>
-                            <span className="font-bold font-mono text-slate-900 dark:text-white">
-                              {meta.enrollmentNo || meta.enrollment_no}
-                            </span>
-                          </div>
+                        {inspectingLog.target.email && (
+                          <p className="text-[11px] font-mono text-slate-500 dark:text-zinc-400 break-all">
+                            {inspectingLog.target.email}
+                          </p>
                         )}
                       </div>
-                    </div>
-                  ) : (
-                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#151520] border border-slate-200 dark:border-zinc-800 space-y-1">
-                      <p className="text-[10px] text-zinc-500 uppercase font-mono">Description</p>
-                      <p className="text-slate-800 dark:text-zinc-200 font-medium leading-relaxed">{cleanSummary}</p>
-                    </div>
-                  )}
+                    )}
+
+                    {inspectingLog.changes.length > 0 && (
+                      <div className="pt-1 space-y-1">
+                        <span className="text-[10px] font-mono uppercase text-slate-400 dark:text-zinc-500 block">
+                          Recorded Details
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {inspectingLog.changes.map((chg, idx) => (
+                            <span
+                              key={idx}
+                              className="px-2 py-1 rounded-lg text-[11px] font-mono bg-white dark:bg-[#101018] text-slate-700 dark:text-zinc-200 border border-slate-200 dark:border-zinc-800"
+                            >
+                              {chg}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              );
-            })()}
+              )}
+
+              {/* Record Footer */}
+              <div className="pt-1 flex items-center justify-between text-[10px] font-mono text-slate-400 dark:text-zinc-500 border-t border-slate-100 dark:border-zinc-800/80">
+                <span className="truncate">Record ID: {inspectingLog.id}</span>
+                <span>Category: {inspectingLog.category.toUpperCase()}</span>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };

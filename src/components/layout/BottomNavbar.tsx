@@ -5,6 +5,11 @@ import { useInventory } from '../../context/InventoryContext';
 import { isReturnRequested } from '../../types/inventory';
 import { motionTransitions } from '../../lib/motion-tokens';
 import {
+  extractIdentityFromEmail,
+  isDirtyOrPlaceholderName,
+  toCleanDisplayName,
+} from '../../lib/identity';
+import {
   LayoutGrid,
   Boxes,
   Bell,
@@ -51,9 +56,34 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
   const [mobileExpanded, setMobileExpanded] = useState(false);
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
 
+  const rawEmail = profile?.email || user?.email || '';
+  const validProfileName =
+    profile?.full_name && !isDirtyOrPlaceholderName(profile.full_name, rawEmail)
+      ? profile.full_name
+      : '';
+  const metaNameCand =
+    (user?.user_metadata?.full_name as string) ||
+    (user?.user_metadata?.name as string) ||
+    '';
+  const extractedIdentity = extractIdentityFromEmail(rawEmail, {
+    ...(user?.user_metadata || {}),
+    full_name: validProfileName || metaNameCand || profile?.full_name,
+    enrollment_no:
+      profile?.roll_number ||
+      profile?.enrollment_no ||
+      (user?.user_metadata?.enrollment_no as string) ||
+      (user?.user_metadata?.roll_number as string),
+  });
+
+  const avatarSrc =
+    (profile?.avatar_url && !profile.avatar_url.startsWith('status:') ? profile.avatar_url : '') ||
+    (typeof user?.user_metadata?.avatar_url === 'string' ? user.user_metadata.avatar_url : '') ||
+    (typeof user?.user_metadata?.picture === 'string' ? user.user_metadata.picture : '') ||
+    '';
+
   useEffect(() => {
     setAvatarLoadFailed(false);
-  }, [profile?.avatar_url]);
+  }, [avatarSrc]);
 
   const navContainerRef = useRef<HTMLDivElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -61,7 +91,16 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
   const isAdmin = profile?.role === 'admin';
   const isLead = profile?.role === 'lead';
   const roleName = isAdmin ? 'ADMIN' : isLead ? 'LEAD' : 'MEMBER';
-  const displayName = profile?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User';
+  const displayName =
+    profile?.full_name && !isDirtyOrPlaceholderName(profile.full_name, rawEmail)
+      ? toCleanDisplayName(profile.full_name)
+      : extractedIdentity.fullName || 'Member';
+  const enrollmentNo = (
+    profile?.roll_number ||
+    profile?.enrollment_no ||
+    extractedIdentity.enrollmentNo ||
+    ''
+  ).trim();
 
   const isLeadOrAdmin = isAdmin || isLead;
   const pendingCount = isLeadOrAdmin
@@ -508,11 +547,11 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                 >
                   <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-purple-600 text-white flex items-center justify-center font-black text-xs shrink-0 overflow-hidden shadow-sm relative">
                     <span className="select-none">{getInitial()}</span>
-                    {profile?.avatar_url &&
+                    {avatarSrc &&
                     !avatarLoadFailed &&
-                    (profile.avatar_url.startsWith('data:image') || profile.avatar_url.startsWith('http')) && (
+                    (avatarSrc.startsWith('data:image') || avatarSrc.startsWith('http')) && (
                       <img
-                        src={profile.avatar_url}
+                        src={avatarSrc}
                         alt=""
                         referrerPolicy="no-referrer"
                         onError={() => setAvatarLoadFailed(true)}
@@ -525,7 +564,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                       {displayName}
                     </span>
                     <span className="text-[9px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-wider block whitespace-nowrap">
-                      {roleName}
+                      {roleName}{enrollmentNo ? ` • ${enrollmentNo}` : ''}
                     </span>
                   </div>
                 </button>
@@ -544,11 +583,11 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                       <div className="px-3 py-2.5 border-b border-slate-200 dark:border-zinc-800/80 flex items-center gap-2.5">
                         <div className="w-8 h-8 rounded-full bg-purple-600 text-white font-black text-xs flex items-center justify-center shrink-0 relative overflow-hidden">
                           <span className="select-none">{getInitial()}</span>
-                          {profile?.avatar_url &&
+                          {avatarSrc &&
                           !avatarLoadFailed &&
-                          (profile.avatar_url.startsWith('data:image') || profile.avatar_url.startsWith('http')) && (
+                          (avatarSrc.startsWith('data:image') || avatarSrc.startsWith('http')) && (
                             <img
-                              src={profile.avatar_url}
+                              src={avatarSrc}
                               alt=""
                               referrerPolicy="no-referrer"
                               onError={() => setAvatarLoadFailed(true)}
@@ -556,11 +595,23 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                             />
                           )}
                         </div>
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <p className="font-bold text-xs truncate text-slate-900 dark:text-white">{displayName}</p>
-                          <span className="text-[10px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-wider block">
-                            {roleName}
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                            <span className="text-[10px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-wider">
+                              {roleName}
+                            </span>
+                            {enrollmentNo && (
+                              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700">
+                                {enrollmentNo}
+                              </span>
+                            )}
+                          </div>
+                          {rawEmail && (
+                            <p className="text-[10px] font-mono text-slate-400 dark:text-zinc-500 truncate mt-0.5">
+                              {rawEmail}
+                            </p>
+                          )}
                         </div>
                       </div>
 

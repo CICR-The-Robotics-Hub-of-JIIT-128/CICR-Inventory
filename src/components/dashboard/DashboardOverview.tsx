@@ -12,12 +12,14 @@ import {
 interface DashboardOverviewProps {
   userName: string;
   roleName: string;
+  enrollmentNo?: string;
   setActiveView: (view: ActiveView) => void;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   userName,
   roleName,
+  enrollmentNo,
   setActiveView,
 }) => {
   const getGreeting = () => {
@@ -32,10 +34,15 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       {/* Hero Greeting & Live Matrix Airport Clock Banner */}
       <div className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-[#0f0f15] border-2 border-slate-200 dark:border-[#20202c] shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-bold font-mono tracking-widest text-blue-600 dark:text-purple-400 uppercase">
               {roleName} DASHBOARD
             </span>
+            {enrollmentNo && (
+              <span className="px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-[11px] font-bold font-mono text-slate-700 dark:text-zinc-300">
+                Roll: {enrollmentNo}
+              </span>
+            )}
           </div>
 
           <h1 className="text-2xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight mt-1">

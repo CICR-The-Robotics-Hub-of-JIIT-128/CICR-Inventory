@@ -116,15 +116,23 @@ export const RecentActivity: React.FC = () => {
                   {badge.icon}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="text-xs font-semibold text-zinc-200 truncate">
-                      {entry.actor.name}
-                    </span>
-                    {!isSession && (
-                      <span className="text-[9px] font-mono uppercase px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400 border border-zinc-700 shrink-0">
-                        {entry.actor.role}
+                  <div className="flex items-center justify-between gap-2 min-w-0">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-xs font-semibold text-zinc-200 truncate">
+                        {entry.actor.name}
                       </span>
-                    )}
+                      {!isSession && (
+                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400 border border-zinc-700 shrink-0">
+                          {entry.actor.role}
+                        </span>
+                      )}
+                    </div>
+                    <span
+                      className="text-[10px] font-mono text-zinc-500 whitespace-nowrap shrink-0"
+                      title={entry.when.fullLocal}
+                    >
+                      {entry.when.dateStr}, {entry.when.timeStr.slice(0, 5)}
+                    </span>
                   </div>
                   <p className="text-xs text-zinc-400 mt-0.5 line-clamp-2">{entry.summary}</p>
                 </div>

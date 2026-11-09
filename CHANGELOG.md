@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ***
 
+## [2.18.55] : 2026-11-10
+
+### Compact Audit Timestamps & Complete Transactional Email Notifications
+* **Compact Date & Time Stamps on Admin Logs ([`src/components/dashboard/AdminHubView.tsx`](src/components/dashboard/AdminHubView.tsx), [`src/components/dashboard/RecentActivity.tsx`](src/components/dashboard/RecentActivity.tsx))**:
+  * Added a compact monospace date and 24 hour time stamp (`dateStr`, `timeStr.slice(0, 5)`) alongside the Inspect button in Admin Activity Logs, inside the Inspect modal footer, and on the Recent Activity feed while keeping `where` location clutter hidden.
+* **Transactional Emails & Admin Alerts for Every Action ([`api/_lib/emailSpecs.ts`](api/_lib/emailSpecs.ts), [`api/_lib/emailTemplates.ts`](api/_lib/emailTemplates.ts), [`api/email.ts`](api/email.ts), [`api/accounts.ts`](api/accounts.ts), [`src/lib/notifications.ts`](src/lib/notifications.ts), [`src/context/AuthContext.tsx`](src/context/AuthContext.tsx), [`src/context/InventoryContext.tsx`](src/context/InventoryContext.tsx))**:
+  * Expanded allowed notification events and branded HTML templates across all 17 platform actions: Google OAuth SSO sign in, credentials login, manual and inactivity signout, account registration, account approval, account rejection, role update, profile and password update, borrow request submission, borrow approval, borrow rejection, return request submission, return acceptance, return decline, inventory creation, inventory editing, inventory removal, and return reminders.
+  * Fixed `/api/email` server authorization lookup to query `profiles` with the service role client instead of an unauthenticated client blocked by row level security, and awaited `/api/accounts` account approval/rejection emails before terminating the serverless response.
+  * Added administrator action alert emails (`account_created`, `borrow_requested`, `return_requested`) sent to approved administrators whenever clearance is required, and added pre revocation JWT capture (`keepalive: true`) inside `signOut()` so logout notifications authenticate reliably before token revocation.
+
+***
+
+## [2.18.54] : 2026-11-10
+
+### Expected Return Date Validation & Past Date Prevention
+* **Local Calendar Return Date Utilities ([`src/utils/returnDate.ts`](src/utils/returnDate.ts))**:
+  * Added `formatLocalIsoDate()`, `getTodayIsoDate()`, `getDefaultReturnDateIso()`, `parseIsoCalendarDate()`, and `validateExpectedReturnDate()` to validate Gregorian calendar dates using local calendar time instead of UTC `toISOString()` slices so midnight IST submissions never drift backward by one day.
+* **Borrow Form Pickers & Submission Guards ([`src/components/inventory/RequestCartModal.tsx`](src/components/inventory/RequestCartModal.tsx), [`src/components/inventory/BorrowModal.tsx`](src/components/inventory/BorrowModal.tsx), [`src/context/InventoryContext.tsx`](src/context/InventoryContext.tsx))**:
+  * Added `min` local date bounds, real time inline validation highlights, slider reset on invalid dispatch attempts, and central validation inside `submitBorrowRequest()` so past or invalid expected return dates are blocked before database writes, audit logs, or email notifications.
+  * Aligned `borrow_date` and `actual_return_date` status timestamps inside [`InventoryContext.tsx`](src/context/InventoryContext.tsx) with local calendar dates via `getTodayIsoDate()`.
+
+***
+
 ## [2.18.53] : 2026-11-09
 
 ### Canonical CICR Domain Enforcement, OAuth Back Navigation Guard & Supabase Key Validation

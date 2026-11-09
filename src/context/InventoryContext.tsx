@@ -19,6 +19,10 @@ import {
   notifyAccountRejected,
   sendDeviceNotification,
 } from '../utils/deviceNotification';
+import {
+  getTodayIsoDate,
+  validateExpectedReturnDate,
+} from '../utils/returnDate';
 
 const playNotificationChime = (tone: 'up' | 'down') => {
   try {
@@ -116,7 +120,7 @@ interface InventoryContextType {
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
 
 export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, profile } = useAuth();
+  const { user, profile, session } = useAuth();
   const { showToast } = useToast();
 
   const userRef = useRef({ user, profile });
@@ -612,6 +616,19 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             changes: itemChanges,
           }),
         });
+        await notifyEmail(
+          'item_created',
+          actor.actorEmail,
+          {
+            name: actor.actorName,
+            email: actor.actorEmail,
+            role: actor.actorRole,
+            item: newItemData.name,
+            category: newItemData.category,
+            notes: itemChanges.join(', '),
+          },
+          { accessToken: session?.access_token }
+        );
       }
       return { success: true };
     } catch (err: unknown) {
@@ -725,6 +742,20 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }),
       });
 
+      await notifyEmail(
+        'item_edited',
+        actor.actorEmail,
+        {
+          name: actor.actorName,
+          email: actor.actorEmail,
+          role: actor.actorRole,
+          item: logName,
+          category: cleanUpdates.category || targetItem?.category,
+          notes: changeParts.length > 0 ? changeParts.join(', ') : logSummary,
+        },
+        { accessToken: session?.access_token }
+      );
+
       // Re-sync with backend in background
       refreshData();
 
@@ -782,6 +813,19 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             : undefined,
         }),
       });
+      await notifyEmail(
+        'item_deleted',
+        actor.actorEmail,
+        {
+          name: actor.actorName,
+          email: actor.actorEmail,
+          role: actor.actorRole,
+          item: targetItem?.name || id,
+          category: targetItem?.category,
+          notes: 'Component removed from vault inventory',
+        },
+        { accessToken: session?.access_token }
+      );
       return { success: true };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to delete from DB';
@@ -803,9 +847,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (!data.quantity || data.quantity < 1 || !Number.isInteger(data.quantity)) {
       return { success: false, error: 'Invalid quantity: Must be a positive integer.' };
     }
-    if (!data.expectedReturnDate) {
-      return { success: false, error: 'Expected return date is required.' };
+    const returnDateCheck = validateExpectedReturnDate(data.expectedReturnDate);
+    if (!returnDateCheck.valid || !returnDateCheck.normalizedDate) {
+      return {
+        success: false,
+        error: returnDateCheck.error || 'Expected return date cannot be in the past.',
+      };
     }
+    const validatedReturnDate = returnDateCheck.normalizedDate;
     const item = items.find((i) => i.id === data.itemId);
     if (!item) return { success: false, error: 'Item not found' };
     if (item.available_qty < data.quantity) {
@@ -843,7 +892,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             project_name: data.projectName,
             purpose: data.purpose,
             status: 'pending',
-            expected_return_date: data.expectedReturnDate,
+            expected_return_date: validatedReturnDate,
           },
         ])
         .select()
@@ -873,7 +922,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             changes: [
               `Project: "${data.projectName}"`,
               `Qty: ${data.quantity}`,
-              `Due: ${data.expectedReturnDate}`,
+              `Due: ${validatedReturnDate}`,
             ],
             meta: {
               requestId: dbData.id,
@@ -881,7 +930,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               itemName: item.name,
               quantity: data.quantity,
               projectName: data.projectName,
-              expectedReturnDate: data.expectedReturnDate,
+              expectedReturnDate: validatedReturnDate,
               requesterId: actor.actorId,
               requesterName: borrowerName,
               requesterEmail: borrowerEmail,
@@ -889,14 +938,20 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             },
           }),
         });
-        await notifyEmail('borrow_requested', borrowerEmail, {
-          name: borrowerName,
-          email: borrowerEmail,
-          item: `${data.quantity}x ${item.name}`,
-          project: data.projectName,
-          status: 'pending',
-          dueDate: data.expectedReturnDate,
-        });
+        await notifyEmail(
+          'borrow_requested',
+          borrowerEmail,
+          {
+            name: borrowerName,
+            email: borrowerEmail,
+            item: `${data.quantity}x ${item.name}`,
+            project: data.projectName,
+            status: 'pending',
+            dueDate: validatedReturnDate,
+            notifyAdmins: true,
+          },
+          { accessToken: session?.access_token }
+        );
       }
       return { success: true };
     } catch (err: unknown) {
@@ -994,9 +1049,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       };
 
       if (newStatus === 'approved') {
-        updatePayload.borrow_date = new Date().toISOString().split('T')[0];
+        updatePayload.borrow_date = getTodayIsoDate();
       } else if (newStatus === 'returned') {
-        updatePayload.actual_return_date = new Date().toISOString().split('T')[0];
+        updatePayload.actual_return_date = getTodayIsoDate();
         const cleanNotes = (targetReq.admin_notes || '')
           .replace(/\[RETURN_REQUESTED\][^\n|]*/g, '')
           .replace(/\|+/g, '|')
@@ -1169,14 +1224,21 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         : newStatus === 'rejected'
         ? 'borrow_rejected'
         : 'item_returned';
-      await notifyEmail(event, targetReq.user_email, {
-        name: borrowerName,
-        email: targetReq.user_email,
-        item: `${reqQty}x ${targetReq.item_name}`,
-        status: newStatus,
-        dueDate: targetReq.expected_return_date,
-        notes: adminNotes,
-      });
+      await notifyEmail(
+        event,
+        targetReq.user_email,
+        {
+          name: borrowerName,
+          email: targetReq.user_email,
+          item: `${reqQty}x ${targetReq.item_name}`,
+          project: targetReq.project_name,
+          status: newStatus,
+          dueDate: targetReq.expected_return_date,
+          adminName: actor.actorName,
+          notes: adminNotes,
+        },
+        { accessToken: session?.access_token }
+      );
 
       await refreshData();
       return { success: true };
@@ -1280,6 +1342,35 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }),
       });
 
+      const targetBorrowerEmail = (targetReq.user_email || actor.actorEmail || '').toLowerCase();
+      const targetBorrowerIdentity = extractIdentityFromEmail(targetBorrowerEmail, {
+        full_name: targetReq.user_name,
+      });
+      const targetBorrowerName =
+        targetBorrowerEmail === actor.actorEmail
+          ? actor.actorName
+          : targetReq.user_name && !isDirtyOrPlaceholderName(targetReq.user_name, targetBorrowerEmail)
+          ? toCleanDisplayName(targetReq.user_name)
+          : targetBorrowerIdentity.fullName;
+
+      await notifyEmail(
+        'return_requested',
+        targetBorrowerEmail,
+        {
+          name: targetBorrowerName,
+          email: targetBorrowerEmail,
+          item: `${targetReq.quantity}x ${targetReq.item_name}`,
+          project: targetReq.project_name,
+          status: 'return requested',
+          dueDate: targetReq.expected_return_date,
+          notes:
+            returnNotes?.trim() ||
+            (targetBorrowerEmail !== actor.actorEmail ? `Submitted by ${actor.actorName}` : undefined),
+          notifyAdmins: true,
+        },
+        { accessToken: session?.access_token }
+      );
+
       await refreshData();
       return { success: true };
     } catch (err: unknown) {
@@ -1359,6 +1450,21 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           },
         }),
       });
+
+      await notifyEmail(
+        'return_declined',
+        targetReq.user_email,
+        {
+          name: borrowerName,
+          email: targetReq.user_email,
+          item: `${targetReq.quantity}x ${targetReq.item_name}`,
+          project: targetReq.project_name,
+          status: 'return declined',
+          adminName: actor.actorName,
+          notes: reason || 'Return request was declined by an administrator',
+        },
+        { accessToken: session?.access_token }
+      );
 
       await refreshData();
       return { success: true };

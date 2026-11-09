@@ -941,8 +941,14 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
                           </div>
                         </div>
 
-                        {/* Right: Inspect Only (Zero Timestamps) */}
-                        <div className="flex items-center justify-end gap-3 shrink-0 pl-12 lg:pl-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-zinc-800/70">
+                        {/* Right: Compact Date & Time + Inspect */}
+                        <div className="flex items-center justify-between lg:justify-end gap-3 shrink-0 pl-12 lg:pl-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-zinc-800/70">
+                          <span
+                            className="text-[11px] font-mono text-slate-500 dark:text-zinc-400 whitespace-nowrap"
+                            title={entry.when.fullLocal}
+                          >
+                            {entry.when.dateStr}, {entry.when.timeStr.slice(0, 5)}
+                          </span>
                           <button
                             type="button"
                             onClick={() => setInspectingLog(entry)}
@@ -1076,7 +1082,7 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
         </div>
       )}
 
-      {/* Activity Details Inspector Modal (Zero Where / Zero Timestamps) */}
+      {/* Activity Details Inspector Modal (Zero Where / Compact Timestamp) */}
       {inspectingLog && (() => {
         const { badgeClass, Icon: ModalActionIcon } = getAuditBadgeStyle(inspectingLog.badgeVariant);
         const isActorAdmin = inspectingLog.actor.role === 'admin' || inspectingLog.actor.role === 'lead';
@@ -1309,8 +1315,11 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
               )}
 
               {/* Record Footer */}
-              <div className="pt-1 flex items-center justify-between text-[10px] font-mono text-slate-400 dark:text-zinc-500 border-t border-slate-100 dark:border-zinc-800/80">
+              <div className="pt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-slate-400 dark:text-zinc-500 border-t border-slate-100 dark:border-zinc-800/80">
                 <span className="truncate">Record ID: {inspectingLog.id}</span>
+                <span>
+                  {inspectingLog.when.dateStr}, {inspectingLog.when.timeStr.slice(0, 5)}
+                </span>
                 <span>Category: {inspectingLog.category.toUpperCase()}</span>
               </div>
             </div>

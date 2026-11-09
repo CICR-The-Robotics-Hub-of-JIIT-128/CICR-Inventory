@@ -113,11 +113,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loggedSignInMarkersRef = useRef<Set<string>>(new Set());
   const provisioningPromisesRef = useRef<Map<string, Promise<{ allowed: boolean; error?: string }>>>(new Map());
   const syncedMetadataUserIdsRef = useRef<Set<string>>(new Set());
+  const notifiedAccountReqRef = useRef<Set<string>>(new Set());
 
   const logUserSignInIfNeeded = async (
     currentUser: User,
     resolvedProf?: Partial<UserProfile> | null,
-    forceLog?: boolean
+    forceLog?: boolean,
+    accessToken?: string
   ) => {
     try {
       const marker = currentUser.last_sign_in_at || (forceLog ? `session-${Date.now()}` : '');
@@ -189,6 +191,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }),
         },
       ]);
+
+      await notifyEmail(
+        'login',
+        email,
+        {
+          name: actorName,
+          email,
+          role: actorRole,
+          notes:
+            providerRaw === 'google'
+              ? 'Signed in via Google OAuth SSO'
+              : 'Signed in with CICR credentials',
+        },
+        { accessToken }
+      );
     } catch (logErr) {
       console.warn('Sign-in audit log notice:', logErr);
     }
@@ -385,7 +402,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let mounted = true;
 
-    async function runOAuthProvisioning(u: User): Promise<{ allowed: boolean; error?: string }> {
+    async function runOAuthProvisioning(
+      u: User,
+      accessToken?: string
+    ): Promise<{ allowed: boolean; error?: string }> {
       const email = (u.email || '').toLowerCase().trim();
       const isJiit = email.endsWith('@mail.jiit.ac.in') || email.endsWith('@jiit.ac.in');
       const isMaster = MASTER_ADMIN_EMAILS.includes(email);
@@ -580,6 +600,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }),
               },
             ]);
+
+            if (!notifiedAccountReqRef.current.has(u.id)) {
+              notifiedAccountReqRef.current.add(u.id);
+              await notifyEmail(
+                'account_created',
+                email,
+                {
+                  name: resolvedName,
+                  email,
+                  role: resolvedRole,
+                  status: resolvedStatus,
+                  notes: 'Registered via Google OAuth SSO',
+                  notifyAdmins: true,
+                },
+                { accessToken, keepalive: true }
+              );
+            }
           }
         }
       } catch (e) {
@@ -589,11 +626,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { allowed: true };
     }
 
-    async function validateAndProvisionOAuthUser(u: User): Promise<{ allowed: boolean; error?: string }> {
+    async function validateAndProvisionOAuthUser(
+      u: User,
+      accessToken?: string
+    ): Promise<{ allowed: boolean; error?: string }> {
       const inFlight = provisioningPromisesRef.current.get(u.id);
       if (inFlight) return inFlight;
 
-      const task = runOAuthProvisioning(u).finally(() => {
+      const task = runOAuthProvisioning(u, accessToken).finally(() => {
         provisioningPromisesRef.current.delete(u.id);
       });
       provisioningPromisesRef.current.set(u.id, task);
@@ -723,7 +763,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           try {
             localStorage.removeItem('cicr_auth_error');
           } catch {}
-          const oauthValidation = await validateAndProvisionOAuthUser(currentUser);
+          const oauthValidation = await validateAndProvisionOAuthUser(currentUser, session?.access_token);
           if (!oauthValidation.allowed) {
             await supabase.auth.signOut();
             localStorage.removeItem('cicr-active-user');
@@ -763,7 +803,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setSession(session);
           setUser(currentUser);
           const loadedProfile = await loadProfile(currentUser);
-          void logUserSignInIfNeeded(currentUser, loadedProfile);
+          void logUserSignInIfNeeded(currentUser, loadedProfile, false, session?.access_token);
         } else {
           if (pendingUrlAuthError.hasError && pendingUrlAuthError.message) {
             publishAuthError(pendingUrlAuthError.message);
@@ -808,7 +848,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      const oauthValidation = await validateAndProvisionOAuthUser(newSession.user);
+      const oauthValidation = await validateAndProvisionOAuthUser(newSession.user, newSession.access_token);
       if (!oauthValidation.allowed) {
         await supabase.auth.signOut();
         localStorage.removeItem('cicr-active-user');
@@ -844,7 +884,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSession(newSession);
       setUser(newSession.user);
       const loadedProfile = await loadProfile(newSession.user);
-      void logUserSignInIfNeeded(newSession.user, loadedProfile);
+      void logUserSignInIfNeeded(
+        newSession.user,
+        loadedProfile,
+        event === 'SIGNED_IN' && !newSession.user.last_sign_in_at,
+        newSession.access_token
+      );
       setLoading(false);
     });
 
@@ -921,12 +966,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               try {
                 localStorage.setItem('cicr-active-user', JSON.stringify(fallbackUser));
               } catch {}
-              void logUserSignInIfNeeded(fallbackUser, resolvedFailoverProfile, !fallbackUser.last_sign_in_at);
-              await notifyEmail('login', fallbackUser.email, {
-                name: resolvedFailoverProfile?.full_name || fallbackUser.user_metadata?.full_name,
-                email: fallbackUser.email,
-                role: resolvedFailoverProfile?.role || 'member',
-              });
+              await logUserSignInIfNeeded(
+                fallbackUser,
+                resolvedFailoverProfile,
+                !fallbackUser.last_sign_in_at,
+                fallbackData.session?.access_token
+              );
               return { success: true };
             }
           } else if (fallback.status === 401) {
@@ -990,14 +1035,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setSession(res.data.session);
         const loadedProf = await loadProfile(res.data.user);
 
-        // Real-time log sign-in to activity_logs (deduplicated with onAuthStateChange)
+        // Real-time log sign-in to activity_logs and send login email (deduplicated with onAuthStateChange)
         try {
-          void logUserSignInIfNeeded(res.data.user, loadedProf, !res.data.user.last_sign_in_at);
-          await notifyEmail('login', res.data.user.email, {
-            name: loadedProf.full_name || res.data.user.user_metadata?.full_name,
-            email: res.data.user.email,
-            role: loadedProf.role || 'member',
-          });
+          await logUserSignInIfNeeded(
+            res.data.user,
+            loadedProf,
+            !res.data.user.last_sign_in_at,
+            res.data.session?.access_token
+          );
         } catch (logErr) {
           console.warn('Sign-in log error:', logErr);
         }
@@ -1212,6 +1257,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }),
           },
         ]);
+
+        if (authData.session?.access_token) {
+          await notifyEmail(
+            'account_created',
+            emailToRegister,
+            {
+              name: effectiveFullName,
+              email: emailToRegister,
+              role: enforcedRole,
+              status: initialStatus,
+              notifyAdmins: true,
+            },
+            { accessToken: authData.session.access_token }
+          );
+        }
       }
 
       return {
@@ -1273,6 +1333,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }),
           },
         ]);
+        if (email) {
+          await notifyEmail(
+            'account_approved',
+            email,
+            {
+              name: resolvedTarget,
+              email,
+              status: 'approved',
+              adminName: actorName,
+            },
+            { accessToken: session?.access_token }
+          );
+        }
       } catch {}
     };
 
@@ -1383,6 +1456,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }),
           },
         ]);
+        if (email) {
+          await notifyEmail(
+            'account_rejected',
+            email,
+            {
+              name: resolvedTarget,
+              email,
+              status: 'rejected',
+              adminName: actorName,
+            },
+            { accessToken: session?.access_token }
+          );
+        }
       } catch {}
     };
 
@@ -1559,6 +1645,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               }),
             },
           ]);
+          await notifyEmail(
+            'profile_updated',
+            actorEmail,
+            {
+              name: actorName,
+              email: actorEmail,
+              role: actorRole,
+              notes: changes.join(', '),
+            },
+            { accessToken: session?.access_token }
+          );
         } catch {}
       }
 
@@ -1571,9 +1668,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOut = async () => {
-    // 1. Instantly (0ms) clear local state & storage so UI immediately returns to Login screen
+    // 1. Capture user, profile, session token, and inactivity reason before resetting state
     const userToLog = user;
     const profileToLog = profile;
+    const tokenBeforeSignOut = session?.access_token || '';
+    let isInactivitySignOut = false;
+    try {
+      isInactivitySignOut = localStorage.getItem('cicr_session_expired_reason') === 'inactivity';
+    } catch {}
 
     setUser(null);
     setSession(null);
@@ -1591,56 +1693,89 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         localStorage.removeItem(`cicr_last_signin_logged_${userToLog.id}`);
       } catch {}
+      for (const markerKey of Array.from(loggedSignInMarkersRef.current)) {
+        if (markerKey.startsWith(`${userToLog.id}:`)) {
+          loggedSignInMarkersRef.current.delete(markerKey);
+        }
+      }
     }
 
-    // 2. Log sign-out BEFORE revoking session JWT (so RLS authenticated insert succeeds)
-    (async () => {
-      try {
-        if (userToLog) {
-          const actorEmail = (profileToLog?.email || userToLog.email || '').toLowerCase();
-          const rawActorCand =
-            (profileToLog?.full_name && !isDirtyOrPlaceholderName(profileToLog.full_name, actorEmail) ? profileToLog.full_name : '') ||
-            (userToLog.user_metadata?.full_name as string) ||
-            (userToLog.user_metadata?.name as string) ||
-            profileToLog?.full_name ||
-            '';
-          const actorIdentity = extractIdentityFromEmail(actorEmail, {
-            ...(userToLog.user_metadata || {}),
-            full_name: rawActorCand,
-            enrollment_no: profileToLog?.roll_number,
-          });
-          const actorName =
-            rawActorCand && !isDirtyOrPlaceholderName(rawActorCand, actorEmail)
-              ? toCleanDisplayName(rawActorCand)
-              : actorIdentity.fullName;
-          const actorRoll = profileToLog?.roll_number || actorIdentity.enrollmentNo || '';
-          const actorRole = MASTER_ADMIN_EMAILS.includes(actorEmail)
-            ? 'admin'
-            : profileToLog?.role || 'member';
-
-          await supabase.from('activity_logs').insert([
-            {
-              user_id: userToLog.id,
-              user_name: actorName,
-              action: 'USER_SIGNOUT',
-              details: buildAuditDetails({
-                summary: `${actorName} logged out`,
-                actorId: userToLog.id,
-                actorName,
-                actorEmail,
-                actorRoll,
-                actorRole,
-                targetType: 'account',
-                where: 'CICR Portal > Session Sign-Out',
-              }),
-            },
-          ]);
+    // 2. Record audit log and send signout notification BEFORE revoking the JWT token
+    try {
+      if (userToLog) {
+        let resolvedToken = tokenBeforeSignOut;
+        if (!resolvedToken) {
+          try {
+            const { data: sessionData } = await supabase.auth.getSession();
+            resolvedToken = sessionData?.session?.access_token || '';
+          } catch {}
         }
-        await supabase.auth.signOut();
-      } catch (err) {
-        console.warn('Background sign out error:', err);
+
+        const actorEmail = (profileToLog?.email || userToLog.email || '').toLowerCase();
+        const rawActorCand =
+          (profileToLog?.full_name && !isDirtyOrPlaceholderName(profileToLog.full_name, actorEmail) ? profileToLog.full_name : '') ||
+          (userToLog.user_metadata?.full_name as string) ||
+          (userToLog.user_metadata?.name as string) ||
+          profileToLog?.full_name ||
+          '';
+        const actorIdentity = extractIdentityFromEmail(actorEmail, {
+          ...(userToLog.user_metadata || {}),
+          full_name: rawActorCand,
+          enrollment_no: profileToLog?.roll_number,
+        });
+        const actorName =
+          rawActorCand && !isDirtyOrPlaceholderName(rawActorCand, actorEmail)
+            ? toCleanDisplayName(rawActorCand)
+            : actorIdentity.fullName;
+        const actorRoll = profileToLog?.roll_number || actorIdentity.enrollmentNo || '';
+        const actorRole = MASTER_ADMIN_EMAILS.includes(actorEmail)
+          ? 'admin'
+          : profileToLog?.role || 'member';
+
+        await supabase.from('activity_logs').insert([
+          {
+            user_id: userToLog.id,
+            user_name: actorName,
+            action: 'USER_SIGNOUT',
+            details: buildAuditDetails({
+              summary: `${actorName} logged out`,
+              actorId: userToLog.id,
+              actorName,
+              actorEmail,
+              actorRoll,
+              actorRole,
+              targetType: 'account',
+              where: 'CICR Portal > Session Sign-Out',
+            }),
+          },
+        ]);
+
+        await Promise.race([
+          notifyEmail(
+            'logout',
+            actorEmail,
+            {
+              name: actorName,
+              email: actorEmail,
+              role: actorRole,
+              notes: isInactivitySignOut
+                ? 'Automatically signed out after 10 minutes of inactivity'
+                : 'Signed out by operator',
+            },
+            { accessToken: resolvedToken, keepalive: true }
+          ),
+          new Promise((resolve) => setTimeout(resolve, 4500)),
+        ]);
       }
-    })();
+    } catch (err) {
+      console.warn('Background sign out telemetry error:', err);
+    } finally {
+      try {
+        await supabase.auth.signOut();
+      } catch (signOutErr) {
+        console.warn('Supabase signOut error:', signOutErr);
+      }
+    }
   };
 
   const refreshProfile = async () => {
@@ -1652,6 +1787,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { error } = await supabase.auth.updateUser({ password });
       if (error) {
         return { success: false, error: error.message };
+      }
+      if (user?.email) {
+        await notifyEmail(
+          'profile_updated',
+          user.email,
+          {
+            name: profile?.full_name || user.user_metadata?.full_name || 'CICR member',
+            email: user.email,
+            role: profile?.role || 'member',
+            notes: 'Account password updated',
+          },
+          { accessToken: session?.access_token }
+        );
       }
       return { success: true };
     } catch (err: unknown) {

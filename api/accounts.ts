@@ -1,6 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import { Client } from 'pg';
+import {
+  NotificationEventName,
+  renderAdminAlertEmail,
+  renderNotificationEmail,
+} from './_lib/emailTemplates';
 
 function response(res: VercelResponse, status: number, body: unknown) {
   return res.status(status).json(body);
@@ -336,50 +341,49 @@ function resolveServerAppUrl(req?: VercelRequest): string {
   return DEFAULT_APP_URL;
 }
 
-function escapeHtml(value: unknown) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+/**
+ * Resolves approved administrator email recipients so new registration requests alert coordinators.
+ */
+async function resolveAccountAlertAdmins(
+  supabase: ReturnType<typeof getAdminClient>,
+  excludeEmail: string
+): Promise<string[]> {
+  const recipients = new Set<string>(MASTER_ADMIN_EMAILS);
+  const envAdmins = (process.env.ADMIN_ALERT_EMAILS || '').split(',');
+  for (const addr of envAdmins) {
+    const cleaned = addr.trim().toLowerCase();
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cleaned)) {
+      recipients.add(cleaned);
+    }
+  }
+
+  try {
+    const { data: rows } = await supabase
+      .from('profiles')
+      .select('email')
+      .eq('role', 'admin')
+      .eq('status', 'approved');
+    for (const row of rows || []) {
+      const em = typeof (row as any)?.email === 'string' ? (row as any).email.trim().toLowerCase() : '';
+      if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) {
+        recipients.add(em);
+      }
+    }
+  } catch (err) {
+    console.warn('Account admin alert lookup notice:', err);
+  }
+
+  recipients.delete(excludeEmail.trim().toLowerCase());
+  return Array.from(recipients);
 }
 
-function renderAccountEmail(event: string, data: Record<string, unknown>) {
-  const name = String(data.name || 'CICR member');
-  const role = data.role ? String(data.role).toUpperCase() : 'MEMBER';
-  const subjects: Record<string, string> = {
-    account_created: 'CICR registration received - awaiting approval',
-    account_approved: 'CICR account approved - access granted',
-    account_rejected: 'CICR account rejected - registration update',
-    role_updated: 'CICR account privileges updated',
-  };
-  const messages: Record<string, string> = {
-    account_created: `Hello ${name},\n\nYour CICR Inventory account has been registered successfully and is awaiting administrator approval. You will receive another email once your registration has been reviewed.`,
-    account_approved: `Hello ${name},\n\nYour CICR Inventory account has been approved by an administrator. You can now sign in to access laboratory equipment.`,
-    account_rejected: `Hello ${name},\n\nYour CICR Inventory registration request was reviewed and declined by an administrator.`,
-    role_updated: `Hello ${name},\n\nYour CICR Inventory account role has been updated to ${role}.`,
-  };
-  const layouts: Record<string, { label: string; title: string; action: string; path: string }> = {
-    account_created: { label: 'ACCOUNT // REVIEW PENDING', title: 'Registration received', action: 'CHECK ACCOUNT STATUS', path: '/' },
-    account_approved: { label: 'ACCOUNT // ACCESS APPROVED', title: 'Your account is ready', action: 'OPEN CICR VAULT', path: '/' },
-    account_rejected: { label: 'ACCOUNT // REVIEW COMPLETE', title: 'Registration update', action: 'CONTACT CICR', path: '/' },
-    role_updated: { label: 'ACCOUNT // ROLE UPDATED', title: 'Account privileges updated', action: 'OPEN CICR VAULT', path: '/' },
-  };
-  const layout = layouts[event] || { label: 'ACCOUNT // NOTIFICATION', title: 'Account Update', action: 'OPEN CICR VAULT', path: '/' };
-  const accent = event === 'account_rejected' ? '#ff2d8d' : '#00e5ff';
-  const appUrl = normalizeServerOrigin(typeof data.appUrl === 'string' ? data.appUrl : '') || resolveServerAppUrl();
-  const html = `<!doctype html><html><body style="margin:0;background:#05070d;color:#eef2f8;font-family:Arial,sans-serif"><div style="padding:28px 12px;background:#05070d"><table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:640px;margin:auto;background:#0d1320;border:1px solid #1e2a3d;border-radius:6px;overflow:hidden"><tr><td style="padding:20px 24px;border-bottom:1px solid #1e2a3d"><div style="font-size:18px;font-weight:800;letter-spacing:2px;color:#f5dc72"><span style="background:#f5dc72;color:#0d1320;padding:2px 5px">CICR</span> <span style="color:#00e5ff">//</span> INVENTORY</div><div style="margin-top:7px;color:#77839d;font-size:9px;letter-spacing:2px">CENTRE FOR INNOVATION, CONTROL &amp; ROBOTICS</div></td></tr><tr><td style="padding:24px"><div style="display:inline-block;padding:6px 9px;border:1px solid ${accent};color:${accent};font:700 10px monospace;letter-spacing:1px">${layout.label}</div><h1 style="margin:18px 0 8px;color:#f5f7fb;font-size:21px">${layout.title}</h1><p style="margin:0 0 20px;color:#9aa7bc;font-size:13px;line-height:1.6">${escapeHtml(messages[event] || '')}</p><a href="${escapeHtml(`${appUrl}${layout.path}`)}" style="display:inline-block;padding:12px 24px;background:#00d9ed;color:#041018;text-decoration:none;font:800 12px Arial,sans-serif;letter-spacing:1px;border-radius:3px">${layout.action}</a></td></tr></table></div></body></html>`;
-
-  return {
-    subject: subjects[event] || 'CICR Inventory notification',
-    text: messages[event] || '',
-    html,
-  };
-}
-
+/**
+ * Sends transactional account lifecycle emails via SMTP and closes the transport in finally.
+ * For new registrations (`account_created`), also dispatches an administrator review alert.
+ */
 async function sendAccountEmail(
-  event: 'account_created' | 'account_approved' | 'account_rejected' | 'role_updated',
+  supabase: ReturnType<typeof getAdminClient>,
+  event: Extract<NotificationEventName, 'account_created' | 'account_approved' | 'account_rejected' | 'role_updated'>,
   to: string,
   data: Record<string, unknown>
 ) {
@@ -387,10 +391,11 @@ async function sendAccountEmail(
   const pass = (process.env.SMTP_PASS || '').trim().replace(/[\s'"]/g, '');
   if (!user || !pass) return;
 
+  let transporter: any = null;
   try {
     const mod = await import('nodemailer');
     const nodemailer = mod.default || mod;
-    const transporter = (nodemailer.createTransport as any)({
+    transporter = (nodemailer.createTransport as any)({
       host: (process.env.SMTP_HOST || 'smtp.gmail.com').trim(),
       port: Number(process.env.SMTP_PORT) || 465,
       secure: (process.env.SMTP_SECURE === 'true' || Number(process.env.SMTP_PORT) === 465),
@@ -401,14 +406,39 @@ async function sendAccountEmail(
       socketTimeout: 4000,
     });
 
-    const emailContent = renderAccountEmail(event, data);
+    const appUrl = normalizeServerOrigin(typeof data.appUrl === 'string' ? data.appUrl : '') || resolveServerAppUrl();
+    const emailContent = renderNotificationEmail(event, data, appUrl);
     const from = (process.env.SMTP_FROM || user || `CICR Inventory <${user}>`).trim().replace(/^['"]|['"]$/g, '');
+    const primarySend = transporter.sendMail({ from, to, ...emailContent });
+
+    let adminAlertSend: Promise<unknown> | null = null;
+    if (event === 'account_created') {
+      const adminList = await resolveAccountAlertAdmins(supabase, to);
+      if (adminList.length > 0) {
+        const adminMessage = renderAdminAlertEmail('account_created', data, appUrl);
+        adminAlertSend = transporter
+          .sendMail({
+            from,
+            to: adminList[0],
+            ...(adminList.length > 1 ? { bcc: adminList.slice(1) } : {}),
+            ...adminMessage,
+          })
+          .catch((adminErr: unknown) => {
+            console.warn('Admin alert email notice for account_created:', adminErr);
+          });
+      }
+    }
+
     await Promise.race([
-      transporter.sendMail({ from, to, ...emailContent }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP timeout')), 4500)),
+      adminAlertSend ? Promise.all([primarySend, adminAlertSend]) : primarySend,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP timeout')), 6500)),
     ]);
   } catch (err) {
     console.warn(`SMTP delivery notice for ${event}:`, err);
+  } finally {
+    try {
+      transporter?.close?.();
+    } catch {}
   }
 }
 
@@ -564,10 +594,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // 5. Send notification email if target email exists
       if (targetEmail) {
-        await sendAccountEmail('role_updated', targetEmail, {
+        await sendAccountEmail(supabase, 'role_updated', targetEmail, {
           name: targetName,
           email: targetEmail,
           role,
+          adminName: actor.name,
+          notes: `Role changed from ${oldRole} to ${roleGiven}`,
           appUrl: resolveServerAppUrl(req),
         });
       }
@@ -664,7 +696,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }),
       }]);
       requireDatabaseSuccess(logError, 'Account request logging');
-      await sendAccountEmail('account_created', email, { name: fullName, email, role, status: 'pending', appUrl: resolveServerAppUrl(req) });
+      await sendAccountEmail(supabase, 'account_created', email, { name: fullName, email, role, status: 'pending', appUrl: resolveServerAppUrl(req) });
       return response(res, 201, { success: true });
     }
 
@@ -1093,7 +1125,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }),
     }]);
     requireDatabaseSuccess(actionLogError, 'Account action logging');
-    if (email) { void sendAccountEmail(action === 'approve' ? 'account_approved' : 'account_rejected', email, { name: fullName, email, role: details?.role, status, appUrl: resolveServerAppUrl(req) }).catch(err => console.warn('Background email notice:', err)); }
+    if (email) {
+      await sendAccountEmail(
+        supabase,
+        action === 'approve' ? 'account_approved' : 'account_rejected',
+        email,
+        {
+          name: fullName,
+          email,
+          role: existingProfile?.role || details?.role || 'member',
+          status,
+          adminName: actor.name,
+          appUrl: resolveServerAppUrl(req),
+        }
+      );
+    }
     return response(res, 200, { success: true });
   } catch (error) {
     console.error('Account operation failed:', error);

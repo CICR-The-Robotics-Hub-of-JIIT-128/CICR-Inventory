@@ -356,7 +356,7 @@ export function formatAuditTimestamp(rawTs?: string, nowMs: number = Date.now())
 
 /**
  * Parses and normalizes raw activity log records (structured JSON or legacy plain text)
- * into clean, identity-enriched audit entries without exposing location/timestamp clutter in views.
+ * into clean, identity-enriched audit entries with compact timestamp formatting and zero location clutter.
  *
  * @param log Raw row from `activity_logs`
  * @param membersRoster Normalized member roster for actor/target identity resolution

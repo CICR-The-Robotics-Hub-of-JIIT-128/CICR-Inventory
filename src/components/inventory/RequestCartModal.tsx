@@ -1,9 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { InventoryItem } from '../../types/inventory';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../common/Toast';
 import { notifyRequisitionSubmitted } from '../../utils/deviceNotification';
+import {
+  getDefaultReturnDateIso,
+  getTodayIsoDate,
+  validateExpectedReturnDate,
+} from '../../utils/returnDate';
 import { DragToConfirm } from '../ui/drag-to-confirm';
 import { PaymentStatus, PaymentReceiptItem } from '../ui/payment-status';
 import {
@@ -49,10 +54,10 @@ export const RequestCartModal: React.FC<RequestCartModalProps> = ({
   const [projectName, setProjectName] = useState('');
   const [purpose, setPurpose] = useState('');
   
-  // Default expected return date: 7 days from today
-  const defaultDate = new Date();
-  defaultDate.setDate(defaultDate.getDate() + 7);
-  const [returnDate, setReturnDate] = useState(defaultDate.toISOString().split('T')[0]);
+  // Default expected return date: 7 days from today in local calendar time
+  const minReturnDate = getTodayIsoDate();
+  const [returnDate, setReturnDate] = useState(() => getDefaultReturnDateIso(7));
+  const [dragResetNonce, setDragResetNonce] = useState(0);
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -62,7 +67,19 @@ export const RequestCartModal: React.FC<RequestCartModalProps> = ({
     totalUnits: number;
   } | null>(null);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    setErrorMsg('');
+    setReturnDate((prev) => {
+      const check = validateExpectedReturnDate(prev);
+      return check.valid && check.normalizedDate ? check.normalizedDate : getDefaultReturnDateIso(7);
+    });
+  }, [isOpen]);
+
   if (!isOpen) return null;
+
+  const returnDateCheck = validateExpectedReturnDate(returnDate);
+  const showInlineReturnDateError = Boolean(returnDate) && !returnDateCheck.valid;
 
   const rawEmail = profile?.email || user?.email || '';
   const extractedIdentity = extractIdentityFromEmail(rawEmail, {
@@ -90,6 +107,10 @@ export const RequestCartModal: React.FC<RequestCartModalProps> = ({
 
   const totalUnits = cart.reduce((acc, curr) => acc + curr.quantity, 0);
 
+  const triggerDragReset = () => {
+    setDragResetNonce((prev) => prev + 1);
+  };
+
   const handleDispatch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (isSubmitting) return;
@@ -97,28 +118,44 @@ export const RequestCartModal: React.FC<RequestCartModalProps> = ({
 
     if (cart.length === 0) {
       setErrorMsg('Your hardware cart is empty.');
+      triggerDragReset();
       return;
     }
 
     if (!projectName.trim() || !purpose.trim() || !returnDate) {
       setErrorMsg('Please provide a Project Name, Purpose, and Expected Return Date.');
+      triggerDragReset();
+      return;
+    }
+
+    const validatedDate = validateExpectedReturnDate(returnDate);
+    if (!validatedDate.valid || !validatedDate.normalizedDate) {
+      const dateError =
+        validatedDate.error || 'Expected return date cannot be in the past.';
+      setErrorMsg(dateError);
+      showToast('error', 'Invalid Return Date', dateError);
+      triggerDragReset();
       return;
     }
 
     setIsSubmitting(true);
     try {
       let failureCount = 0;
+      let firstError = '';
       for (const cartItem of cart) {
         const res = await submitBorrowRequest({
           itemId: cartItem.item.id,
           quantity: cartItem.quantity,
           projectName: projectName.trim(),
           purpose: purpose.trim(),
-          expectedReturnDate: returnDate,
+          expectedReturnDate: validatedDate.normalizedDate,
         });
 
         if (!res.success) {
           failureCount++;
+          if (!firstError && res.error) {
+            firstError = res.error;
+          }
         }
       }
 
@@ -136,14 +173,15 @@ export const RequestCartModal: React.FC<RequestCartModalProps> = ({
         // Push to device notification panel
         notifyRequisitionSubmitted(totalUnits, projectName.trim());
       } else {
-        showToast(
-          'warning',
-          'Partial Submission',
-          `Some items could not be requested. Please check requests queue.`
-        );
+        const failureMsg =
+          firstError || 'Some items could not be requested. Please check requests queue.';
+        setErrorMsg(failureMsg);
+        triggerDragReset();
+        showToast('warning', 'Requisition Submission Issue', failureMsg);
       }
     } catch {
       setErrorMsg('Failed to dispatch requisition. Please try again.');
+      triggerDragReset();
     } finally {
       setIsSubmitting(false);
     }
@@ -314,11 +352,25 @@ export const RequestCartModal: React.FC<RequestCartModalProps> = ({
                       <input
                         type="date"
                         required
+                        min={minReturnDate}
                         value={returnDate}
-                        onChange={(e) => setReturnDate(e.target.value)}
-                        className="w-full px-3.5 py-2.5 bg-white dark:bg-[#14141c] border-2 border-slate-300 dark:border-zinc-700 focus:border-blue-600 dark:border-purple-600 dark:focus:border-purple-500 focus:ring-2 focus:ring-blue-100 rounded-xl text-slate-900 dark:text-white font-medium outline-none transition-all"
+                        aria-invalid={showInlineReturnDateError}
+                        onChange={(e) => {
+                          setReturnDate(e.target.value);
+                          if (errorMsg) setErrorMsg('');
+                        }}
+                        className={`w-full px-3.5 py-2.5 bg-white dark:bg-[#14141c] border-2 rounded-xl text-slate-900 dark:text-white font-medium outline-none transition-all ${
+                          showInlineReturnDateError
+                            ? 'border-red-500 dark:border-rose-500 focus:border-red-600 dark:focus:border-rose-400 focus:ring-2 focus:ring-red-100 dark:focus:ring-rose-500/20'
+                            : 'border-slate-300 dark:border-zinc-700 focus:border-blue-600 dark:border-purple-600 dark:focus:border-purple-500 focus:ring-2 focus:ring-blue-100'
+                        }`}
                       />
                     </div>
+                    {showInlineReturnDateError && (
+                      <p className="mt-1 text-[11px] font-semibold text-red-600 dark:text-rose-400">
+                        {returnDateCheck.error}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -357,6 +409,7 @@ export const RequestCartModal: React.FC<RequestCartModalProps> = ({
 
                 <div className="pt-4 flex justify-center items-center w-full">
                   <DragToConfirm
+                    key={dragResetNonce}
                     size="md"
                     label={isSubmitting ? 'Dispatching Requisition...' : 'Slide to Dispatch Requisition'}
                     confirmedLabel="Requisition Dispatched!"

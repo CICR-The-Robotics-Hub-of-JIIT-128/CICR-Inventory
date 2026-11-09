@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { InventoryItem } from '../../types/inventory';
 import { useInventory } from '../../context/InventoryContext';
-import { useToast } from '../common/Toast';
 import { PaymentStatus } from '../ui/payment-status';
 import { useAuth } from '../../context/AuthContext';
 import { X, Send, AlertCircle, ShoppingBag } from 'lucide-react';
+import {
+  getDefaultReturnDateIso,
+  getTodayIsoDate,
+  validateExpectedReturnDate,
+} from '../../utils/returnDate';
 
 interface BorrowModalProps {
   item: InventoryItem | null;
@@ -20,23 +24,33 @@ export const BorrowModal: React.FC<BorrowModalProps> = ({
   const { submitBorrowRequest } = useInventory();
   const { user, profile } = useAuth();
   const [confirmedLoan, setConfirmedLoan] = useState<boolean>(false);
-  const { showToast } = useToast();
 
   const [quantity, setQuantity] = useState(1);
   const [projectName, setProjectName] = useState('');
   const [purpose, setPurpose] = useState('');
   
-  // Default expected return date: 7 days from now
-  const defaultDate = new Date();
-  defaultDate.setDate(defaultDate.getDate() + 7);
-  const [expectedReturnDate, setExpectedReturnDate] = useState(
-    defaultDate.toISOString().split('T')[0]
+  // Default expected return date: 7 days from today in local calendar time
+  const minReturnDate = getTodayIsoDate();
+  const [expectedReturnDate, setExpectedReturnDate] = useState(() =>
+    getDefaultReturnDateIso(7)
   );
   
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  useEffect(() => {
+    if (!isOpen) return;
+    setErrorMsg('');
+    setExpectedReturnDate((prev) => {
+      const check = validateExpectedReturnDate(prev);
+      return check.valid && check.normalizedDate ? check.normalizedDate : getDefaultReturnDateIso(7);
+    });
+  }, [isOpen]);
+
   if (!isOpen || !item) return null;
+
+  const returnDateCheck = validateExpectedReturnDate(expectedReturnDate);
+  const showInlineReturnDateError = Boolean(expectedReturnDate) && !returnDateCheck.valid;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,13 +66,19 @@ export const BorrowModal: React.FC<BorrowModalProps> = ({
       return;
     }
 
+    const validatedDate = validateExpectedReturnDate(expectedReturnDate);
+    if (!validatedDate.valid || !validatedDate.normalizedDate) {
+      setErrorMsg(validatedDate.error || 'Expected return date cannot be in the past.');
+      return;
+    }
+
     setLoading(true);
     const res = await submitBorrowRequest({
       itemId: item.id,
       quantity,
       projectName: projectName.trim(),
       purpose: purpose.trim(),
-      expectedReturnDate,
+      expectedReturnDate: validatedDate.normalizedDate,
     });
 
     setLoading(false);
@@ -166,10 +186,24 @@ export const BorrowModal: React.FC<BorrowModalProps> = ({
               <input
                 type="date"
                 required
+                min={minReturnDate}
                 value={expectedReturnDate}
-                onChange={(e) => setExpectedReturnDate(e.target.value)}
-                className="w-full px-3 py-2 bg-white dark:bg-[#14141c] border-2 border-slate-300 dark:border-zinc-700 focus:border-blue-600 dark:border-purple-600 dark:focus:border-purple-500 focus:ring-2 focus:ring-blue-100 rounded-xl text-slate-900 dark:text-white font-bold outline-none"
+                aria-invalid={showInlineReturnDateError}
+                onChange={(e) => {
+                  setExpectedReturnDate(e.target.value);
+                  if (errorMsg) setErrorMsg('');
+                }}
+                className={`w-full px-3 py-2 bg-white dark:bg-[#14141c] border-2 rounded-xl text-slate-900 dark:text-white font-bold outline-none ${
+                  showInlineReturnDateError
+                    ? 'border-red-500 dark:border-rose-500 focus:border-red-600 dark:focus:border-rose-400 focus:ring-2 focus:ring-red-100 dark:focus:ring-rose-500/20'
+                    : 'border-slate-300 dark:border-zinc-700 focus:border-blue-600 dark:border-purple-600 dark:focus:border-purple-500 focus:ring-2 focus:ring-blue-100'
+                }`}
               />
+              {showInlineReturnDateError && (
+                <p className="mt-1 text-[11px] font-semibold text-red-600 dark:text-rose-400">
+                  {returnDateCheck.error}
+                </p>
+              )}
             </div>
           </div>
 

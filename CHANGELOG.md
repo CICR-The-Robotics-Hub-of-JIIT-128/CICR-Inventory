@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ***
 
+## [2.18.52] : 2026-11-09
+
+### Full Inventory Return & Stock Reconciliation Utility Hardening
+* **Hardened Batch Return Script ([`scripts/return_all.cjs`](scripts/return_all.cjs))**:
+  * Added explicit credential validation, structured error propagation with nonzero exit status on verification failure, and deterministic transition ordering so database stock triggers execute cleanly across both `approved` and `overdue` borrow requests.
+  * Cleared stale `[RETURN_REQUESTED]` markers inside `admin_notes`, recorded returning administrator ownership (`approved_by`), emitted structured `ITEM_RETURNED` and `UPDATE_ITEM` JSON audit records compatible with [`src/lib/audit.ts`](src/lib/audit.ts), and reconciled residual stock discrepancies (`status = 'In Stock'`, `available_qty = total_qty`) with final zero unreturned unit verification (`172 / 172` available across all 53 components).
+
+***
+
 ## [2.18.51] : 2026-11-09
 
 ### Operator Profile Hub Removal & Prefix Free Environment Configuration

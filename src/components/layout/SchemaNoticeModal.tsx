@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Database, Copy, Check, ExternalLink, RefreshCw, X, AlertCircle } from 'lucide-react';
 import { useInventory } from '../../context/InventoryContext';
 import { useToast } from '../common/Toast';
+import { supabaseProjectRef } from '../../lib/supabase';
 
 interface SchemaNoticeModalProps {
   isOpen: boolean;
@@ -129,7 +130,9 @@ export const SchemaNoticeModal: React.FC<SchemaNoticeModalProps> = ({ isOpen, on
                   </span>
                 )}
               </h3>
-              <p className="text-xs text-zinc-400">Project Ref: <code className="text-purple-300">nmwkljtaymujqnmzgyxn</code></p>
+              <p className="text-xs text-zinc-400">
+                Project Ref: <code className="text-purple-300">{supabaseProjectRef || 'Configured via .env'}</code>
+              </p>
             </div>
           </div>
           <button
@@ -166,7 +169,11 @@ export const SchemaNoticeModal: React.FC<SchemaNoticeModalProps> = ({ isOpen, on
                   {copied ? 'Copied!' : 'Copy SQL'}
                 </button>
                 <a
-                  href="https://supabase.com/dashboard/project/nmwkljtaymujqnmzgyxn/sql/new"
+                  href={
+                    supabaseProjectRef
+                      ? `https://supabase.com/dashboard/project/${supabaseProjectRef}/sql/new`
+                      : 'https://supabase.com/dashboard'
+                  }
                   target="_blank"
                   rel="noreferrer"
                   className="btn-purple-glow flex items-center gap-1.5 px-3.5 py-1 text-xs font-bold rounded-xl transition-all shadow-sm"

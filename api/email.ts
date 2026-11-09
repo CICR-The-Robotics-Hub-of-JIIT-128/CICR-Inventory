@@ -7,15 +7,6 @@ import {
   renderNotificationEmail,
 } from './_lib/emailTemplates';
 
-const DEFAULT_REF = 'nmwkljtaymujqnmzgyxn';
-const DEFAULT_URL = `https://${DEFAULT_REF}.supabase.co`;
-const DEFAULT_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5td2tsanRheW11anFubXpneXhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzODQ0MDYsImV4cCI6MjEwODk2MDQwNn0.LGEoX7QPu2O9yxw0LT74rerIo4_Tj9CHCWlsT1hoxT8';
-const DEFAULT_SERVICE_ROLE_KEY = Buffer.from(
-  'ZXlKaGJHY2lPaUpJVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SnBjM01pT2lKemRYQmhZbUZ6WlNJc0luSmxaaUk2SW01dGQydHNhblJoZVcxMWFuRnViWHBuZVhodUlpd2ljbTlzWlNJNkluTmxjblpwWTJWZmNtOXNaU0lzSW1saGRDSTZNVGM1TXpNNE5EUXdOaXdpWlhod0lqb3lNVEE0T1RZd05EQTJmUS5JSWhZaXlfYXdYRlZrRFRMMHFXcXB3bWZVZkpvRkJuekpqbUZGbkcyN0R3',
-  'base64'
-).toString('utf8');
-
 const MASTER_ADMIN_EMAILS = [
   'vardaansaxena096@gmail.com',
   'cicrinventory@gmail.com',
@@ -45,11 +36,11 @@ function extractJwtRef(token: string): string {
   }
 }
 
-function pickMatchingKey(rawKey: string | undefined, expectedRef: string, fallbackKey: string): string {
+function pickMatchingKey(rawKey: string | undefined, expectedRef: string): string {
   const trimmed = (rawKey || '').trim();
-  if (!trimmed) return fallbackKey;
+  if (!trimmed) return '';
   const keyRef = extractJwtRef(trimmed);
-  if (keyRef && expectedRef && keyRef !== expectedRef) return fallbackKey;
+  if (keyRef && expectedRef && keyRef !== expectedRef) return '';
   return trimmed;
 }
 
@@ -155,18 +146,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(404).json({ error: 'Not found' });
   }
 
-  const supabaseUrl = (process.env.SUPABASE_URL || DEFAULT_URL).trim();
-  const expectedRef = extractSupabaseUrlRef(supabaseUrl) || DEFAULT_REF;
-  const anonKey = pickMatchingKey(process.env.SUPABASE_ANON_KEY, expectedRef, DEFAULT_ANON_KEY);
-  const serviceKey = pickMatchingKey(process.env.SUPABASE_SERVICE_ROLE_KEY, expectedRef, DEFAULT_SERVICE_ROLE_KEY);
-  if (!supabaseUrl || !anonKey) {
+  const supabaseUrl = (process.env.SUPABASE_URL || '').trim();
+  const expectedRef = extractSupabaseUrlRef(supabaseUrl);
+  const anonKey = pickMatchingKey(process.env.SUPABASE_ANON_KEY, expectedRef);
+  const serviceKey = pickMatchingKey(process.env.SUPABASE_SERVICE_ROLE_KEY, expectedRef);
+  if (!supabaseUrl || !anonKey || !serviceKey) {
     return res.status(503).json({ error: 'Supabase server configuration is missing.' });
   }
 
   const authClient = createClient(supabaseUrl, anonKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
-  const adminClient = createClient(supabaseUrl, serviceKey || anonKey, {
+  const adminClient = createClient(supabaseUrl, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 

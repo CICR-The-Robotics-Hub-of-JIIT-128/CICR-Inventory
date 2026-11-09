@@ -2,8 +2,6 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
-const DEFAULT_SUPABASE_REF = 'nmwkljtaymujqnmzgyxn';
-
 /**
  * Extracts the Supabase project reference subdomain from a https://<ref>.supabase.co URL.
  */
@@ -50,16 +48,22 @@ export default defineConfig(({ mode }) => {
 
   const configuredSupabaseUrl = pickPublicEnv('SUPABASE_URL');
   const rawSupabaseAnonKey = pickPublicEnv('SUPABASE_ANON_KEY');
-  const expectedProjectRef = extractSupabaseUrlRef(configuredSupabaseUrl) || DEFAULT_SUPABASE_REF;
+  const expectedProjectRef = extractSupabaseUrlRef(configuredSupabaseUrl);
   const configuredKeyRef = extractJwtProjectRef(rawSupabaseAnonKey);
 
   // Guard against stale cross project SUPABASE_ANON_KEY variables in Vercel project settings
   let configuredSupabaseAnonKey = rawSupabaseAnonKey;
-  if (rawSupabaseAnonKey && configuredKeyRef && configuredKeyRef !== expectedProjectRef) {
+  if (expectedProjectRef && rawSupabaseAnonKey && configuredKeyRef && configuredKeyRef !== expectedProjectRef) {
     console.warn(
       `[cicr-vite-config] Ignoring stale SUPABASE_ANON_KEY for project "${configuredKeyRef}" because SUPABASE_URL targets "${expectedProjectRef}".`
     );
     configuredSupabaseAnonKey = '';
+  }
+
+  if (!configuredSupabaseUrl || !configuredSupabaseAnonKey) {
+    console.warn(
+      '[cicr-vite-config] SUPABASE_URL and SUPABASE_ANON_KEY must be set in .env or deployment environment variables.'
+    );
   }
 
   const configuredAppUrl = pickPublicEnv('APP_URL');

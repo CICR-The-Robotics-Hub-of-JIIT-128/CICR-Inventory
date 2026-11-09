@@ -237,7 +237,7 @@ Create a `.env` file in the project root:
 
 ```env
 # Supabase Configuration
-SUPABASE_URL=https://nmwkljtaymujqnmzgyxn.supabase.co
+SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_ANON_KEY=your-supabase-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 NEON_DATABASE_URL=postgresql://user:password@ep-example.neon.tech/neondb?sslmode=require

@@ -15,13 +15,6 @@ function requireDatabaseSuccess(error: { message: string } | null, operation: st
   if (error) throw new Error(`${operation} failed: ${error.message}`);
 }
 
-const DEFAULT_REF = 'nmwkljtaymujqnmzgyxn';
-const DEFAULT_URL = `https://${DEFAULT_REF}.supabase.co`;
-const DEFAULT_SERVICE_ROLE_KEY = Buffer.from(
-  'ZXlKaGJHY2lPaUpJVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SnBjM01pT2lKemRYQmhZbUZ6WlNJc0luSmxaaUk2SW01dGQydHNhblJoZVcxMWFuRnViWHBuZVhodUlpd2ljbTlzWlNJNkluTmxjblpwWTJWZmNtOXNaU0lzSW1saGRDSTZNVGM1TXpNNE5EUXdOaXdpWlhod0lqb3lNVEE0T1RZd05EQTJmUS5JSWhZaXlfYXdYRlZrRFRMMHFXcXB3bWZVZkpvRkJuekpqbUZGbkcyN0R3',
-  'base64'
-).toString('utf8');
-
 function extractSupabaseUrlRef(urlStr: string): string {
   try {
     const match = new URL(urlStr).hostname.toLowerCase().match(/^([a-z0-9-]+)\.supabase\.co$/);
@@ -42,12 +35,20 @@ function extractJwtRef(token: string): string {
   }
 }
 
+/**
+ * Builds a privileged server-side Supabase admin client strictly from environment variables.
+ */
 function getAdminClient() {
-  const url = (process.env.SUPABASE_URL || DEFAULT_URL).trim();
-  const expectedRef = extractSupabaseUrlRef(url) || DEFAULT_REF;
-  const rawKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-  const keyRef = extractJwtRef(rawKey);
-  const key = rawKey && (!keyRef || !expectedRef || keyRef === expectedRef) ? rawKey : DEFAULT_SERVICE_ROLE_KEY;
+  const url = (process.env.SUPABASE_URL || '').trim();
+  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  if (!url || !key) {
+    throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variable.');
+  }
+  const expectedRef = extractSupabaseUrlRef(url);
+  const keyRef = extractJwtRef(key);
+  if (keyRef && expectedRef && keyRef !== expectedRef) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY does not match SUPABASE_URL project ref.');
+  }
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 

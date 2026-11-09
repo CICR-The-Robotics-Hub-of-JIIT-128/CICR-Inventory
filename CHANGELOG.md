@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ***
 
+## [2.18.56] : 2026-11-10
+
+### Environment Only Supabase Keys & Secret Fallback Removal
+* **Environment Driven Supabase Client & Vite Configuration ([`src/lib/supabase.ts`](src/lib/supabase.ts), [`vite.config.ts`](vite.config.ts), [`src/components/layout/SchemaNoticeModal.tsx`](src/components/layout/SchemaNoticeModal.tsx))**:
+  * Removed hardcoded `DEFAULT_REF`, `DEFAULT_URL`, `DEFAULT_ANON_KEY`, and `DEFAULT_SUPABASE_REF` fallbacks so Supabase URL, anon key, and derived `supabaseProjectRef` come strictly from `.env` or deployment environment variables.
+  * Updated client initialization to fail closed with an explicit error when `SUPABASE_URL` or `SUPABASE_ANON_KEY` is missing or targets a mismatched project ref, and updated [`SchemaNoticeModal.tsx`](src/components/layout/SchemaNoticeModal.tsx) and [`README.md`](README.md) to eliminate hardcoded project URLs and refs.
+* **Serverless API Hardcoded Key Purge ([`api/accounts.ts`](api/accounts.ts), [`api/auth.ts`](api/auth.ts), [`api/email.ts`](api/email.ts), [`api/reminders.ts`](api/reminders.ts))**:
+  * Removed `DEFAULT_SERVICE_ROLE_KEY`, `DEFAULT_ANON_KEY`, `DEFAULT_URL`, and `DEFAULT_REF` from all serverless API routes so every endpoint resolves credentials exclusively from `process.env` (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`) and rejects missing or cross project mismatched keys with HTTP `502`/`503`.
+
+***
+
 ## [2.18.55] : 2026-11-10
 
 ### Compact Audit Timestamps & Complete Transactional Email Notifications

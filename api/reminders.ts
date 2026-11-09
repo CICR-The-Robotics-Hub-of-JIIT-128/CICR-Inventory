@@ -1,13 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 
-const DEFAULT_REF = 'nmwkljtaymujqnmzgyxn';
-const DEFAULT_URL = `https://${DEFAULT_REF}.supabase.co`;
-const DEFAULT_SERVICE_ROLE_KEY = Buffer.from(
-  'ZXlKaGJHY2lPaUpJVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SnBjM01pT2lKemRYQmhZbUZ6WlNJc0luSmxaaUk2SW01dGQydHNhblJoZVcxMWFuRnViWHBuZVhodUlpd2ljbTlzWlNJNkluTmxjblpwWTJWZmNtOXNaU0lzSW1saGRDSTZNVGM1TXpNNE5EUXdOaXdpWlhod0lqb3lNVEE0T1RZd05EQTJmUS5JSWhZaXlfYXdYRlZrRFRMMHFXcXB3bWZVZkpvRkJuekpqbUZGbkcyN0R3',
-  'base64'
-).toString('utf8');
-
 const DEFAULT_APP_URL = 'https://inventory.cicr.in';
 
 function extractSupabaseUrlRef(urlStr: string): string {
@@ -116,11 +109,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(404).json({ error: 'Not found' });
   }
 
-  const url = (process.env.SUPABASE_URL || DEFAULT_URL).trim();
-  const expectedRef = extractSupabaseUrlRef(url) || DEFAULT_REF;
+  const url = (process.env.SUPABASE_URL || '').trim();
+  const expectedRef = extractSupabaseUrlRef(url);
   const rawKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
   const keyRef = extractJwtRef(rawKey);
-  const key = rawKey && (!keyRef || !expectedRef || keyRef === expectedRef) ? rawKey : DEFAULT_SERVICE_ROLE_KEY;
+  const key = rawKey && (!keyRef || !expectedRef || keyRef === expectedRef) ? rawKey : '';
 
   if (!url || !key) {
     return res.status(503).json({ error: 'Service configuration incomplete.' });

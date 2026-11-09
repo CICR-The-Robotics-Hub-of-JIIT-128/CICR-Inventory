@@ -30,7 +30,7 @@ const decodeBase64Url = (encoded: string): string => {
 /**
  * Extracts the Supabase project reference subdomain from a canonical project URL.
  *
- * @param urlStr Target Supabase API URL such as https://nmwkljtaymujqnmzgyxn.supabase.co.
+ * @param urlStr Target Supabase API URL such as https://your-project-ref.supabase.co.
  * @returns Project reference identifier or empty string when unrecognized.
  */
 const extractUrlRef = (urlStr: string): string => {
@@ -61,28 +61,35 @@ const extractJwtRef = (token: string): string => {
   }
 };
 
-const DEFAULT_REF = 'nmwkljtaymujqnmzgyxn';
-const DEFAULT_URL = `https://${DEFAULT_REF}.supabase.co`;
-const DEFAULT_ANON_KEY = decodeBase64Url(
-  'ZXlKaGJHY2lPaUpJVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SnBjM01pT2lKemRYQmhZbUZ6WlNJc0luSmxaaUk2SW01dGQydHNhblJoZVcxMWFuRnViWHBuZVhodUlpd2ljbTlzWlNJNkltRnViMjRpTENKcFlYUWlPakUzT1RNek9EUTBNRFlzSW1WNGNDSTZNakV3T0RrMk1EUXdObjAuTEdFb1g3UVB1Mk85eXh3MExUNzRyZXJJbzRfVGo5Q0hDV2xzVDFob3hUOA=='
-);
-
 const definedSupabaseUrl =
   typeof __CICR_ENV_SUPABASE_URL__ !== 'undefined' ? __CICR_ENV_SUPABASE_URL__ : '';
 const definedSupabaseAnonKey =
   typeof __CICR_ENV_SUPABASE_ANON_KEY__ !== 'undefined' ? __CICR_ENV_SUPABASE_ANON_KEY__ : '';
 const nodeEnv = typeof process !== 'undefined' && process.env ? process.env : undefined;
 
-const supabaseUrl = (definedSupabaseUrl || nodeEnv?.SUPABASE_URL || DEFAULT_URL).trim();
+const supabaseUrl = (definedSupabaseUrl || nodeEnv?.SUPABASE_URL || '').trim();
 const candidateAnonKey = (definedSupabaseAnonKey || nodeEnv?.SUPABASE_ANON_KEY || '').trim();
-const expectedUrlRef = extractUrlRef(supabaseUrl) || DEFAULT_REF;
+const expectedUrlRef = extractUrlRef(supabaseUrl);
 const candidateKeyRef = extractJwtRef(candidateAnonKey);
 
-// Prevent 401 Invalid API key failures when an unrelated legacy project key is injected via env
-const supabaseAnonKey =
-  candidateAnonKey && (!candidateKeyRef || !expectedUrlRef || candidateKeyRef === expectedUrlRef)
-    ? candidateAnonKey
-    : DEFAULT_ANON_KEY;
+/**
+ * Active Supabase project reference extracted strictly from environment configuration.
+ */
+export const supabaseProjectRef = expectedUrlRef;
+
+// Reject stale cross project keys if SUPABASE_URL and SUPABASE_ANON_KEY point to different projects
+const isMismatchedKey = Boolean(
+  expectedUrlRef && candidateKeyRef && candidateKeyRef !== expectedUrlRef
+);
+const supabaseAnonKey = isMismatchedKey ? '' : candidateAnonKey;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error(
+    isMismatchedKey
+      ? 'SUPABASE_ANON_KEY does not match SUPABASE_URL project ref in environment configuration.'
+      : 'Missing SUPABASE_URL or SUPABASE_ANON_KEY in .env or deployment environment variables.'
+  );
+}
 
 // Purge any corrupted legacy session tokens in localStorage on boot to ensure seamless cross-browser compatibility
 if (typeof window !== 'undefined') {

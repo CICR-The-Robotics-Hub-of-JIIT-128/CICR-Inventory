@@ -600,30 +600,113 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return task;
     }
 
-    // Scrub sensitive OAuth tokens from the browser address bar immediately
-    const cleanUrlHash = () => {
-      if (
-        typeof window !== 'undefined' &&
-        window.location.hash &&
-        (window.location.hash.includes('access_token=') ||
-          window.location.hash.includes('refresh_token=') ||
-          window.location.hash.includes('error='))
-      ) {
-        try {
-          window.history.replaceState(null, '', window.location.pathname + window.location.search);
-        } catch {}
+    /**
+     * Parses OAuth / PKCE callback errors returned via search parameters or URL fragments.
+     */
+    const captureUrlAuthError = (): { hasError: boolean; message: string } => {
+      if (typeof window === 'undefined') return { hasError: false, message: '' };
+      try {
+        const searchParams = new URLSearchParams(window.location.search || '');
+        const hashRaw = window.location.hash ? window.location.hash.replace(/^#/, '') : '';
+        const hashParams = hashRaw.includes('=') ? new URLSearchParams(hashRaw) : null;
+
+        const errCode = (searchParams.get('error_code') || hashParams?.get('error_code') || '').trim();
+        const err = (searchParams.get('error') || hashParams?.get('error') || '').trim();
+        const errDesc = (searchParams.get('error_description') || hashParams?.get('error_description') || '').trim();
+
+        if (!err && !errCode && !errDesc) {
+          return { hasError: false, message: '' };
+        }
+
+        const decodedDesc = errDesc.replace(/\+/g, ' ');
+        if (errCode === 'bad_oauth_state' || /oauth state/i.test(decodedDesc)) {
+          return {
+            hasError: true,
+            message: 'Your previous Google sign-in session expired or was already used. Please click Sign in with Google Account to continue.',
+          };
+        }
+
+        return {
+          hasError: true,
+          message: decodedDesc || err || errCode || 'Authentication could not be completed. Please try signing in again.',
+        };
+      } catch {
+        return { hasError: false, message: '' };
       }
     };
 
-    cleanUrlHash();
+    /**
+     * Persists and broadcasts an authentication error so LoginForm displays it immediately.
+     */
+    const publishAuthError = (message: string) => {
+      if (!message) return;
+      try {
+        localStorage.setItem('cicr_auth_error', message);
+      } catch {}
+      try {
+        window.dispatchEvent(new CustomEvent('cicr-auth-error', { detail: message }));
+      } catch {}
+    };
+
+    /**
+     * Strips sensitive OAuth tokens and transient PKCE/error query parameters from the address bar.
+     */
+    const cleanUrlOAuthParams = () => {
+      if (typeof window === 'undefined') return;
+      try {
+        const currentUrl = new URL(window.location.href);
+        let changed = false;
+
+        for (const key of ['code', 'state', 'error', 'error_code', 'error_description', 'sb']) {
+          if (currentUrl.searchParams.has(key)) {
+            currentUrl.searchParams.delete(key);
+            changed = true;
+          }
+        }
+
+        const hash = currentUrl.hash || '';
+        if (
+          hash &&
+          (hash.includes('access_token=') || hash.includes('refresh_token=') || hash.includes('error='))
+        ) {
+          currentUrl.hash = '';
+          changed = true;
+        }
+
+        if (changed) {
+          const cleanQuery = currentUrl.searchParams.toString();
+          const targetUrl = `${currentUrl.pathname}${cleanQuery ? `?${cleanQuery}` : ''}${currentUrl.hash}`;
+          window.history.replaceState(window.history.state, '', targetUrl);
+        }
+      } catch {}
+    };
+
+    // Remember if this browser tab arrived via an OAuth callback so back-navigation guards never rewind into Google/Supabase
+    if (typeof window !== 'undefined') {
+      try {
+        const search = window.location.search || '';
+        const hash = window.location.hash || '';
+        if (/[?&](code|state)=/.test(search) || hash.includes('access_token=')) {
+          sessionStorage.setItem('cicr_oauth_tab', '1');
+        }
+      } catch {}
+    }
+
+    const pendingUrlAuthError = captureUrlAuthError();
+    if (pendingUrlAuthError.hasError) {
+      cleanUrlOAuthParams();
+    }
 
     async function initSession() {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
         if (!mounted) return;
 
-        // Clean tokens from URL bar right after Supabase extracts the session
-        cleanUrlHash();
+        // Clean PKCE codes and OAuth tokens right after Supabase finishes session extraction
+        cleanUrlOAuthParams();
 
         const storedFallback = localStorage.getItem('neon-fallback-user');
         let fallbackUser: User | null = null;
@@ -637,13 +720,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const currentUser = session?.user ?? fallbackUser;
 
         if (currentUser) {
+          try {
+            localStorage.removeItem('cicr_auth_error');
+          } catch {}
           const oauthValidation = await validateAndProvisionOAuthUser(currentUser);
           if (!oauthValidation.allowed) {
             await supabase.auth.signOut();
             localStorage.removeItem('cicr-active-user');
             localStorage.removeItem('cicr-active-profile');
             localStorage.removeItem('neon-fallback-user');
-            localStorage.setItem('cicr_auth_error', oauthValidation.error || 'Access Restricted: Only college email accounts (@mail.jiit.ac.in) are permitted.');
+            publishAuthError(
+              oauthValidation.error || 'Access Restricted: Only college email accounts (@mail.jiit.ac.in) are permitted.'
+            );
             setSession(null);
             setUser(null);
             setProfile(null);
@@ -658,9 +746,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             localStorage.removeItem('neon-fallback-user');
 
             if (check.reason === 'rejected') {
-              localStorage.setItem('cicr_auth_error', 'Your account request was rejected by an administrator. Please contact the lab coordinator.');
+              publishAuthError(
+                'Your account request was rejected by an administrator. Please contact the lab coordinator.'
+              );
             } else {
-              localStorage.setItem('cicr_auth_error', 'Your account request has been sent to the Admin Portal. Please wait for an administrator to approve your account.');
+              publishAuthError(
+                'Your account request has been sent to the Admin Portal. Please wait for an administrator to approve your account.'
+              );
             }
 
             setSession(null);
@@ -673,6 +765,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const loadedProfile = await loadProfile(currentUser);
           void logUserSignInIfNeeded(currentUser, loadedProfile);
         } else {
+          if (pendingUrlAuthError.hasError && pendingUrlAuthError.message) {
+            publishAuthError(pendingUrlAuthError.message);
+          } else if (sessionError?.message) {
+            const msg = /invalid api key/i.test(sessionError.message)
+              ? 'Authentication service key mismatch detected. Please refresh the page and retry Google sign-in.'
+              : sessionError.message;
+            publishAuthError(msg);
+          }
           setSession(null);
           setUser(null);
           setProfile(null);
@@ -691,8 +791,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       if (!mounted) return;
 
-      // Clean tokens from URL bar immediately when auth state change fires
-      cleanUrlHash();
+      // Clean PKCE parameters and tokens from URL bar immediately when auth state change fires
+      cleanUrlOAuthParams();
 
       if (event === 'USER_UPDATED' && newSession?.user) {
         setSession(newSession);
@@ -1484,6 +1584,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('cicr-cached-logs');
     localStorage.removeItem('cicr-cached-members');
     localStorage.removeItem('cicr-cached-pending-accounts');
+    try {
+      sessionStorage.removeItem('cicr_oauth_tab');
+    } catch {}
     if (userToLog?.id) {
       try {
         localStorage.removeItem(`cicr_last_signin_logged_${userToLog.id}`);

@@ -4,6 +4,52 @@
       "maxDuration": 15
     }
   },
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "^privacy\\..+\\.vercel\\.app$"
+        }
+      ],
+      "destination": "https://inventory.cicr.in/privacy",
+      "permanent": false
+    },
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "^(?:tos|terms|toc)\\..+\\.vercel\\.app$"
+        }
+      ],
+      "destination": "https://inventory.cicr.in/terms",
+      "permanent": false
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "^.+\\.vercel\\.app$"
+        }
+      ],
+      "destination": "https://inventory.cicr.in/",
+      "permanent": false
+    },
+    {
+      "source": "/((?!api/).*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "^.+\\.vercel\\.app$"
+        }
+      ],
+      "destination": "https://inventory.cicr.in/$1",
+      "permanent": false
+    }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",

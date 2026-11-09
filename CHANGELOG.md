@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ***
 
+## [2.18.53] : 2026-11-09
+
+### Canonical CICR Domain Enforcement, OAuth Back Navigation Guard & Supabase Key Validation
+* **Canonical `https://inventory.cicr.in` Redirection Across All Layers ([`vercel.json`](vercel.json), [`src/lib/appUrl.ts`](src/lib/appUrl.ts), [`src/main.tsx`](src/main.tsx), [`public/sw.js`](public/sw.js), [`index.html`](index.html))**:
+  * Updated `DEFAULT_APP_URL` to `https://inventory.cicr.in` across both frontend helpers and serverless API endpoints ([`api/accounts.ts`](api/accounts.ts), [`api/email.ts`](api/email.ts), [`api/reminders.ts`](api/reminders.ts)).
+  * Added Vercel edge redirects in [`vercel.json`](vercel.json) and immediate boot enforcement via `enforceCanonicalAppOrigin()` inside [`src/main.tsx`](src/main.tsx) so visits or stale redirects hitting `cicr-inventory.vercel.app`, `*.vercel.app`, or legal `.vercel.app` subdomains converge automatically onto `https://inventory.cicr.in` while keeping `localhost` loopback development untouched.
+  * Normalized `www.` and legal subdomain prefixes inside `stripLegalSubdomainPrefix()` and `resolveOAuthRedirectUrl()` so Google OAuth `redirectTo` targets always match Supabase Redirect URL entries without falling back to a legacy Site URL.
+* **OAuth History Loop Prevention & PKCE Error Surfacing ([`src/components/dashboard/UserDashboard.tsx`](src/components/dashboard/UserDashboard.tsx), [`src/context/AuthContext.tsx`](src/context/AuthContext.tsx), [`src/components/auth/LoginForm.tsx`](src/components/auth/LoginForm.tsx))**:
+  * Prevented double back exit inside [`UserDashboard.tsx`](src/components/dashboard/UserDashboard.tsx) from rewinding browser history backward into consumed Google or Supabase OAuth callback URLs (`bad_oauth_state`), attempting safe tab close or staying cleanly on the CICR Home Dashboard instead.
+  * Added `captureUrlAuthError()`, `publishAuthError()`, PKCE query cleanup (`cleanUrlOAuthParams()`), and asynchronous `cicr-auth-error` event broadcasting so OAuth or API key failures surface clearly on the sign in card instead of silently hanging.
+* **Supabase Project Reference Key Guard ([`vite.config.ts`](vite.config.ts), [`src/lib/supabase.ts`](src/lib/supabase.ts), [`api/auth.ts`](api/auth.ts), [`api/accounts.ts`](api/accounts.ts), [`api/email.ts`](api/email.ts), [`api/reminders.ts`](api/reminders.ts))**:
+  * Added build time and runtime JWT `ref` mismatch detection that neutralizes stale cross project `SUPABASE_ANON_KEY` or `SUPABASE_SERVICE_ROLE_KEY` overrides injected via deployment environment variables so authentication never fails with 401 Invalid API key responses.
+
+***
+
 ## [2.18.52] : 2026-11-09
 
 ### Full Inventory Return & Stock Reconciliation Utility Hardening

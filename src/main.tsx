@@ -3,6 +3,10 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 import { initDeviceNotifications } from './utils/deviceNotification';
+import { enforceCanonicalAppOrigin } from './lib/appUrl';
+
+// Redirect any legacy *.vercel.app visit to https://inventory.cicr.in before mounting React or SW
+const redirectingToCanonicalOrigin = enforceCanonicalAppOrigin();
 
 // Suppress console telemetry in production to prevent console inspection
 if (typeof window !== 'undefined' && import.meta.env.PROD) {
@@ -13,7 +17,7 @@ if (typeof window !== 'undefined' && import.meta.env.PROD) {
   window.console.warn = noop;
 }
 
-if (typeof window !== 'undefined') {
+if (typeof window !== 'undefined' && !redirectingToCanonicalOrigin) {
   // Proactive console warning against console scraping / tampering
   console.log(
     '%cSTOP! CICR Security Guard',
@@ -25,11 +29,13 @@ if (typeof window !== 'undefined') {
   );
 }
 
-// Initialize native device push notifications & service worker
-initDeviceNotifications();
+if (!redirectingToCanonicalOrigin) {
+  // Initialize native device push notifications & service worker
+  initDeviceNotifications();
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>
+  );
+}

@@ -29,20 +29,41 @@ export const LoginForm: React.FC<LoginFormProps> = () => {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   useEffect(() => {
-    try {
-      const authErr = localStorage.getItem('cicr_auth_error');
-      if (authErr) {
-        localStorage.removeItem('cicr_auth_error');
-        setErrorMsg(authErr);
-        return;
-      }
+    const consumeStoredError = () => {
+      try {
+        const authErr = localStorage.getItem('cicr_auth_error');
+        if (authErr) {
+          localStorage.removeItem('cicr_auth_error');
+          setErrorMsg(authErr);
+          return;
+        }
 
-      const reason = localStorage.getItem('cicr_session_expired_reason');
-      if (reason === 'inactivity') {
-        localStorage.removeItem('cicr_session_expired_reason');
-        setErrorMsg('Your session expired due to 10 minutes of inactivity. Please sign in again to continue.');
+        const reason = localStorage.getItem('cicr_session_expired_reason');
+        if (reason === 'inactivity') {
+          localStorage.removeItem('cicr_session_expired_reason');
+          setErrorMsg('Your session expired due to 10 minutes of inactivity. Please sign in again to continue.');
+        }
+      } catch {}
+    };
+
+    consumeStoredError();
+
+    const handleAsyncAuthError = (evt: Event) => {
+      const detail = (evt as CustomEvent<string>).detail;
+      try {
+        localStorage.removeItem('cicr_auth_error');
+      } catch {}
+      if (typeof detail === 'string' && detail.trim()) {
+        setErrorMsg(detail.trim());
+      } else {
+        consumeStoredError();
       }
-    } catch {}
+    };
+
+    window.addEventListener('cicr-auth-error', handleAsyncAuthError);
+    return () => {
+      window.removeEventListener('cicr-auth-error', handleAsyncAuthError);
+    };
   }, []);
 
   const handleGoogleSignIn = async () => {

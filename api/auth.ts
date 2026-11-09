@@ -7,6 +7,34 @@ const DEFAULT_URL = `https://${DEFAULT_REF}.supabase.co`;
 const DEFAULT_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5td2tsanRheW11anFubXpneXhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzODQ0MDYsImV4cCI6MjEwODk2MDQwNn0.LGEoX7QPu2O9yxw0LT74rerIo4_Tj9CHCWlsT1hoxT8';
 
+function extractSupabaseUrlRef(urlStr: string): string {
+  try {
+    const match = new URL(urlStr).hostname.toLowerCase().match(/^([a-z0-9-]+)\.supabase\.co$/);
+    return match ? match[1] : '';
+  } catch {
+    return '';
+  }
+}
+
+function extractJwtRef(token: string): string {
+  const parts = token.split('.');
+  if (parts.length !== 3 || !parts[1]) return '';
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    return typeof payload?.ref === 'string' ? payload.ref.trim() : '';
+  } catch {
+    return '';
+  }
+}
+
+function pickMatchingSupabaseKey(rawKey: string | undefined, expectedRef: string, fallbackKey: string): string {
+  const trimmed = (rawKey || '').trim();
+  if (!trimmed) return fallbackKey;
+  const keyRef = extractJwtRef(trimmed);
+  if (keyRef && expectedRef && keyRef !== expectedRef) return fallbackKey;
+  return trimmed;
+}
+
 function jsonResponse(res: VercelResponse, status: number, body: unknown) {
   res.setHeader('content-type', 'application/json');
   res.status(status).json(body);
@@ -32,8 +60,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const password = typeof body?.password === 'string' ? body.password : '';
   if (!email || !password) return jsonResponse(res, 400, { error: 'Email and password are required.' });
 
-  const supabaseUrl = process.env.SUPABASE_URL || DEFAULT_URL;
-  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || DEFAULT_ANON_KEY;
+  const supabaseUrl = (process.env.SUPABASE_URL || DEFAULT_URL).trim();
+  const expectedRef = extractSupabaseUrlRef(supabaseUrl) || DEFAULT_REF;
+  const supabaseAnonKey = pickMatchingSupabaseKey(process.env.SUPABASE_ANON_KEY, expectedRef, DEFAULT_ANON_KEY);
 
   // 1. Primary Authentication: Authenticate with Supabase backend server-side
   try {

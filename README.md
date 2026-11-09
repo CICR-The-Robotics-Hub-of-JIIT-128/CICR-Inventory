@@ -317,6 +317,18 @@ requests, approvals, rejections, returns, and return reminders.
 Vercel cron is intentionally not configured.
 
 
+### Deployment URL & Multi Origin OAuth Redirects
+
+Forked or mirror deployments (such as `https://inventory.cicr.in`) can connect directly to the same shared Supabase and Neon database while authenticating users back to their own domain:
+
+1. Keep the shared database credentials (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NEON_DATABASE_URL`) identical across deployments.
+2. Configure deployment URL variables in Vercel or `.env`:
+   * `APP_URL`: Canonical origin used in outbound email notification buttons (for example `https://inventory.cicr.in`).
+   * `VITE_APP_URL`: Public frontend origin displayed on Legal pages and used as default fallback.
+   * `VITE_AUTH_REDIRECT_URL`: Optional hard override for Supabase OAuth `redirectTo` and signup `emailRedirectTo`. Leave empty to keep each active origin on its own host automatically.
+   * `VITE_ALLOWED_ORIGINS`: Optional comma separated allowlist of valid origins (for example `https://inventory.cicr.in,https://cicr-inventory.vercel.app`).
+3. In the shared **Supabase Dashboard**, open **Authentication -> URL Configuration -> Redirect URLs** and add the deployment origin and wildcard callback pattern (for example `https://inventory.cicr.in` and `https://inventory.cicr.in/**`).
+
 ### 5. Run Development Server
 ```bash
 npm run dev

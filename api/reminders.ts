@@ -8,6 +8,55 @@ const DEFAULT_SERVICE_ROLE_KEY = Buffer.from(
   'base64'
 ).toString('utf8');
 
+const DEFAULT_APP_URL = 'https://cicr-inventory.vercel.app';
+
+/**
+ * Normalizes a host or URL string into a canonical HTTP/HTTPS origin without trailing slashes.
+ */
+function normalizeServerOrigin(raw?: string): string {
+  const cleaned = (raw || '').trim().replace(/^['"]|['"]$/g, '');
+  if (!cleaned) return '';
+  try {
+    const candidate = /^https?:\/\//i.test(cleaned)
+      ? cleaned
+      : /^(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(cleaned)
+      ? `http://${cleaned}`
+      : `https://${cleaned}`;
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+    return parsed.origin;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Resolves the canonical public application URL for overdue return reminder links.
+ * Prioritizes explicit deployment environment variables, then incoming non local request headers.
+ */
+function resolveServerAppUrl(req?: VercelRequest): string {
+  const explicit = normalizeServerOrigin(
+    process.env.APP_URL ||
+      process.env.VITE_APP_URL ||
+      process.env.VITE_AUTH_REDIRECT_URL ||
+      process.env.AUTH_REDIRECT_URL
+  );
+  if (explicit) return explicit;
+
+  const forwardedHost = req?.headers?.['x-forwarded-host'] || req?.headers?.host;
+  const host = (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost || '').trim();
+  if (host) {
+    const forwardedProto = req?.headers?.['x-forwarded-proto'];
+    const rawProto = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto || '';
+    const isLocalHost = /^(localhost|127\.0\.0\.1|\[::1\])(:|$)/i.test(host);
+    const proto = rawProto.split(',')[0].trim() || (isLocalHost ? 'http' : 'https');
+    const fromHeaders = normalizeServerOrigin(`${proto}://${host}`);
+    if (fromHeaders && !isLocalHost) return fromHeaders;
+  }
+
+  return DEFAULT_APP_URL;
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -17,10 +66,10 @@ function escapeHtml(value: unknown) {
     .replace(/'/g, '&#039;');
 }
 
-function renderReminderEmail(name: string, item: string, status: string, dueDate: string) {
+function renderReminderEmail(name: string, item: string, status: string, dueDate: string, resolvedAppUrl?: string) {
   const accent = '#ffc928';
-  const appUrl = process.env.APP_URL || 'https://cicr-inventory.vercel.app';
-  const html = `<!doctype html><html><body style="margin:0;background:#05070d;color:#eef2f8;font-family:Arial,sans-serif"><div style="padding:28px 12px;background:#05070d"><table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:640px;margin:auto;background:#0d1320;border:1px solid #1e2a3d;border-radius:6px;overflow:hidden"><tr><td style="padding:20px 24px;border-bottom:1px solid #1e2a3d"><div style="font-size:18px;font-weight:800;letter-spacing:2px;color:#f5dc72"><span style="background:#f5dc72;color:#0d1320;padding:2px 5px">CICR</span> <span style="color:#00e5ff">//</span> INVENTORY</div><div style="margin-top:7px;color:#77839d;font-size:9px;letter-spacing:2px">CENTRE FOR INNOVATION, CONTROL &amp; ROBOTICS</div></td></tr><tr><td style="padding:24px"><div style="display:inline-block;padding:6px 9px;border:1px solid ${accent};color:${accent};font:700 10px monospace;letter-spacing:1px">REMINDER // ACTION REQUIRED</div><h1 style="margin:18px 0 8px;color:#f5f7fb;font-size:21px">Return reminder</h1><p style="margin:0;color:#9aa7bc;font-size:13px;line-height:1.6">Hello ${escapeHtml(name)},<br><br>This is a reminder that an equipment return is due soon or overdue.</p><table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;margin:22px 0;padding:12px 16px;background:#080c14;border:1px solid #202b3c;border-radius:5px"><tr><td style="padding:8px 0;color:#77839d;font:11px Arial,sans-serif;letter-spacing:1px;width:34%">ITEM</td><td style="padding:8px 0;color:#f5f7fb;font:600 13px Arial,sans-serif">${escapeHtml(item)}</td></tr><tr><td style="padding:8px 0;color:#77839d;font:11px Arial,sans-serif;letter-spacing:1px;width:34%">STATUS</td><td style="padding:8px 0;color:#f5f7fb;font:600 13px Arial,sans-serif">${escapeHtml(status).toUpperCase()}</td></tr><tr><td style="padding:8px 0;color:#77839d;font:11px Arial,sans-serif;letter-spacing:1px;width:34%">DUE DATE</td><td style="padding:8px 0;color:#f5f7fb;font:600 13px Arial,sans-serif">${escapeHtml(dueDate)}</td></tr></table><a href="${appUrl}/profile" style="display:inline-block;padding:13px 24px;background:#00d9ed;color:#041018;text-decoration:none;font:800 12px Arial,sans-serif;letter-spacing:1px;border-radius:3px">VIEW ACTIVE LOANS</a></td></tr></table></div></body></html>`;
+  const appUrl = normalizeServerOrigin(resolvedAppUrl) || resolveServerAppUrl();
+  const html = `<!doctype html><html><body style="margin:0;background:#05070d;color:#eef2f8;font-family:Arial,sans-serif"><div style="padding:28px 12px;background:#05070d"><table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:640px;margin:auto;background:#0d1320;border:1px solid #1e2a3d;border-radius:6px;overflow:hidden"><tr><td style="padding:20px 24px;border-bottom:1px solid #1e2a3d"><div style="font-size:18px;font-weight:800;letter-spacing:2px;color:#f5dc72"><span style="background:#f5dc72;color:#0d1320;padding:2px 5px">CICR</span> <span style="color:#00e5ff">//</span> INVENTORY</div><div style="margin-top:7px;color:#77839d;font-size:9px;letter-spacing:2px">CENTRE FOR INNOVATION, CONTROL &amp; ROBOTICS</div></td></tr><tr><td style="padding:24px"><div style="display:inline-block;padding:6px 9px;border:1px solid ${accent};color:${accent};font:700 10px monospace;letter-spacing:1px">REMINDER // ACTION REQUIRED</div><h1 style="margin:18px 0 8px;color:#f5f7fb;font-size:21px">Return reminder</h1><p style="margin:0;color:#9aa7bc;font-size:13px;line-height:1.6">Hello ${escapeHtml(name)},<br><br>This is a reminder that an equipment return is due soon or overdue.</p><table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;margin:22px 0;padding:12px 16px;background:#080c14;border:1px solid #202b3c;border-radius:5px"><tr><td style="padding:8px 0;color:#77839d;font:11px Arial,sans-serif;letter-spacing:1px;width:34%">ITEM</td><td style="padding:8px 0;color:#f5f7fb;font:600 13px Arial,sans-serif">${escapeHtml(item)}</td></tr><tr><td style="padding:8px 0;color:#77839d;font:11px Arial,sans-serif;letter-spacing:1px;width:34%">STATUS</td><td style="padding:8px 0;color:#f5f7fb;font:600 13px Arial,sans-serif">${escapeHtml(status).toUpperCase()}</td></tr><tr><td style="padding:8px 0;color:#77839d;font:11px Arial,sans-serif;letter-spacing:1px;width:34%">DUE DATE</td><td style="padding:8px 0;color:#f5f7fb;font:600 13px Arial,sans-serif">${escapeHtml(dueDate)}</td></tr></table><a href="${escapeHtml(`${appUrl}/profile`)}" style="display:inline-block;padding:13px 24px;background:#00d9ed;color:#041018;text-decoration:none;font:800 12px Arial,sans-serif;letter-spacing:1px;border-radius:3px">VIEW ACTIVE LOANS</a></td></tr></table></div></body></html>`;
 
   return {
     subject: 'CICR item return reminder',
@@ -86,13 +135,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     const from = (process.env.SMTP_FROM || smtpUser || `CICR Inventory <${smtpUser}>`).trim().replace(/^['"]|['"]$/g, '');
+    const appUrl = resolveServerAppUrl(req);
     for (const request of requests || []) {
       if (!request.user_email) continue;
       const message = renderReminderEmail(
         request.user_name || 'CICR member',
         request.item_name || 'Equipment',
         request.status || 'Active',
-        request.expected_return_date || 'N/A'
+        request.expected_return_date || 'N/A',
+        appUrl
       );
       try {
         await Promise.race([

@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ***
 
+## [2.18.50] : 2026-11-09
+
+### Environment Driven OAuth Redirects & Multi Deployment Origin Support
+* **Origin Aware OAuth Redirect Resolution ([`src/lib/appUrl.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/lib/appUrl.ts), [`src/context/AuthContext.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/context/AuthContext.tsx))**:
+  * Replaced the hardcoded `https://cicr-inventory.vercel.app` OAuth redirect fallback inside `signInWithGoogle` and `signUp` email verification options with `resolveOAuthRedirectUrl()`.
+  * Forked and custom deployments (such as `https://inventory.cicr.in`) now authenticate through Google OAuth and PKCE directly back to their own deployment origin while staying connected to the same shared Supabase and Neon backend database.
+  * Added configurable support for `VITE_AUTH_REDIRECT_URL` / `AUTH_REDIRECT_URL` explicit callback overrides, `VITE_ALLOWED_ORIGINS` / `ALLOWED_ORIGINS` comma separated allowlists, `VITE_APP_URL` / `APP_URL` canonical origins, legal subdomain stripping (`privacy.`, `tos.`, `terms.`, `toc.`), and localhost loopback preservation during local development.
+* **Build Time & Serverless Public URL Alignment ([`vite.config.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/vite.config.ts), [`src/vite-env.d.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/vite-env.d.ts), [`PrivacyPolicy.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/legal/PrivacyPolicy.tsx), [`api/accounts.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/api/accounts.ts), [`api/email.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/api/email.ts), [`api/reminders.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/api/reminders.ts))**:
+  * Forwarded public deployment URL environment keys (`APP_URL` / `VITE_APP_URL`, `AUTH_REDIRECT_URL` / `VITE_AUTH_REDIRECT_URL`, `ALLOWED_ORIGINS` / `VITE_ALLOWED_ORIGINS`) via Vite `define` without exposing any server side secret variables into client bundles.
+  * Updated `PrivacyPolicy` legal links and serverless email templates across `/api/accounts`, `/api/email`, and `/api/reminders` to resolve the deployment origin dynamically from environment settings or forwarded request host headers.
+  * Documented multi deployment environment variables and Supabase Redirect URL allowlist configuration inside [`.env.example`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/.env.example) and [`README.md`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/README.md).
+
+***
+
 ## [2.18.49] : 2026-11-09
 
 ### Identity Name Protection & Auth Metadata Roster Hydration

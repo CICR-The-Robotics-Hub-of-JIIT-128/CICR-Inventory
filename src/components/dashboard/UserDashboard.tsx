@@ -213,7 +213,7 @@ export const UserDashboard: React.FC = () => {
   }, [activeView]);
 
   // Clean Address Bar & Mobile/Browser History Navigation:
-  // Keeps the address bar strictly clean (https://cicr-inventory.vercel.app without #inventory, #team, etc.)
+  // Keeps the address bar strictly clean (active origin without #inventory, #team, etc.)
   // while preserving full phone hardware back, gesture swipe, and browser back navigation.
   useEffect(() => {
     if (typeof window === 'undefined') return;

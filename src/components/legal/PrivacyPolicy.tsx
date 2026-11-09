@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ExternalLink,
 } from 'lucide-react';
+import { getPublicAppUrl } from '../../lib/appUrl';
 
 interface PrivacyPolicyProps {
   onBack?: () => void;
@@ -24,6 +25,7 @@ export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({
   isSubdomain = false,
 }) => {
   const [activeTab, setActiveTab] = useState<'privacy' | 'terms'>(mode || defaultTab);
+  const publicAppUrl = getPublicAppUrl();
 
   const handleBack = () => {
     if (onBack) {
@@ -166,12 +168,12 @@ export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({
               <p>
                 This Privacy Policy describes how the <strong>Creative &amp; Innovative Cell in Robotics (CICR)</strong> at <strong>Jaypee Institute of Information Technology (JIIT)</strong>, Noida, collects, stores, protects, and handles user information through the <strong>CICR Inventory Management System</strong> accessible at{' '}
                 <a
-                  href="https://cicr-inventory.vercel.app"
+                  href={publicAppUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-purple-600 dark:text-purple-400 font-mono hover:underline inline-flex items-center gap-1"
                 >
-                  https://cicr-inventory.vercel.app <ExternalLink className="w-3 h-3" />
+                  {publicAppUrl} <ExternalLink className="w-3 h-3" />
                 </a>.
               </p>
               <p>

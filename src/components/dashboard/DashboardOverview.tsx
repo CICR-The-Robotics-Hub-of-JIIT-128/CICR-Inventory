@@ -5,7 +5,6 @@ import {
   Layers,
   Bell,
   Code2,
-  User,
   ArrowRight,
 } from 'lucide-react';
 
@@ -64,8 +63,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         </div>
       </div>
 
-      {/* 4 Interactive Hub Cards (Auto-fills wide screens) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-6">
+      {/* 3 Interactive Hub Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         {/* Card 1: Component Vault */}
         <div
           onClick={() => setActiveView('inventory')}
@@ -137,32 +136,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             </h3>
             <p className="text-xs sm:text-sm text-slate-600 dark:text-zinc-400 mt-2 leading-relaxed">
               Explore the engineering milestones, founding prototype era, and current development team.
-            </p>
-          </div>
-          <div className="flex items-center justify-end pt-2 text-zinc-500 group-hover:text-blue-600 dark:group-hover:text-purple-400 transition-colors">
-            <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-          </div>
-        </div>
-
-        {/* Card 4: My Profile */}
-        <div
-          onClick={() => setActiveView('profile')}
-          className="group p-6 rounded-3xl bg-white dark:bg-[#0f0f15] border-2 border-slate-200 dark:border-[#20202c] hover:border-blue-500 dark:hover:border-purple-500 hover:shadow-lg hover:bg-slate-50/50 dark:hover:bg-[#13131c] cursor-pointer transition-all duration-200 shadow-sm flex flex-col justify-between space-y-6"
-        >
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-11 h-11 rounded-2xl bg-blue-50 dark:bg-purple-950/70 border border-blue-200 dark:border-purple-500/40 text-blue-600 dark:text-purple-400 flex items-center justify-center">
-                <User className="w-5 h-5" />
-              </div>
-              <span className="text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded-full bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-400 font-mono">
-                OPERATOR HUD
-              </span>
-            </div>
-            <h3 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-purple-400 transition-colors">
-              Operator Profile
-            </h3>
-            <p className="text-xs sm:text-sm text-slate-600 dark:text-zinc-400 mt-2 leading-relaxed">
-              Review credential identity, system permissions, account security, and report platform issues.
             </p>
           </div>
           <div className="flex items-center justify-end pt-2 text-zinc-500 group-hover:text-blue-600 dark:group-hover:text-purple-400 transition-colors">

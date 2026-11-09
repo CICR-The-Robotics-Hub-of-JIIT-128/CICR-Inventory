@@ -23,9 +23,6 @@ import {
 const RequisitionsView = lazy(() =>
   import('./RequisitionsView').then((m) => ({ default: m.RequisitionsView }))
 );
-const OperatorProfileView = lazy(() =>
-  import('./OperatorProfileView').then((m) => ({ default: m.OperatorProfileView }))
-);
 const MeetTheDevelopers = lazy(() =>
   import('./MeetTheDevelopers').then((m) => ({ default: m.MeetTheDevelopers }))
 );
@@ -54,7 +51,6 @@ const VIEW_TO_HASH: Record<ActiveView, string> = {
   'review-requests': '#requests',
   logs: '#management',
   developers: '#team',
-  profile: '#profile',
 };
 
 const HASH_TO_VIEW: Record<string, ActiveView> = {
@@ -68,7 +64,6 @@ const HASH_TO_VIEW: Record<string, ActiveView> = {
   '#management': 'logs',
   '#developers': 'developers',
   '#team': 'developers',
-  '#profile': 'profile',
 };
 
 export const UserDashboard: React.FC = () => {
@@ -77,8 +72,6 @@ export const UserDashboard: React.FC = () => {
     profile,
     isAdmin,
     isLeadOrAdmin,
-    refreshProfile,
-    updateProfile,
     approveUserAccount,
     rejectUserAccount,
     updateUserRole,
@@ -105,37 +98,6 @@ export const UserDashboard: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-
-  // Profile edit fields (auto-hydrated from college email / Google metadata when missing)
-  const initialEmail = profile?.email || user?.email;
-  const initialMetaName =
-    (user?.user_metadata?.full_name as string) || (user?.user_metadata?.name as string) || '';
-  const initialValidProfName =
-    profile?.full_name && !isDirtyOrPlaceholderName(profile.full_name, initialEmail)
-      ? profile.full_name
-      : '';
-  const initialIdentity = extractIdentityFromEmail(initialEmail, {
-    ...(user?.user_metadata || {}),
-    full_name: initialValidProfName || initialMetaName || profile?.full_name,
-    enrollment_no:
-      profile?.roll_number ||
-      profile?.enrollment_no ||
-      user?.user_metadata?.enrollment_no ||
-      user?.user_metadata?.roll_number,
-  });
-  const [editName, setEditName] = useState(
-    initialValidProfName ? toCleanDisplayName(initialValidProfName) : initialIdentity.fullName
-  );
-  const [editEnrollment, setEditEnrollment] = useState(
-    profile?.roll_number || profile?.enrollment_no || initialIdentity.enrollmentNo || ''
-  );
-  const [editPhone, setEditPhone] = useState(profile?.phone || (user?.user_metadata?.phone as string) || '');
-  const [editAvatarUrl, setEditAvatarUrl] = useState(
-    (profile?.avatar_url && !profile.avatar_url.startsWith('status:'))
-      ? profile.avatar_url
-      : ((user?.user_metadata?.avatar_url as string) || (user?.user_metadata?.picture as string) || '')
-  );
-  const [savingProfile, setSavingProfile] = useState(false);
 
   // Admin Hub state with instant 0ms localStorage caching
   const [pendingAccounts, setPendingAccounts] = useState<any[]>(() => {
@@ -256,7 +218,7 @@ export const UserDashboard: React.FC = () => {
         return;
       }
 
-      // 2. If user is on a sub-view (inventory, requests, management, developers, profile):
+      // 2. If user is on a sub-view (inventory, requests, management, developers):
       //    Take them back to previous view or Home Dashboard instead of exiting!
       if (activeViewRef.current !== 'dashboard') {
         let prevView: ActiveView = 'dashboard';
@@ -430,36 +392,6 @@ export const UserDashboard: React.FC = () => {
     });
     setNotifications((prev) => prev.filter((n) => n.id !== id));
   };
-
-  // Update profile edit state when profile or user changes
-  useEffect(() => {
-    if (profile || user) {
-      const email = profile?.email || user?.email || '';
-      const validProfName =
-        profile?.full_name && !isDirtyOrPlaceholderName(profile.full_name, email)
-          ? profile.full_name
-          : '';
-      const metaName =
-        (user?.user_metadata?.full_name as string) || (user?.user_metadata?.name as string) || '';
-      const hydrated = extractIdentityFromEmail(email, {
-        ...(user?.user_metadata || {}),
-        full_name: validProfName || metaName || profile?.full_name,
-        enrollment_no: profile?.roll_number || profile?.enrollment_no || (user?.user_metadata?.enrollment_no as string) || (user?.user_metadata?.roll_number as string),
-      });
-      const resolvedName = validProfName ? toCleanDisplayName(validProfName) : hydrated.fullName;
-      setEditName(resolvedName);
-      setEditEnrollment(profile?.roll_number || profile?.enrollment_no || hydrated.enrollmentNo || '');
-      setEditPhone(profile?.phone || (user?.user_metadata?.phone as string) || '');
-      const avatarCand =
-        (profile?.avatar_url && !profile.avatar_url.startsWith('status:') ? profile.avatar_url : '') ||
-        (user?.user_metadata?.avatar_url as string) ||
-        (user?.user_metadata?.picture as string) ||
-        '';
-      if (avatarCand) {
-        setEditAvatarUrl(avatarCand);
-      }
-    }
-  }, [profile, user]);
 
   // Unified parallel fetch for Admin Hub roster & pending requests with Auth metadata hydration & cache
   const syncAdminHubData = useCallback(async () => {
@@ -985,24 +917,6 @@ export const UserDashboard: React.FC = () => {
     }
   };
 
-  const handleSaveProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSavingProfile(true);
-    const res = await updateProfile({
-      full_name: editName.trim(),
-      roll_number: editEnrollment.trim(),
-      phone: editPhone.trim(),
-      avatar_url: editAvatarUrl || '',
-    });
-    setSavingProfile(false);
-    if (res.success) {
-      await Promise.all([refreshProfile(), refreshData()]);
-      showToast('success', 'Profile Updated', 'Your profile details have been saved to the database.');
-    } else {
-      showToast('error', 'Update Failed', res.error || 'Could not update profile.');
-    }
-  };
-
   const lowReservesCount = items.filter((i) => isLowReserveItem(i)).length;
   const activeEmail = profile?.email || user?.email;
   const validProfileName =
@@ -1020,11 +934,6 @@ export const UserDashboard: React.FC = () => {
     ? toCleanDisplayName(validProfileName)
     : userIdentity.fullName || 'Member';
   const enrollmentNo = profile?.roll_number || profile?.enrollment_no || userIdentity.enrollmentNo || '';
-  const avatarUrl =
-    (profile?.avatar_url && !profile.avatar_url.startsWith('status:') ? profile.avatar_url : '') ||
-    (user?.user_metadata?.avatar_url as string) ||
-    (user?.user_metadata?.picture as string) ||
-    '';
   const roleName = profile?.role === 'admin' ? 'ADMIN' : profile?.role === 'lead' ? 'LEAD' : 'MEMBER';
 
   return (
@@ -1124,30 +1033,6 @@ export const UserDashboard: React.FC = () => {
         {activeView === 'developers' && (
           <Suspense fallback={<div className="p-16 flex items-center justify-center"><div className="w-5 h-5 border-2 border-blue-600 dark:border-purple-500 border-t-transparent rounded-full animate-spin" /></div>}>
             <MeetTheDevelopers />
-          </Suspense>
-        )}
-
-        {/* VIEW 6: OPERATOR PROFILE */}
-        {activeView === 'profile' && (
-          <Suspense fallback={<div className="p-16 flex items-center justify-center"><div className="w-5 h-5 border-2 border-blue-600 dark:border-purple-500 border-t-transparent rounded-full animate-spin" /></div>}>
-            <OperatorProfileView
-              userName={userName}
-              userEmail={user?.email}
-              enrollmentNo={enrollmentNo}
-              avatarUrl={avatarUrl}
-              roleName={roleName}
-              editName={editName}
-              setEditName={setEditName}
-              editEnrollment={editEnrollment}
-              setEditEnrollment={setEditEnrollment}
-              editPhone={editPhone}
-              setEditPhone={setEditPhone}
-              editAvatarUrl={editAvatarUrl}
-              setEditAvatarUrl={setEditAvatarUrl}
-              savingProfile={savingProfile}
-              onSaveProfile={handleSaveProfile}
-              onRemoveAvatar={() => setEditAvatarUrl('')}
-            />
           </Suspense>
         )}
       </main>

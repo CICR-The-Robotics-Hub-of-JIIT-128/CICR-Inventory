@@ -76,7 +76,7 @@ export interface BorrowRequest {
   updated_at?: string;
 }
 
-export type ActivityAction = 
+export type ActivityAction =
   | 'CREATE_ITEM'
   | 'UPDATE_ITEM'
   | 'DELETE_ITEM'
@@ -84,8 +84,17 @@ export type ActivityAction =
   | 'BORROW_APPROVED'
   | 'BORROW_REJECTED'
   | 'RETURN_REQUEST'
+  | 'RETURN_DECLINED'
   | 'ITEM_RETURNED'
-  | 'LOGIN';
+  | 'ACCOUNT_REQUEST'
+  | 'ACCOUNT_APPROVED'
+  | 'ACCOUNT_REJECTED'
+  | 'ROLE_UPDATED'
+  | 'PROFILE_UPDATED'
+  | 'USER_SIGNIN'
+  | 'USER_SIGNOUT'
+  | 'LOGIN'
+  | string;
 
 export interface ActivityLog {
   id: string;

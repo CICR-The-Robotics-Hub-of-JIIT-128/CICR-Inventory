@@ -4,6 +4,64 @@ All notable changes to the **CICR Robotics Vault & Inventory Management Platform
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+***
+
+## [2.18.49] : 2026-11-09
+
+### Identity Name Protection & Auth Metadata Roster Hydration
+* **Prevented Enrollment Digits in Display Names ([`src/lib/identity.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/lib/identity.ts), [`api/accounts.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/api/accounts.ts), [`supabase_schema.sql`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/supabase_schema.sql))**:
+  * Removed enrollment number and numeric email prefix fallbacks from `extractIdentityFromEmail`, server account provisioning, and the `handle_new_user()` PostgreSQL trigger so pure numeric institutional emails fall back cleanly to `"Member"` instead of rendering roll digits inside Name fields.
+  * Updated `stripRollTokensFromName`, `extractEnrollmentDigits`, and `isDirtyOrPlaceholderName` to strip quote/apostrophe prefixed JIIT Google Workspace roll tokens (such as `"KSHITIKA BARNWAL '992501030043"` and `"PRIYANSHI SAINI '992501030194"`), eliminate dangling punctuation, preserve valid surnames with apostrophes, and treat placeholder `"Member"` or numeric values strictly as replaceable placeholders.
+* **Server Side Roster Recovery & Self Healing ([`api/accounts.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/api/accounts.ts), [`UserDashboard.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/dashboard/UserDashboard.tsx), [`AuthContext.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/context/AuthContext.tsx), [`InventoryContext.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/context/InventoryContext.tsx), [`BottomNavbar.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/layout/BottomNavbar.tsx))**:
+  * Added an admin authenticated `list_roster` action in `/api/accounts` that joins `profiles`, `auth.users.user_metadata`, and `ACCOUNT_REQUEST` logs to recover real Google Workspace names into Club Members and auto heal incomplete profile rows in PostgreSQL.
+  * Guarded `hydrateMemberIdentity` and client identity resolvers so stale `"Member"` profile values never shadow clean `user_metadata.full_name` entries.
+  * Added 3000ms connection timeouts on Neon PostgreSQL failover clients inside `api/accounts.ts` and `api/auth.ts`.
+* **Audit Lookup Hardening ([`src/lib/audit.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/lib/audit.ts))**:
+  * Hardened `findMember` to prevent numeric tokens resolving to `"member"` from matching unrelated placeholder profiles, while adding roll number matching and clean ID formatting for `ROLE_UPDATED` logs without alphabetic names.
+
+***
+
+## [2.18.48] : 2026-11-09
+
+### Streamlined Activity Logs: Zero Where/Timestamps & Explicit Action Details
+* **Removed Location & Timestamp Clutter ([`AdminHubView.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/dashboard/AdminHubView.tsx), [`RecentActivity.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/dashboard/RecentActivity.tsx))**:
+  * Removed all `Where` module pills, shelf locations, routes, and formatted timestamps (`HH:MM:SS`, dates, and relative times) from Activity Log cards, header legends, search haystacks, recent activity widgets, and the Inspect modal while preserving internal timeframe filtering (`Last 24 Hours`, `Last 3 Days`, `Last 7 Days`).
+* **Purpose Specific Event Details ([`src/lib/audit.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/lib/audit.ts), [`AuthContext.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/context/AuthContext.tsx), [`api/accounts.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/api/accounts.ts), [`InventoryContext.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/context/InventoryContext.tsx))**:
+  * **Sign In & Sign Out**: Displays only the person's name and the login/logout detail without email, roll number, role badge, or auth method noise.
+  * **Role Updates**: Explicitly displays who updated the role, whose account and ID (`roll_number`, email, or user ID) was updated, and what role (`ADMIN` or `MEMBER`) was assigned.
+  * **Issues, Approvals, Rejections & Returns**: Cross references `borrow_requests` records so both new and historical logs always display the person's name, component name, and the approving or rejecting administrator's name.
+
+***
+
+## [2.18.47] : 2026-11-09
+
+### Google SSO Name & Enrollment Extraction, Audit Cleanup & Double Inventory Decrement Fix
+* **Unified Identity Extraction Engine ([`src/lib/identity.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/lib/identity.ts))**:
+  * Implemented deterministic full name and institutional enrollment number parsing from JIIT emails (for example `vardaan.saxena.992501030399@mail.jiit.ac.in` resolves to Name `Vardaan Saxena` and Roll `992501030399`; `992501030399@mail.jiit.ac.in` resolves to Name `992501030399` and Roll `992501030399`; `palashmittal992401030123@mail.jiit.ac.in` and `dhruvi@mail.jiit.ac.in` strip glued roll tokens like `J992401030123`).
+  * Excluded short cosmetic numbers (under 6 digits, such as `096` in Gmail handles) from false enrollment extraction.
+* **Backend Persistence & Pre-Approval Visibility ([`AuthContext.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/context/AuthContext.tsx), [`api/accounts.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/api/accounts.ts), [`supabase_schema.sql`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/supabase_schema.sql))**:
+  * Upgraded Supabase `handle_new_user()` trigger and `runOAuthProvisioning` so Google SSO signups (even while `status = 'pending'`) persist clean `full_name`, `roll_number`, `enrollment_no`, Google `avatar_url`, and enriched `ACCOUNT_REQUEST` audit logs before pending signout.
+  * Prevented `approve`/`reject` transitions in backend API and client context from overwriting profile photo URLs with `status:*` strings.
+* **Clean Forensic Audit Logs & Roster UI ([`src/lib/audit.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/lib/audit.ts), [`AdminHubView.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/dashboard/AdminHubView.tsx), [`RequisitionsView.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/dashboard/RequisitionsView.tsx), [`OperatorProfileView.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/dashboard/OperatorProfileView.tsx), [`BottomNavbar.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/layout/BottomNavbar.tsx), [`DashboardOverview.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/dashboard/DashboardOverview.tsx), [`RequestCartModal.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/inventory/RequestCartModal.tsx), [`IssuePassModal.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/dashboard/IssuePassModal.tsx))**:
+  * Resolved placeholder `"Member"` rows, missing roll numbers, and glued roll tokens (`DHRUVI GUPTA J992401030123`) across Club Members, Pending Account Requests, Activity Logs, Requisitions Portal, Operator Profile, Bottom Navbar, and Hardware Passes.
+* **Single-Decrement / Single-Increment Stock Fix ([`InventoryContext.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/context/InventoryContext.tsx), [`RequisitionsView.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/dashboard/RequisitionsView.tsx), [`supabase_schema.sql`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/supabase_schema.sql))**:
+  * Eliminated 2x stock deduction on requisition approval and 2x restock on return by removing redundant client pre-mutation, enforcing atomic conditional status transitions, checking post-update `available_qty` against pre-transition stock before applying any trigger-absent fallback, and adding per-request async locks plus button loading states.
+
+***
+
+## [2.18.46] : 2026-11-09
+
+### Forensic Activity Logs & Complete WHO / WHAT / WHERE / WHEN Audit Trail
+* **Unified Audit Engine (`src/lib/audit.ts`)**:
+  - Added [`buildAuditDetails()`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/lib/audit.ts) and [`parseAuditLog()`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/lib/audit.ts) to capture and normalize **Who** (Actor name, role badge, email, enrollment roll number, UUID), **What** (Normalized action category, target entity, requester info, field-level change diffs), **Where** (Portal module/screen path, route/endpoint, physical warehouse shelf location), and **When** (Local date, exact `HH:MM:SS` with timezone, relative age, and ISO-8601 UTC timestamp).
+  - Intelligently normalizes historical plain-text logs (such as legacy `ROLE_UPDATED` and `ACCOUNT_APPROVED` records) by cross-referencing the member roster and inventory catalog.
+* **Backend & Context Producer Coverage**:
+  - Updated [`api/accounts.ts`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/api/accounts.ts) so `ACCOUNT_APPROVED`, `ACCOUNT_REJECTED`, `ROLE_UPDATED`, and `ACCOUNT_REQUEST` record the performing **Admin** (`resolveAdminActor`) as the primary actor alongside complete target member metadata instead of falling back to `"Member"`.
+  - Updated [`AuthContext.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/context/AuthContext.tsx) to log deduplicated Google OAuth SSO and credentials `USER_SIGNIN` events, log `USER_SIGNOUT` before revoking the session JWT, emit `PROFILE_UPDATED` field diffs, and log direct-fallback approvals/rejections.
+  - Updated [`InventoryContext.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/context/InventoryContext.tsx) to emit rich forensic logs across `CREATE_ITEM`, `UPDATE_ITEM`, `DELETE_ITEM`, `BORROW_REQUEST`, `BORROW_APPROVED`, `BORROW_REJECTED`, `RETURN_REQUEST`, `ITEM_RETURNED`, and `RETURN_DECLINED`, while removing invalid `target_type`/`target_id` top-level columns that violated the `activity_logs` SQL schema.
+* **Management Hub Timeline & 4-Pillar Inspector UI**:
+  - Upgraded [`AdminHubView.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/dashboard/AdminHubView.tsx) and [`RecentActivity.tsx`](file:///c:/Users/HP/cicr_inventory/cicr_inventory_/src/components/dashboard/RecentActivity.tsx) to display clear Actor + Role badges (`ADMIN` / `MEMBER`), accurate Action badges (fixing `ROLE_UPDATED` appearing as `COMPONENT EDITED` and `ACCOUNT_APPROVED` leaking into borrow filters), `Where` module & physical shelf badges, `HH:MM:SS` + date timestamps, a **Last 7 Days** filter option, and a 4-pillar **Inspect** modal.
+
 ---
 
 ## [2.18.45] : 2026-11-08

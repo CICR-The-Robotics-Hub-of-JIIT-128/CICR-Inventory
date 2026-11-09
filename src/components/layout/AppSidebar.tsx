@@ -2,6 +2,11 @@ import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useInventory } from '../../context/InventoryContext';
 import {
+  extractIdentityFromEmail,
+  isDirtyOrPlaceholderName,
+  toCleanDisplayName,
+} from '../../lib/identity';
+import {
   Bell,
   LayoutGrid,
   Layers,
@@ -62,16 +67,33 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     onClose();
   };
 
+  const rawEmail = profile?.email || user?.email || '';
+  const extractedIdentity = extractIdentityFromEmail(rawEmail, {
+    ...(user?.user_metadata || {}),
+    full_name: profile?.full_name || user?.user_metadata?.full_name || user?.user_metadata?.name,
+    enrollment_no: profile?.roll_number || profile?.enrollment_no || user?.user_metadata?.enrollment_no,
+  });
+  const displayName =
+    profile?.full_name && !isDirtyOrPlaceholderName(profile.full_name, rawEmail)
+      ? toCleanDisplayName(profile.full_name)
+      : extractedIdentity.fullName || 'Member';
+  const enrollmentNo = (
+    profile?.roll_number ||
+    profile?.enrollment_no ||
+    extractedIdentity.enrollmentNo ||
+    ''
+  ).trim();
+
   const getInitial = () => {
-    const name = profile?.full_name || user?.user_metadata?.full_name || user?.email;
+    const name = displayName || rawEmail;
     return name ? name.charAt(0).toUpperCase() : 'M';
   };
 
-  const displayName =
-    profile?.full_name ||
-    user?.user_metadata?.full_name ||
-    user?.email?.split('@')[0] ||
-    'Member';
+  const avatarSrc =
+    (profile?.avatar_url && !profile.avatar_url.startsWith('status:') ? profile.avatar_url : '') ||
+    (typeof user?.user_metadata?.avatar_url === 'string' ? user.user_metadata.avatar_url : '') ||
+    (typeof user?.user_metadata?.picture === 'string' ? user.user_metadata.picture : '') ||
+    '';
   const roleName = (
     profile?.role ||
     (user?.email && ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com', '992501030399@mail.jiit.ac.in'].includes(user.email.toLowerCase()) ? 'ADMIN' : 'MEMBER')
@@ -350,10 +372,10 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-10 h-10 rounded-full bg-[#152320] border border-[#1f3830] text-white flex items-center justify-center font-bold text-sm shrink-0 relative overflow-hidden">
                 <span className="select-none">{getInitial()}</span>
-                {profile?.avatar_url &&
-                  (profile.avatar_url.startsWith('data:image') || profile.avatar_url.startsWith('http')) && (
+                {avatarSrc &&
+                  (avatarSrc.startsWith('data:image') || avatarSrc.startsWith('http')) && (
                     <img
-                      src={profile.avatar_url}
+                      src={avatarSrc}
                       alt=""
                       referrerPolicy="no-referrer"
                       onError={(e) => {
@@ -367,9 +389,16 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                 <h5 className="text-[13px] font-bold text-white truncate max-w-[95px]">
                   {displayName}
                 </h5>
-                <span className="inline-block text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-[#1e1e24] text-zinc-300 border border-[#2e2e38] tracking-wider mt-0.5">
-                  {roleName}
-                </span>
+                <div className="flex items-center gap-1 flex-wrap mt-0.5">
+                  <span className="inline-block text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-[#1e1e24] text-zinc-300 border border-[#2e2e38] tracking-wider">
+                    {roleName}
+                  </span>
+                  {enrollmentNo && (
+                    <span className="inline-block text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#181822] text-zinc-300 border border-[#2e2e38]">
+                      {enrollmentNo}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 

@@ -117,22 +117,125 @@ CREATE TABLE IF NOT EXISTS public.activity_logs (
 -- 6. Function to handle new user registration automatically
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
+DECLARE
+  email_lower TEXT := lower(coalesce(NEW.email, ''));
+  email_local TEXT := split_part(email_lower, '@', 1);
+  raw_meta_name TEXT := coalesce(
+    NULLIF(trim(NEW.raw_user_meta_data->>'full_name'), ''),
+    NULLIF(trim(NEW.raw_user_meta_data->>'name'), ''),
+    trim(concat_ws(' ', NEW.raw_user_meta_data->>'given_name', NEW.raw_user_meta_data->>'family_name'))
+  );
+  extracted_roll TEXT;
+  cleaned_meta_name TEXT;
+  cleaned_email_name TEXT;
+  final_name TEXT;
+  is_master_admin BOOLEAN := email_lower IN (
+    'vardaansaxena096@gmail.com',
+    'cicrinventory@gmail.com',
+    'cicrinventoryofficial@gmail.com',
+    '992501030399@mail.jiit.ac.in'
+  );
+  resolved_role TEXT;
+  resolved_status TEXT;
+  resolved_avatar TEXT;
 BEGIN
-  INSERT INTO public.profiles (id, full_name, email, role, roll_number, status)
+  extracted_roll := coalesce(
+    NULLIF(trim(NEW.raw_user_meta_data->>'roll_number'), ''),
+    NULLIF(trim(NEW.raw_user_meta_data->>'enrollment_no'), ''),
+    (regexp_match(email_local, '([0-9]{6,})'))[1],
+    (regexp_match(coalesce(raw_meta_name, ''), '(?:[jJ]|[''"])?([0-9]{6,})'))[1],
+    CASE WHEN email_local ~ '^[0-9]{4,}$' THEN email_local ELSE '' END
+  );
+
+  cleaned_meta_name := trim(
+    both ' ''"`-|/,' from
+    regexp_replace(
+      regexp_replace(coalesce(raw_meta_name, ''), '(?:[jJ]|[''"])?[0-9]{6,}|[()\[\]]', ' ', 'gi'),
+      '\s+',
+      ' ',
+      'g'
+    )
+  );
+  IF lower(cleaned_meta_name) IN ('member', 'new member', 'student', 'user', 'applicant') OR cleaned_meta_name ~ '^[0-9]+$' OR cleaned_meta_name !~ '[a-zA-Z]' THEN
+    cleaned_meta_name := '';
+  END IF;
+  IF cleaned_meta_name <> '' AND (cleaned_meta_name = upper(cleaned_meta_name) OR cleaned_meta_name = lower(cleaned_meta_name)) THEN
+    cleaned_meta_name := initcap(cleaned_meta_name);
+  END IF;
+
+  cleaned_email_name := trim(
+    regexp_replace(
+      regexp_replace(
+        regexp_replace(email_local, '\m[jJ][0-9]{6,}\M', ' ', 'gi'),
+        '[0-9]{6,}|[._\-+]+',
+        ' ',
+        'g'
+      ),
+      '\s+',
+      ' ',
+      'g'
+    )
+  );
+  cleaned_email_name := trim(regexp_replace(cleaned_email_name, '\m[0-9]+\M', '', 'g'));
+  IF length(regexp_replace(cleaned_email_name, '[^a-zA-Z]', '', 'g')) < 2 THEN
+    cleaned_email_name := '';
+  ELSE
+    cleaned_email_name := initcap(cleaned_email_name);
+  END IF;
+
+  IF cleaned_email_name <> '' AND cleaned_meta_name <> '' THEN
+    IF array_length(regexp_split_to_array(cleaned_meta_name, '\s+'), 1) > array_length(regexp_split_to_array(cleaned_email_name, '\s+'), 1) THEN
+      final_name := cleaned_meta_name;
+    ELSE
+      final_name := cleaned_email_name;
+    END IF;
+  ELSIF cleaned_email_name <> '' THEN
+    final_name := cleaned_email_name;
+  ELSIF cleaned_meta_name <> '' THEN
+    final_name := cleaned_meta_name;
+  ELSE
+    final_name := 'Member';
+  END IF;
+
+  resolved_role := CASE
+    WHEN is_master_admin THEN 'admin'
+    ELSE coalesce(NULLIF(NEW.raw_user_meta_data->>'role', ''), 'member')
+  END;
+
+  resolved_status := CASE
+    WHEN is_master_admin THEN 'approved'
+    ELSE coalesce(NULLIF(NEW.raw_user_meta_data->>'status', ''), 'pending')
+  END;
+
+  resolved_avatar := coalesce(
+    NULLIF(trim(NEW.raw_user_meta_data->>'avatar_url'), ''),
+    NULLIF(trim(NEW.raw_user_meta_data->>'picture'), ''),
+    ''
+  );
+
+  INSERT INTO public.profiles (id, full_name, email, role, roll_number, status, avatar_url)
   VALUES (
     NEW.id,
-    COALESCE(NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1)),
-    NEW.email,
-    COALESCE(NEW.raw_user_meta_data->>'role', 'member'),
-    COALESCE(NEW.raw_user_meta_data->>'roll_number', ''),
-    COALESCE(NEW.raw_user_meta_data->>'status', 'pending')
+    final_name,
+    email_lower,
+    resolved_role,
+    coalesce(extracted_roll, ''),
+    resolved_status,
+    resolved_avatar
   )
   ON CONFLICT (id) DO UPDATE SET
-    full_name = EXCLUDED.full_name,
+    full_name = CASE
+      WHEN public.profiles.full_name IS NULL
+        OR trim(public.profiles.full_name) = ''
+        OR lower(public.profiles.full_name) IN ('member', 'new member')
+        OR public.profiles.full_name ~ '^[jJ''"]?[0-9]{4,}$'
+        OR public.profiles.full_name ~ '[0-9]{6,}'
+      THEN EXCLUDED.full_name
+      ELSE public.profiles.full_name
+    END,
     email = EXCLUDED.email,
-    role = EXCLUDED.role,
-    status = EXCLUDED.status,
-    roll_number = EXCLUDED.roll_number,
+    roll_number = COALESCE(NULLIF(public.profiles.roll_number, ''), EXCLUDED.roll_number),
+    avatar_url = COALESCE(NULLIF(public.profiles.avatar_url, ''), EXCLUDED.avatar_url),
     updated_at = NOW();
   RETURN NEW;
 END;
@@ -162,7 +265,7 @@ BEGIN
   END IF;
 
   -- When request is returned
-  IF NEW.status = 'returned' AND (OLD.status IS NOT NULL AND OLD.status != 'returned') THEN
+  IF NEW.status = 'returned' AND (OLD.status IN ('approved', 'overdue')) THEN
     UPDATE public.inventory_items
     SET available_qty = LEAST(total_qty, available_qty + NEW.quantity),
         status = CASE 

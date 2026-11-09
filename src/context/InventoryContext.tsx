@@ -3,6 +3,12 @@ import { supabase } from '../lib/supabase';
 import { InventoryItem, BorrowRequest, ActivityLog } from '../types/inventory';
 import { useAuth, MASTER_ADMIN_EMAILS } from './AuthContext';
 import { notifyEmail } from '../lib/notifications';
+import { buildAuditDetails } from '../lib/audit';
+import {
+  extractIdentityFromEmail,
+  isDirtyOrPlaceholderName,
+  toCleanDisplayName,
+} from '../lib/identity';
 import { useToast } from '../components/common/Toast';
 import {
   notifyRequisitionApproved,
@@ -119,6 +125,82 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const prevRequestsMapRef = useRef<Map<string, BorrowRequest>>(new Map());
   const hasInitializedRef = useRef<boolean>(false);
   const realtimeChannelRef = useRef<any>(null);
+  const inFlightRequestIdsRef = useRef<Set<string>>(new Set());
+
+  const getActorMeta = useCallback(() => {
+    const currentUser = userRef.current.user;
+    const currentProfile = userRef.current.profile;
+    const actorEmail = (currentProfile?.email || currentUser?.email || '').toLowerCase();
+    const validProfileName =
+      currentProfile?.full_name && !isDirtyOrPlaceholderName(currentProfile.full_name, actorEmail)
+        ? currentProfile.full_name
+        : '';
+    const rawMetaName =
+      (currentUser?.user_metadata?.full_name as string) ||
+      (currentUser?.user_metadata?.name as string) ||
+      '';
+    const rawName = validProfileName || rawMetaName || currentProfile?.full_name || '';
+    const rawRoll =
+      currentProfile?.roll_number ||
+      currentProfile?.enrollment_no ||
+      (currentUser?.user_metadata?.enrollment_no as string) ||
+      (currentUser?.user_metadata?.roll_number as string) ||
+      '';
+    const identity = extractIdentityFromEmail(actorEmail, {
+      ...(currentUser?.user_metadata || {}),
+      full_name: rawName,
+      enrollment_no: rawRoll,
+    });
+    const actorName = validProfileName
+      ? toCleanDisplayName(validProfileName)
+      : identity.fullName || 'System Operator';
+    const actorRoll = rawRoll || identity.enrollmentNo || '';
+    const isMaster = MASTER_ADMIN_EMAILS.includes(actorEmail);
+    const actorRole = isMaster ? 'admin' : currentProfile?.role || 'member';
+    return {
+      actorId: currentUser?.id,
+      actorName,
+      actorEmail,
+      actorRoll,
+      actorRole,
+    };
+  }, []);
+
+  const writeAuditLog = useCallback(
+    async (entry: {
+      action: string;
+      details: string;
+      item_id?: string;
+      actorName: string;
+      actorId?: string;
+    }) => {
+      const createdAt = new Date().toISOString();
+      const payload: Record<string, unknown> = {
+        user_id: entry.actorId || null,
+        user_name: entry.actorName,
+        action: entry.action,
+        details: entry.details,
+        created_at: createdAt,
+        ...(entry.item_id ? { item_id: entry.item_id } : {}),
+      };
+      try {
+        await supabase.from('activity_logs').insert([payload]);
+        const optimisticLog: ActivityLog = {
+          id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          user_id: entry.actorId,
+          user_name: entry.actorName,
+          action: entry.action,
+          details: entry.details,
+          item_id: entry.item_id,
+          created_at: createdAt,
+        };
+        setLogs((prev) => [optimisticLog, ...prev]);
+      } catch {
+        // Logging errors must never fail primary inventory operations
+      }
+    },
+    []
+  );
 
   const broadcastAccountStatus = useCallback(
     (userId: string, email: string, name: string, status: 'approved' | 'rejected') => {
@@ -502,18 +584,34 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (error) return { success: false, error: error.message };
       if (data) {
         setItems((prev) => [data as InventoryItem, ...prev]);
-        try {
-          await supabase.from('activity_logs').insert([
-            {
-              user_id: user?.id,
-              user_name: profile?.full_name || user?.email || 'Admin',
-              action: 'CREATE_ITEM',
-              details: `Registered new component "${newItemData.name}" (${newItemData.category})`,
-            },
-          ]);
-        } catch {
-          // ignore
-        }
+        const actor = getActorMeta();
+        const itemChanges = [
+          `Category: ${newItemData.category}`,
+          `Total Qty: ${newItemData.total_qty}`,
+          `Available Qty: ${newItemData.available_qty}`,
+          ...(newItemData.sku ? [`SKU: ${newItemData.sku}`] : []),
+          ...(newItemData.location ? [`Shelf: ${newItemData.location}`] : []),
+        ];
+        await writeAuditLog({
+          action: 'CREATE_ITEM',
+          actorId: actor.actorId,
+          actorName: actor.actorName,
+          item_id: data.id,
+          details: buildAuditDetails({
+            summary: `${actor.actorName} added new component "${newItemData.name}" (${newItemData.category}, Qty: ${newItemData.total_qty})`,
+            actorId: actor.actorId,
+            actorName: actor.actorName,
+            actorEmail: actor.actorEmail,
+            actorRoll: actor.actorRoll,
+            actorRole: actor.actorRole,
+            targetId: data.id,
+            targetName: newItemData.name,
+            targetType: 'inventory_item',
+            location: newItemData.location,
+            where: 'Component Vault › Add Component',
+            changes: itemChanges,
+          }),
+        });
       }
       return { success: true };
     } catch (err: unknown) {
@@ -565,42 +663,67 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       );
 
       // Detailed change tracking for audit log
-      const adminName = profile?.full_name || user?.user_metadata?.full_name || user?.email || 'Admin';
+      const actor = getActorMeta();
       const logName = cleanUpdates.name || targetItem?.name || 'Component';
+      const itemLocation = cleanUpdates.location !== undefined ? cleanUpdates.location : targetItem?.location;
 
       const changeParts: string[] = [];
       if (cleanUpdates.name && targetItem && cleanUpdates.name !== targetItem.name) {
-        changeParts.push(`Name: "${targetItem.name}" -> "${cleanUpdates.name}"`);
+        changeParts.push(`Name: "${targetItem.name}" → "${cleanUpdates.name}"`);
       }
       if (cleanUpdates.category && targetItem && cleanUpdates.category !== targetItem.category) {
-        changeParts.push(`Domain: "${targetItem.category}" -> "${cleanUpdates.category}"`);
+        changeParts.push(`Category: "${targetItem.category}" → "${cleanUpdates.category}"`);
+      }
+      if (cleanUpdates.sku !== undefined && targetItem && (cleanUpdates.sku || '') !== (targetItem.sku || '')) {
+        changeParts.push(`SKU: "${targetItem.sku || '—'}" → "${cleanUpdates.sku || '—'}"`);
+      }
+      if (cleanUpdates.location !== undefined && targetItem && (cleanUpdates.location || '') !== (targetItem.location || '')) {
+        changeParts.push(`Location: "${targetItem.location || '—'}" → "${cleanUpdates.location || '—'}"`);
       }
       if (cleanUpdates.total_qty !== undefined && targetItem && Number(cleanUpdates.total_qty) !== Number(targetItem.total_qty)) {
-        changeParts.push(`Total Units: ${targetItem.total_qty} -> ${cleanUpdates.total_qty}`);
+        changeParts.push(`Total Qty: ${targetItem.total_qty} → ${cleanUpdates.total_qty}`);
+      }
+      if (cleanUpdates.available_qty !== undefined && targetItem && Number(cleanUpdates.available_qty) !== Number(targetItem.available_qty)) {
+        changeParts.push(`Available Qty: ${targetItem.available_qty} → ${cleanUpdates.available_qty}`);
+      }
+      if (cleanUpdates.min_threshold !== undefined && targetItem && Number(cleanUpdates.min_threshold) !== Number(targetItem.min_threshold)) {
+        changeParts.push(`Min Threshold: ${targetItem.min_threshold} → ${cleanUpdates.min_threshold}`);
+      }
+      if (cleanUpdates.condition !== undefined && targetItem && (cleanUpdates.condition || '') !== (targetItem.condition || '')) {
+        changeParts.push(`Condition: "${targetItem.condition || '—'}" → "${cleanUpdates.condition || '—'}"`);
+      }
+      if (cleanUpdates.status && targetItem && cleanUpdates.status !== targetItem.status) {
+        changeParts.push(`Status: ${targetItem.status} → ${cleanUpdates.status}`);
       }
       if (cleanUpdates.description !== undefined && targetItem && cleanUpdates.description !== targetItem.description) {
         changeParts.push('Description updated');
       }
 
-      const logDetails = changeParts.length > 0
-        ? `Admin ${adminName} edited "${logName}": ${changeParts.join(', ')}`
-        : `Admin ${adminName} edited component "${logName}" (Total: ${cleanUpdates.total_qty ?? targetItem?.total_qty}, Available: ${cleanUpdates.available_qty ?? targetItem?.available_qty})`;
+      const logSummary =
+        changeParts.length > 0
+          ? `${actor.actorName} edited "${logName}": ${changeParts.join(', ')}`
+          : `${actor.actorName} updated component "${logName}" (Total: ${cleanUpdates.total_qty ?? targetItem?.total_qty}, Available: ${cleanUpdates.available_qty ?? targetItem?.available_qty})`;
 
-      const logEntry: any = {
-        user_id: user?.id || null,
-        user_name: adminName,
+      await writeAuditLog({
         action: 'UPDATE_ITEM',
-        details: logDetails,
+        actorId: actor.actorId,
+        actorName: actor.actorName,
         item_id: id,
-        created_at: new Date().toISOString(),
-      };
-
-      try {
-        await supabase.from('activity_logs').insert([logEntry]);
-        setLogs((prev) => [logEntry, ...prev]);
-      } catch {
-        // Logging error shouldn't crash primary update
-      }
+        details: buildAuditDetails({
+          summary: logSummary,
+          actorId: actor.actorId,
+          actorName: actor.actorName,
+          actorEmail: actor.actorEmail,
+          actorRoll: actor.actorRoll,
+          actorRole: actor.actorRole,
+          targetId: id,
+          targetName: logName,
+          targetType: 'inventory_item',
+          location: itemLocation,
+          where: 'Component Vault › Component Editor',
+          changes: changeParts,
+        }),
+      });
 
       // Re-sync with backend in background
       refreshData();
@@ -632,18 +755,33 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (error) return { success: false, error: error.message };
 
       setItems((prev) => prev.filter((i) => i.id !== id));
-      try {
-        await supabase.from('activity_logs').insert([
-          {
-            user_id: user?.id,
-            user_name: profile?.full_name || user?.email || 'Admin',
-            action: 'DELETE_ITEM',
-            details: `Removed component "${targetItem?.name || id}" from vault inventory`,
-          },
-        ]);
-      } catch {
-        // ignore
-      }
+      const actor = getActorMeta();
+      await writeAuditLog({
+        action: 'DELETE_ITEM',
+        actorId: actor.actorId,
+        actorName: actor.actorName,
+        item_id: id,
+        details: buildAuditDetails({
+          summary: `${actor.actorName} deleted component "${targetItem?.name || id}" from vault inventory`,
+          actorId: actor.actorId,
+          actorName: actor.actorName,
+          actorEmail: actor.actorEmail,
+          actorRoll: actor.actorRoll,
+          actorRole: actor.actorRole,
+          targetId: id,
+          targetName: targetItem?.name || id,
+          targetType: 'inventory_item',
+          location: targetItem?.location,
+          where: 'Component Vault › Component Removal',
+          changes: targetItem
+            ? [
+                `Category: ${targetItem.category}`,
+                `Qty Removed: ${targetItem.total_qty}`,
+                ...(targetItem.sku ? [`SKU: ${targetItem.sku}`] : []),
+              ]
+            : undefined,
+        }),
+      });
       return { success: true };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to delete from DB';
@@ -689,14 +827,17 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
 
     try {
+      const actor = getActorMeta();
+      const borrowerEmail = actor.actorEmail || profile?.email || user?.email || '';
+      const borrowerName = actor.actorName || 'Student Member';
       const { data: dbData, error } = await supabase
         .from('borrow_requests')
         .insert([
           {
             item_id: item.id,
             user_id: user?.id,
-            user_name: profile?.full_name || user?.email || 'Student Member',
-            user_email: profile?.email || user?.email,
+            user_name: borrowerName,
+            user_email: borrowerEmail,
             item_name: item.name,
             quantity: data.quantity,
             project_name: data.projectName,
@@ -712,21 +853,45 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (dbData) {
         setRequests((prev) => [dbData as BorrowRequest, ...prev]);
         broadcastLiveEvent('NEW_REQUEST', dbData);
-        try {
-          await supabase.from('activity_logs').insert([
-            {
-              user_id: user?.id,
-              user_name: profile?.full_name || user?.email || 'Member',
-              action: 'BORROW_REQUEST',
-              details: `Requested ${data.quantity}x ${item.name} for "${data.projectName}"`,
+        await writeAuditLog({
+          action: 'BORROW_REQUEST',
+          actorId: actor.actorId,
+          actorName: borrowerName,
+          item_id: item.id,
+          details: buildAuditDetails({
+            summary: `${borrowerName} requested ${data.quantity}x ${item.name} for "${data.projectName}"`,
+            actorId: actor.actorId,
+            actorName: borrowerName,
+            actorEmail: borrowerEmail,
+            actorRoll: actor.actorRoll,
+            actorRole: actor.actorRole,
+            targetId: item.id,
+            targetName: `${data.quantity}x ${item.name}`,
+            targetType: 'borrow_request',
+            location: item.location,
+            where: 'Component Vault › Requisition Checkout',
+            changes: [
+              `Project: "${data.projectName}"`,
+              `Qty: ${data.quantity}`,
+              `Due: ${data.expectedReturnDate}`,
+            ],
+            meta: {
+              requestId: dbData.id,
+              itemId: item.id,
+              itemName: item.name,
+              quantity: data.quantity,
+              projectName: data.projectName,
+              expectedReturnDate: data.expectedReturnDate,
+              requesterId: actor.actorId,
+              requesterName: borrowerName,
+              requesterEmail: borrowerEmail,
+              requesterRoll: actor.actorRoll,
             },
-          ]);
-        } catch {
-          // ignore
-        }
-        await notifyEmail('borrow_requested', profile?.email || user?.email, {
-          name: profile?.full_name || user?.email,
-          email: profile?.email || user?.email,
+          }),
+        });
+        await notifyEmail('borrow_requested', borrowerEmail, {
+          name: borrowerName,
+          email: borrowerEmail,
           item: `${data.quantity}x ${item.name}`,
           project: data.projectName,
           status: 'pending',
@@ -740,163 +905,286 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
-  // Real Update Borrow Status with full backend inventory quantity adjustments
+  // Real Update Borrow Status with atomic transition guard and single-source stock sync
   const updateBorrowStatus = async (
     requestId: string,
     newStatus: 'approved' | 'rejected' | 'returned',
     adminNotes?: string
   ) => {
-    try {
-      if (newStatus === 'approved' || newStatus === 'rejected' || newStatus === 'returned') {
-        const isAuthorized =
-          profile?.role === 'admin' ||
-          profile?.role === 'lead' ||
-          Boolean(
-            user?.email &&
-              ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com', '992501030399@mail.jiit.ac.in'].includes(
-                user.email.toLowerCase()
-              )
-          );
-        if (!isAuthorized) {
-          return { success: false, error: 'Unauthorized: Administrative clearance required to approve, reject, or confirm returns.' };
-        }
-      }
-      const targetReq = requests.find((r) => r.id === requestId);
+    const isAuthorized =
+      profile?.role === 'admin' ||
+      profile?.role === 'lead' ||
+      Boolean(
+        user?.email &&
+          MASTER_ADMIN_EMAILS.includes(user.email.toLowerCase())
+      );
+    if (!isAuthorized) {
+      return { success: false, error: 'Unauthorized: Administrative clearance required to approve, reject, or confirm returns.' };
+    }
 
+    if (inFlightRequestIdsRef.current.has(requestId)) {
+      return { success: false, error: 'This requisition is already being processed. Please wait.' };
+    }
+    inFlightRequestIdsRef.current.add(requestId);
+
+    try {
+      // 1. Fetch fresh request state directly from database so stale UI state never replays transitions
+      const { data: freshReqData, error: reqFetchError } = await supabase
+        .from('borrow_requests')
+        .select('*')
+        .eq('id', requestId)
+        .maybeSingle();
+
+      if (reqFetchError) {
+        return { success: false, error: reqFetchError.message };
+      }
+
+      const targetReq = (freshReqData as BorrowRequest | null) || requests.find((r) => r.id === requestId) || null;
+      if (!targetReq) {
+        return { success: false, error: 'Requisition record not found.' };
+      }
+
+      // 2. Enforce strict status transition preconditions
+      const allowedPreviousStatuses =
+        newStatus === 'returned' ? ['approved', 'overdue'] : ['pending'];
+
+      if (!allowedPreviousStatuses.includes(targetReq.status)) {
+        await refreshData();
+        return {
+          success: false,
+          error: `Requisition is already "${targetReq.status}" and cannot transition to "${newStatus}".`,
+        };
+      }
+
+      // 3. Read pre-transition stock count from database
+      const { data: preItemData } = await supabase
+        .from('inventory_items')
+        .select('*')
+        .eq('id', targetReq.item_id)
+        .maybeSingle();
+
+      const targetItem = (preItemData as InventoryItem | null) || items.find((i) => i.id === targetReq.item_id);
+      const reqQty = Math.max(1, Number(targetReq.quantity ?? 1));
+      const qtyBefore = targetItem ? Number(targetItem.available_qty ?? 0) : 0;
+      const totalQty = targetItem ? Number(targetItem.total_qty ?? 0) : 0;
+      const minThreshold = targetItem ? Number(targetItem.min_threshold ?? 0) : 0;
+
+      if (newStatus === 'approved' && targetItem && qtyBefore < reqQty) {
+        return {
+          success: false,
+          error: `Insufficient vault stock for "${targetItem.name}": only ${qtyBefore} available, ${reqQty} requested.`,
+        };
+      }
+
+      const expectedAvail =
+        newStatus === 'approved'
+          ? Math.max(0, qtyBefore - reqQty)
+          : newStatus === 'returned'
+          ? totalQty > 0
+            ? Math.min(totalQty, qtyBefore + reqQty)
+            : qtyBefore + reqQty
+          : qtyBefore;
+
+      const actor = getActorMeta();
       const updatePayload: Record<string, unknown> = {
         status: newStatus,
-        approved_by: profile?.full_name || (user?.email ? user.email.split('@')[0] : 'Admin'),
+        approved_by: actor.actorName || 'Admin',
         admin_notes: adminNotes,
         updated_at: new Date().toISOString(),
       };
 
       if (newStatus === 'approved') {
         updatePayload.borrow_date = new Date().toISOString().split('T')[0];
-        
-        // Decrement available quantity in Supabase backend
-        if (targetReq) {
-          const targetItem = items.find((i) => i.id === targetReq.item_id);
-          if (targetItem) {
-            const newAvail = Math.max(0, targetItem.available_qty - targetReq.quantity);
-            const statusLabel =
-              newAvail <= 0
-                ? 'Out of Stock'
-                : targetItem.total_qty > 0 && (newAvail / targetItem.total_qty) < 0.5
-                ? 'Low Stock'
-                : 'In Stock';
-
-            await supabase
-              .from('inventory_items')
-              .update({
-                available_qty: newAvail,
-                status: statusLabel,
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', targetItem.id);
-
-            // Immediately update local items state
-            setItems((prev) =>
-              prev.map((it) =>
-                it.id === targetItem.id
-                  ? { ...it, available_qty: newAvail, status: statusLabel }
-                  : it
-              )
-            );
-          }
-        }
       } else if (newStatus === 'returned') {
         updatePayload.actual_return_date = new Date().toISOString().split('T')[0];
-        const cleanNotes = (targetReq?.admin_notes || '').replace(/\[RETURN_REQUESTED\][^\n|]*/g, '').replace(/\|+/g, '|').trim();
-        updatePayload.admin_notes = adminNotes || (cleanNotes ? `${cleanNotes} (Returned & Restocked)` : 'Returned & Restocked');
-
-        // Increment available quantity back in Supabase backend
-        if (targetReq) {
-          const targetItem = items.find((i) => i.id === targetReq.item_id);
-          if (targetItem) {
-            const newAvail = Math.min(targetItem.total_qty, targetItem.available_qty + targetReq.quantity);
-            const statusLabel =
-              newAvail <= 0
-                ? 'Out of Stock'
-                : targetItem.total_qty > 0 && (newAvail / targetItem.total_qty) < 0.5
-                ? 'Low Stock'
-                : 'In Stock';
-
-            await supabase
-              .from('inventory_items')
-              .update({
-                available_qty: newAvail,
-                status: statusLabel,
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', targetItem.id);
-
-            // Immediately update local items state
-            setItems((prev) =>
-              prev.map((it) =>
-                it.id === targetItem.id
-                  ? { ...it, available_qty: newAvail, status: statusLabel }
-                  : it
-              )
-            );
-          }
-        }
+        const cleanNotes = (targetReq.admin_notes || '')
+          .replace(/\[RETURN_REQUESTED\][^\n|]*/g, '')
+          .replace(/\|+/g, '|')
+          .trim();
+        updatePayload.admin_notes =
+          adminNotes || (cleanNotes ? `${cleanNotes} (Returned & Restocked)` : 'Returned & Restocked');
       }
 
-      // Update borrow request in Supabase
-      const { error } = await supabase
+      // 4. Atomically update borrow_requests ONLY if status still matches expectedPreviousStatuses.
+      //    Postgres trigger `on_borrow_request_status_change` updates inventory_items.available_qty once on status change.
+      const { data: transitionedRows, error: updateError } = await supabase
         .from('borrow_requests')
         .update(updatePayload)
-        .eq('id', requestId);
+        .eq('id', requestId)
+        .in('status', allowedPreviousStatuses)
+        .select();
 
-      if (error) return { success: false, error: error.message };
+      if (updateError) return { success: false, error: updateError.message };
+      if (!transitionedRows || transitionedRows.length === 0) {
+        await refreshData();
+        return {
+          success: false,
+          error: 'Requisition was already processed concurrently. Syncing latest state.',
+        };
+      }
+
+      const updatedReq = transitionedRows[0] as BorrowRequest;
+
+      // 5. Verify post-transition item quantity in DB to avoid double decrement/increment:
+      //    - If Postgres trigger updated available_qty, adopt its authoritative value cleanly.
+      //    - Only if Postgres trigger did not run (available_qty still equals qtyBefore when delta expected), apply single fallback update.
+      let finalAvail = qtyBefore;
+      let finalStatusLabel = targetItem?.status || 'In Stock';
+
+      if ((newStatus === 'approved' || newStatus === 'returned') && targetItem) {
+        const { data: postItemData } = await supabase
+          .from('inventory_items')
+          .select('*')
+          .eq('id', targetItem.id)
+          .maybeSingle();
+
+        const postAvail = postItemData ? Number(postItemData.available_qty) : qtyBefore;
+        const statusForAvail = (avail: number) =>
+          avail <= 0
+            ? 'Out of Stock'
+            : (totalQty > 0 && avail / totalQty < 0.5) || avail <= minThreshold
+            ? 'Low Stock'
+            : 'In Stock';
+
+        if (postItemData && postAvail !== qtyBefore) {
+          // Database trigger already adjusted stock atomically — do NOT mutate stock a second time.
+          finalAvail = postAvail;
+          finalStatusLabel = (postItemData.status as InventoryItem['status']) || statusForAvail(postAvail);
+          setItems((prev) =>
+            prev.map((it) =>
+              it.id === targetItem.id
+                ? { ...it, ...postItemData, available_qty: finalAvail, status: finalStatusLabel }
+                : it
+            )
+          );
+        } else if (expectedAvail !== qtyBefore) {
+          // Database trigger not installed: perform single fallback adjustment with optimistic lock
+          finalAvail = expectedAvail;
+          finalStatusLabel = statusForAvail(expectedAvail);
+
+          await supabase
+            .from('inventory_items')
+            .update({
+              available_qty: finalAvail,
+              status: finalStatusLabel,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', targetItem.id)
+            .eq('available_qty', qtyBefore);
+
+          setItems((prev) =>
+            prev.map((it) =>
+              it.id === targetItem.id
+                ? { ...it, available_qty: finalAvail, status: finalStatusLabel }
+                : it
+            )
+          );
+        }
+      }
 
       // Immediately update local requests state
       setRequests((prev) =>
-        prev.map((r) => (r.id === requestId ? { ...r, ...updatePayload, status: newStatus } : r))
+        prev.map((r) => (r.id === requestId ? { ...r, ...updatedReq, status: newStatus } : r))
       );
 
-      if (targetReq) {
-        const liveType =
-          newStatus === 'approved'
-            ? 'APPROVED'
-            : newStatus === 'rejected'
-            ? 'REJECTED'
-            : 'RETURN_ACCEPTED';
-        broadcastLiveEvent(liveType, { ...targetReq, ...updatePayload, status: newStatus });
-      }
-
-      // Log activity in Supabase
-      if (targetReq) {
-        await supabase.from('activity_logs').insert([
-          {
-            user_id: user?.id,
-            user_name: profile?.full_name || 'Admin',
-            action: newStatus,
-            target_type: 'borrow_request',
-            target_id: requestId,
-            details: `${targetReq.item_name} marked as ${newStatus} (x${targetReq.quantity})`,
-          },
-        ]);
-        const event = newStatus === 'approved'
-          ? 'borrow_approved'
+      const liveType =
+        newStatus === 'approved'
+          ? 'APPROVED'
           : newStatus === 'rejected'
-          ? 'borrow_rejected'
-          : 'item_returned';
-        await notifyEmail(event, targetReq.user_email, {
-          name: targetReq.user_name,
-          email: targetReq.user_email,
-          item: `${targetReq.quantity}x ${targetReq.item_name}`,
-          status: newStatus,
-          dueDate: targetReq.expected_return_date,
-          notes: adminNotes,
-        });
-      }
+          ? 'REJECTED'
+          : 'RETURN_ACCEPTED';
+      broadcastLiveEvent(liveType, { ...targetReq, ...updatedReq, status: newStatus });
+
+      // Log forensic activity in Supabase
+      const borrowerIdentity = extractIdentityFromEmail(targetReq.user_email, {
+        full_name: targetReq.user_name,
+      });
+      const borrowerName =
+        targetReq.user_name && !isDirtyOrPlaceholderName(targetReq.user_name, targetReq.user_email)
+          ? toCleanDisplayName(targetReq.user_name)
+          : borrowerIdentity.fullName;
+      const borrowerRoll = borrowerIdentity.enrollmentNo;
+
+      const mappedAction =
+        newStatus === 'approved'
+          ? 'BORROW_APPROVED'
+          : newStatus === 'rejected'
+          ? 'BORROW_REJECTED'
+          : 'ITEM_RETURNED';
+      const whereLocation =
+        newStatus === 'returned'
+          ? 'Requisitions & Clearance › Return Clearance'
+          : 'Requisitions & Clearance › Review Queue';
+      const actionSummary =
+        newStatus === 'approved'
+          ? `${actor.actorName} approved issue of ${reqQty}x ${targetReq.item_name} for ${borrowerName}`
+          : newStatus === 'rejected'
+          ? `${actor.actorName} rejected issue of ${reqQty}x ${targetReq.item_name} for ${borrowerName}${adminNotes ? ` (${adminNotes})` : ''}`
+          : `${actor.actorName} approved return of ${reqQty}x ${targetReq.item_name} from ${borrowerName}`;
+
+      await writeAuditLog({
+        action: mappedAction,
+        actorId: actor.actorId,
+        actorName: actor.actorName,
+        item_id: targetReq.item_id,
+        details: buildAuditDetails({
+          summary: actionSummary,
+          actorId: actor.actorId,
+          actorName: actor.actorName,
+          actorEmail: actor.actorEmail,
+          actorRoll: actor.actorRoll,
+          actorRole: actor.actorRole,
+          targetId: targetReq.item_id,
+          targetName: `${reqQty}x ${targetReq.item_name}`,
+          targetType: 'borrow_request',
+          location: targetItem?.location,
+          where: whereLocation,
+          changes: [
+            `Borrower: ${borrowerName}`,
+            ...(borrowerRoll ? [`Roll: ${borrowerRoll}`] : []),
+            `Qty: ${reqQty}`,
+            ...(newStatus === 'approved' || newStatus === 'returned'
+              ? [`Available Qty: ${qtyBefore} → ${finalAvail}`]
+              : []),
+            `Project: "${targetReq.project_name}"`,
+            `Status → ${newStatus.toUpperCase()}`,
+            ...(adminNotes ? [`Note: ${adminNotes}`] : []),
+          ],
+          meta: {
+            requestId,
+            itemId: targetReq.item_id,
+            itemName: targetReq.item_name,
+            quantity: reqQty,
+            projectName: targetReq.project_name,
+            requesterId: targetReq.user_id,
+            requesterName: borrowerName,
+            requesterEmail: targetReq.user_email,
+            requesterRoll: borrowerRoll,
+          },
+        }),
+      });
+
+      const event = newStatus === 'approved'
+        ? 'borrow_approved'
+        : newStatus === 'rejected'
+        ? 'borrow_rejected'
+        : 'item_returned';
+      await notifyEmail(event, targetReq.user_email, {
+        name: borrowerName,
+        email: targetReq.user_email,
+        item: `${reqQty}x ${targetReq.item_name}`,
+        status: newStatus,
+        dueDate: targetReq.expected_return_date,
+        notes: adminNotes,
+      });
 
       await refreshData();
       return { success: true };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to update request';
       return { success: false, error: msg };
+    } finally {
+      inFlightRequestIdsRef.current.delete(requestId);
     }
   };
 
@@ -929,7 +1217,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       const noteTag = '[RETURN_REQUESTED]';
       const cleanExistingNotes = (targetReq.admin_notes || '').replace(/\[RETURN_REQUESTED\][^\n|]*/g, '').replace(/\|+/g, '|').trim();
-      const userDisplay = profile?.full_name || user?.email || targetReq.user_name || 'Member';
+      const actor = getActorMeta();
+      const userDisplay = actor.actorName || 'Member';
       const updatedNotes = returnNotes?.trim()
         ? `${noteTag} (${userDisplay}): ${returnNotes.trim()}${cleanExistingNotes ? ` | ${cleanExistingNotes}` : ''}`
         : `${noteTag} Return submitted by ${userDisplay} on ${new Date().toLocaleDateString('en-IN')}${cleanExistingNotes ? ` | ${cleanExistingNotes}` : ''}`;
@@ -954,20 +1243,42 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       broadcastLiveEvent('RETURN_REQUESTED', { ...targetReq, admin_notes: updatedNotes });
 
-      try {
-        await supabase.from('activity_logs').insert([
-          {
-            user_id: user?.id,
-            user_name: userDisplay,
-            action: 'RETURN_REQUEST',
-            target_type: 'borrow_request',
-            target_id: requestId,
-            details: `${userDisplay} requested to return ${targetReq.quantity}x ${targetReq.item_name} for "${targetReq.project_name}". Sent to Admin Portal for clearance.`,
+      const targetItem = items.find((i) => i.id === targetReq.item_id);
+      await writeAuditLog({
+        action: 'RETURN_REQUEST',
+        actorId: actor.actorId,
+        actorName: actor.actorName,
+        item_id: targetReq.item_id,
+        details: buildAuditDetails({
+          summary: `${actor.actorName} requested return of ${targetReq.quantity}x ${targetReq.item_name} for "${targetReq.project_name}"`,
+          actorId: actor.actorId,
+          actorName: actor.actorName,
+          actorEmail: actor.actorEmail,
+          actorRoll: actor.actorRoll,
+          actorRole: actor.actorRole,
+          targetId: targetReq.item_id,
+          targetName: `${targetReq.quantity}x ${targetReq.item_name}`,
+          targetType: 'borrow_request',
+          location: targetItem?.location,
+          where: 'Requisitions & Clearance › My Requisitions',
+          changes: [
+            `Project: "${targetReq.project_name}"`,
+            `Qty: ${targetReq.quantity}`,
+            ...(returnNotes?.trim() ? [`Note: ${returnNotes.trim()}`] : []),
+          ],
+          meta: {
+            requestId,
+            itemId: targetReq.item_id,
+            itemName: targetReq.item_name,
+            quantity: targetReq.quantity,
+            projectName: targetReq.project_name,
+            requesterId: actor.actorId,
+            requesterName: actor.actorName,
+            requesterEmail: actor.actorEmail,
+            requesterRoll: actor.actorRoll,
           },
-        ]);
-      } catch {
-        // ignore log error
-      }
+        }),
+      });
 
       await refreshData();
       return { success: true };
@@ -1004,6 +1315,50 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       );
 
       broadcastLiveEvent('RETURN_DECLINED', { ...targetReq, admin_notes: updatedNotes || undefined });
+
+      const actor = getActorMeta();
+      const targetItem = items.find((i) => i.id === targetReq.item_id);
+      const borrowerIdentity = extractIdentityFromEmail(targetReq.user_email, { full_name: targetReq.user_name });
+      const borrowerName =
+        targetReq.user_name && !isDirtyOrPlaceholderName(targetReq.user_name, targetReq.user_email)
+          ? toCleanDisplayName(targetReq.user_name)
+          : borrowerIdentity.fullName;
+      const borrowerRoll = borrowerIdentity.enrollmentNo;
+      await writeAuditLog({
+        action: 'RETURN_DECLINED',
+        actorId: actor.actorId,
+        actorName: actor.actorName,
+        item_id: targetReq.item_id,
+        details: buildAuditDetails({
+          summary: `${actor.actorName} rejected return of ${targetReq.quantity}x ${targetReq.item_name} from ${borrowerName}${reason ? ` (${reason})` : ''}`,
+          actorId: actor.actorId,
+          actorName: actor.actorName,
+          actorEmail: actor.actorEmail,
+          actorRoll: actor.actorRoll,
+          actorRole: actor.actorRole,
+          targetId: targetReq.item_id,
+          targetName: `${targetReq.quantity}x ${targetReq.item_name}`,
+          targetType: 'borrow_request',
+          location: targetItem?.location,
+          where: 'Requisitions & Clearance › Return Clearance',
+          changes: [
+            `Borrower: ${borrowerName}`,
+            ...(borrowerRoll ? [`Roll: ${borrowerRoll}`] : []),
+            `Qty: ${targetReq.quantity}`,
+            ...(reason ? [`Reason: ${reason}`] : []),
+          ],
+          meta: {
+            requestId,
+            itemId: targetReq.item_id,
+            itemName: targetReq.item_name,
+            quantity: targetReq.quantity,
+            requesterId: targetReq.user_id,
+            requesterName: borrowerName,
+            requesterEmail: targetReq.user_email,
+            requesterRoll: borrowerRoll,
+          },
+        }),
+      });
 
       await refreshData();
       return { success: true };

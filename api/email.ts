@@ -27,6 +27,55 @@ const MASTER_ADMIN_EMAILS = [
   '992501030399@mail.jiit.ac.in',
 ];
 
+const DEFAULT_APP_URL = 'https://cicr-inventory.vercel.app';
+
+/**
+ * Normalizes a host or URL string into a canonical HTTP/HTTPS origin without trailing slashes.
+ */
+function normalizeServerOrigin(raw?: string): string {
+  const cleaned = (raw || '').trim().replace(/^['"]|['"]$/g, '');
+  if (!cleaned) return '';
+  try {
+    const candidate = /^https?:\/\//i.test(cleaned)
+      ? cleaned
+      : /^(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(cleaned)
+      ? `http://${cleaned}`
+      : `https://${cleaned}`;
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+    return parsed.origin;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Resolves the canonical public application URL for outbound notification CTA links.
+ * Prioritizes explicit deployment environment variables, then incoming non local request headers.
+ */
+function resolveServerAppUrl(req?: VercelRequest): string {
+  const explicit = normalizeServerOrigin(
+    process.env.APP_URL ||
+      process.env.VITE_APP_URL ||
+      process.env.VITE_AUTH_REDIRECT_URL ||
+      process.env.AUTH_REDIRECT_URL
+  );
+  if (explicit) return explicit;
+
+  const forwardedHost = req?.headers?.['x-forwarded-host'] || req?.headers?.host;
+  const host = (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost || '').trim();
+  if (host) {
+    const forwardedProto = req?.headers?.['x-forwarded-proto'];
+    const rawProto = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto || '';
+    const isLocalHost = /^(localhost|127\.0\.0\.1|\[::1\])(:|$)/i.test(host);
+    const proto = rawProto.split(',')[0].trim() || (isLocalHost ? 'http' : 'https');
+    const fromHeaders = normalizeServerOrigin(`${proto}://${host}`);
+    if (fromHeaders && !isLocalHost) return fromHeaders;
+  }
+
+  return DEFAULT_APP_URL;
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -36,7 +85,7 @@ function escapeHtml(value: unknown) {
     .replace(/'/g, '&#039;');
 }
 
-function renderEmail(event: string, data: Record<string, unknown>) {
+function renderEmail(event: string, data: Record<string, unknown>, resolvedAppUrl?: string) {
   const name = String(data.name || 'CICR member');
   const item = data.item ? String(data.item) : '';
   const status = data.status ? String(data.status) : '';
@@ -105,7 +154,7 @@ function renderEmail(event: string, data: Record<string, unknown>) {
   const detailsHtml = detailRows
     .map(([label, value]) => `<tr><td style="padding:8px 0;color:#77839d;font:11px Arial,sans-serif;letter-spacing:1px;width:34%">${label}</td><td style="padding:8px 0;color:#f5f7fb;font:600 13px Arial,sans-serif">${value}</td></tr>`)
     .join('');
-  const appUrl = process.env.APP_URL || 'https://cicr-inventory.vercel.app';
+  const appUrl = normalizeServerOrigin(resolvedAppUrl) || resolveServerAppUrl();
   const html = `<!doctype html>
 <html><body style="margin:0;background:#05070d;color:#eef2f8;font-family:Arial,sans-serif">
   <div style="padding:28px 12px;background:#05070d">
@@ -216,7 +265,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       socketTimeout: 4000,
     });
 
-    const message = renderEmail(event, data && typeof data === 'object' ? data : {});
+    const message = renderEmail(event, data && typeof data === 'object' ? data : {}, resolveServerAppUrl(req));
     const from = (process.env.SMTP_FROM || smtpUser || `CICR Inventory <${smtpUser}>`).trim().replace(/^['"]|['"]$/g, '');
     await Promise.race([
       transporter.sendMail({ from, to, ...message }),

@@ -263,6 +263,55 @@ async function resolveAdminActor(
   };
 }
 
+const DEFAULT_APP_URL = 'https://cicr-inventory.vercel.app';
+
+/**
+ * Normalizes a host or URL string into a canonical HTTP/HTTPS origin without trailing slashes.
+ */
+function normalizeServerOrigin(raw?: string): string {
+  const cleaned = (raw || '').trim().replace(/^['"]|['"]$/g, '');
+  if (!cleaned) return '';
+  try {
+    const candidate = /^https?:\/\//i.test(cleaned)
+      ? cleaned
+      : /^(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(cleaned)
+      ? `http://${cleaned}`
+      : `https://${cleaned}`;
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+    return parsed.origin;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Resolves the canonical public application URL for outbound account notification links.
+ * Prioritizes explicit deployment environment variables, then incoming non local request headers.
+ */
+function resolveServerAppUrl(req?: VercelRequest): string {
+  const explicit = normalizeServerOrigin(
+    process.env.APP_URL ||
+      process.env.VITE_APP_URL ||
+      process.env.VITE_AUTH_REDIRECT_URL ||
+      process.env.AUTH_REDIRECT_URL
+  );
+  if (explicit) return explicit;
+
+  const forwardedHost = req?.headers?.['x-forwarded-host'] || req?.headers?.host;
+  const host = (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost || '').trim();
+  if (host) {
+    const forwardedProto = req?.headers?.['x-forwarded-proto'];
+    const rawProto = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto || '';
+    const isLocalHost = /^(localhost|127\.0\.0\.1|\[::1\])(:|$)/i.test(host);
+    const proto = rawProto.split(',')[0].trim() || (isLocalHost ? 'http' : 'https');
+    const fromHeaders = normalizeServerOrigin(`${proto}://${host}`);
+    if (fromHeaders && !isLocalHost) return fromHeaders;
+  }
+
+  return DEFAULT_APP_URL;
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -295,8 +344,8 @@ function renderAccountEmail(event: string, data: Record<string, unknown>) {
   };
   const layout = layouts[event] || { label: 'ACCOUNT // NOTIFICATION', title: 'Account Update', action: 'OPEN CICR VAULT', path: '/' };
   const accent = event === 'account_rejected' ? '#ff2d8d' : '#00e5ff';
-  const appUrl = process.env.APP_URL || 'https://cicr-inventory.vercel.app';
-  const html = `<!doctype html><html><body style="margin:0;background:#05070d;color:#eef2f8;font-family:Arial,sans-serif"><div style="padding:28px 12px;background:#05070d"><table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:640px;margin:auto;background:#0d1320;border:1px solid #1e2a3d;border-radius:6px;overflow:hidden"><tr><td style="padding:20px 24px;border-bottom:1px solid #1e2a3d"><div style="font-size:18px;font-weight:800;letter-spacing:2px;color:#f5dc72"><span style="background:#f5dc72;color:#0d1320;padding:2px 5px">CICR</span> <span style="color:#00e5ff">//</span> INVENTORY</div><div style="margin-top:7px;color:#77839d;font-size:9px;letter-spacing:2px">CENTRE FOR INNOVATION, CONTROL &amp; ROBOTICS</div></td></tr><tr><td style="padding:24px"><div style="display:inline-block;padding:6px 9px;border:1px solid ${accent};color:${accent};font:700 10px monospace;letter-spacing:1px">${layout.label}</div><h1 style="margin:18px 0 8px;color:#f5f7fb;font-size:21px">${layout.title}</h1><p style="margin:0 0 20px;color:#9aa7bc;font-size:13px;line-height:1.6">${escapeHtml(messages[event] || '')}</p><a href="${appUrl}${layout.path}" style="display:inline-block;padding:12px 24px;background:#00d9ed;color:#041018;text-decoration:none;font:800 12px Arial,sans-serif;letter-spacing:1px;border-radius:3px">${layout.action}</a></td></tr></table></div></body></html>`;
+  const appUrl = normalizeServerOrigin(typeof data.appUrl === 'string' ? data.appUrl : '') || resolveServerAppUrl();
+  const html = `<!doctype html><html><body style="margin:0;background:#05070d;color:#eef2f8;font-family:Arial,sans-serif"><div style="padding:28px 12px;background:#05070d"><table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:640px;margin:auto;background:#0d1320;border:1px solid #1e2a3d;border-radius:6px;overflow:hidden"><tr><td style="padding:20px 24px;border-bottom:1px solid #1e2a3d"><div style="font-size:18px;font-weight:800;letter-spacing:2px;color:#f5dc72"><span style="background:#f5dc72;color:#0d1320;padding:2px 5px">CICR</span> <span style="color:#00e5ff">//</span> INVENTORY</div><div style="margin-top:7px;color:#77839d;font-size:9px;letter-spacing:2px">CENTRE FOR INNOVATION, CONTROL &amp; ROBOTICS</div></td></tr><tr><td style="padding:24px"><div style="display:inline-block;padding:6px 9px;border:1px solid ${accent};color:${accent};font:700 10px monospace;letter-spacing:1px">${layout.label}</div><h1 style="margin:18px 0 8px;color:#f5f7fb;font-size:21px">${layout.title}</h1><p style="margin:0 0 20px;color:#9aa7bc;font-size:13px;line-height:1.6">${escapeHtml(messages[event] || '')}</p><a href="${escapeHtml(`${appUrl}${layout.path}`)}" style="display:inline-block;padding:12px 24px;background:#00d9ed;color:#041018;text-decoration:none;font:800 12px Arial,sans-serif;letter-spacing:1px;border-radius:3px">${layout.action}</a></td></tr></table></div></body></html>`;
 
   return {
     subject: subjects[event] || 'CICR Inventory notification',
@@ -495,6 +544,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           name: targetName,
           email: targetEmail,
           role,
+          appUrl: resolveServerAppUrl(req),
         });
       }
 
@@ -590,7 +640,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }),
       }]);
       requireDatabaseSuccess(logError, 'Account request logging');
-      await sendAccountEmail('account_created', email, { name: fullName, email, role, status: 'pending' });
+      await sendAccountEmail('account_created', email, { name: fullName, email, role, status: 'pending', appUrl: resolveServerAppUrl(req) });
       return response(res, 201, { success: true });
     }
 
@@ -1019,7 +1069,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }),
     }]);
     requireDatabaseSuccess(actionLogError, 'Account action logging');
-    if (email) { void sendAccountEmail(action === 'approve' ? 'account_approved' : 'account_rejected', email, { name: fullName, email, role: details?.role, status }).catch(err => console.warn('Background email notice:', err)); }
+    if (email) { void sendAccountEmail(action === 'approve' ? 'account_approved' : 'account_rejected', email, { name: fullName, email, role: details?.role, status, appUrl: resolveServerAppUrl(req) }).catch(err => console.warn('Background email notice:', err)); }
     return response(res, 200, { success: true });
   } catch (error) {
     console.error('Account operation failed:', error);

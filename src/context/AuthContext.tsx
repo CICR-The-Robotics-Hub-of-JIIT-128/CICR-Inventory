@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { UserProfile, UserRole } from '../types/inventory';
 import { notifyEmail } from '../lib/notifications';
 import { buildAuditDetails } from '../lib/audit';
+import { resolveOAuthRedirectUrl } from '../lib/appUrl';
 import {
   extractIdentityFromEmail,
   hydrateMemberIdentity,
@@ -912,13 +913,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signInWithGoogle = async () => {
     try {
       localStorage.removeItem('cicr_auth_error');
-      const origin =
-        typeof window !== 'undefined' && window.location.origin
-          ? window.location.origin.replace(/\/$/, '')
-          : 'https://cicr-inventory.vercel.app';
-      const redirectUrl = origin.includes('localhost') || origin.includes('127.0.0.1')
-        ? origin
-        : 'https://cicr-inventory.vercel.app';
+      const redirectUrl = resolveOAuthRedirectUrl();
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -1045,6 +1040,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         email: emailToRegister,
         password,
         options: {
+          emailRedirectTo: resolveOAuthRedirectUrl(),
           data: {
             full_name: effectiveFullName,
             enrollment_no: effectiveEnrollmentNo,

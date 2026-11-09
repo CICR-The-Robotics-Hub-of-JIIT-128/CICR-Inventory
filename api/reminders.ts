@@ -8,10 +8,31 @@ const DEFAULT_SERVICE_ROLE_KEY = Buffer.from(
   'base64'
 ).toString('utf8');
 
-const DEFAULT_APP_URL = 'https://cicr-inventory.vercel.app';
+const DEFAULT_APP_URL = 'https://inventory.cicr.in';
+
+function extractSupabaseUrlRef(urlStr: string): string {
+  try {
+    const match = new URL(urlStr).hostname.toLowerCase().match(/^([a-z0-9-]+)\.supabase\.co$/);
+    return match ? match[1] : '';
+  } catch {
+    return '';
+  }
+}
+
+function extractJwtRef(token: string): string {
+  const parts = token.split('.');
+  if (parts.length !== 3 || !parts[1]) return '';
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    return typeof payload?.ref === 'string' ? payload.ref.trim() : '';
+  } catch {
+    return '';
+  }
+}
 
 /**
- * Normalizes a host or URL string into a canonical HTTP/HTTPS origin without trailing slashes.
+ * Normalizes a host or URL string into a canonical HTTP/HTTPS origin without trailing slashes,
+ * stripping leading legal/www subdomain prefixes and ignoring legacy vercel.app domains.
  */
 function normalizeServerOrigin(raw?: string): string {
   const cleaned = (raw || '').trim().replace(/^['"]|['"]$/g, '');
@@ -24,7 +45,13 @@ function normalizeServerOrigin(raw?: string): string {
       : `https://${cleaned}`;
     const parsed = new URL(candidate);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
-    return parsed.origin;
+    const bareHost = parsed.hostname
+      .toLowerCase()
+      .replace(/^(privacy|tos|terms|toc)\./i, '')
+      .replace(/^www\./i, '');
+    if (/(^|\.)vercel\.app$/i.test(bareHost)) return '';
+    const portSuffix = parsed.port ? `:${parsed.port}` : '';
+    return `${parsed.protocol}//${bareHost}${portSuffix}`;
   } catch {
     return '';
   }
@@ -32,7 +59,7 @@ function normalizeServerOrigin(raw?: string): string {
 
 /**
  * Resolves the canonical public application URL for overdue return reminder links.
- * Prioritizes explicit deployment environment variables, then incoming non local request headers.
+ * Prioritizes explicit non Vercel environment variables, non Vercel request headers, then DEFAULT_APP_URL.
  */
 function resolveServerAppUrl(req?: VercelRequest): string {
   const explicit = normalizeServerOrigin(
@@ -89,8 +116,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(404).json({ error: 'Not found' });
   }
 
-  const url = process.env.SUPABASE_URL || DEFAULT_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || DEFAULT_SERVICE_ROLE_KEY;
+  const url = (process.env.SUPABASE_URL || DEFAULT_URL).trim();
+  const expectedRef = extractSupabaseUrlRef(url) || DEFAULT_REF;
+  const rawKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  const keyRef = extractJwtRef(rawKey);
+  const key = rawKey && (!keyRef || !expectedRef || keyRef === expectedRef) ? rawKey : DEFAULT_SERVICE_ROLE_KEY;
 
   if (!url || !key) {
     return res.status(503).json({ error: 'Service configuration incomplete.' });

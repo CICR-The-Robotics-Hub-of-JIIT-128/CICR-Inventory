@@ -20,6 +20,26 @@ const DEFAULT_URL = `https://${DEFAULT_REF}.supabase.co`;
 const DEFAULT_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5td2tsanRheW11anFubXpneXhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzODQ0MDYsImV4cCI6MjEwODk2MDQwNn0.LGEoX7QPu2O9yxw0LT74rerIo4_Tj9CHCWlsT1hoxT8';
 
+function extractSupabaseUrlRef(urlStr: string): string {
+  try {
+    const match = new URL(urlStr).hostname.toLowerCase().match(/^([a-z0-9-]+)\.supabase\.co$/);
+    return match ? match[1] : '';
+  } catch {
+    return '';
+  }
+}
+
+function extractJwtRef(token: string): string {
+  const parts = token.split('.');
+  if (parts.length !== 3 || !parts[1]) return '';
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    return typeof payload?.ref === 'string' ? payload.ref.trim() : '';
+  } catch {
+    return '';
+  }
+}
+
 const MASTER_ADMIN_EMAILS = [
   'vardaansaxena096@gmail.com',
   'cicrinventory@gmail.com',
@@ -27,10 +47,11 @@ const MASTER_ADMIN_EMAILS = [
   '992501030399@mail.jiit.ac.in',
 ];
 
-const DEFAULT_APP_URL = 'https://cicr-inventory.vercel.app';
+const DEFAULT_APP_URL = 'https://inventory.cicr.in';
 
 /**
- * Normalizes a host or URL string into a canonical HTTP/HTTPS origin without trailing slashes.
+ * Normalizes a host or URL string into a canonical HTTP/HTTPS origin without trailing slashes,
+ * stripping leading legal/www subdomain prefixes and ignoring legacy vercel.app domains.
  */
 function normalizeServerOrigin(raw?: string): string {
   const cleaned = (raw || '').trim().replace(/^['"]|['"]$/g, '');
@@ -43,7 +64,13 @@ function normalizeServerOrigin(raw?: string): string {
       : `https://${cleaned}`;
     const parsed = new URL(candidate);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
-    return parsed.origin;
+    const bareHost = parsed.hostname
+      .toLowerCase()
+      .replace(/^(privacy|tos|terms|toc)\./i, '')
+      .replace(/^www\./i, '');
+    if (/(^|\.)vercel\.app$/i.test(bareHost)) return '';
+    const portSuffix = parsed.port ? `:${parsed.port}` : '';
+    return `${parsed.protocol}//${bareHost}${portSuffix}`;
   } catch {
     return '';
   }
@@ -51,7 +78,7 @@ function normalizeServerOrigin(raw?: string): string {
 
 /**
  * Resolves the canonical public application URL for outbound notification CTA links.
- * Prioritizes explicit deployment environment variables, then incoming non local request headers.
+ * Prioritizes explicit non Vercel environment variables, non Vercel request headers, then DEFAULT_APP_URL.
  */
 function resolveServerAppUrl(req?: VercelRequest): string {
   const explicit = normalizeServerOrigin(
@@ -194,8 +221,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(404).json({ error: 'Not found' });
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL || DEFAULT_URL;
-  const supabaseKey = process.env.SUPABASE_ANON_KEY || DEFAULT_ANON_KEY;
+  const supabaseUrl = (process.env.SUPABASE_URL || DEFAULT_URL).trim();
+  const expectedRef = extractSupabaseUrlRef(supabaseUrl) || DEFAULT_REF;
+  const rawAnonKey = (process.env.SUPABASE_ANON_KEY || '').trim();
+  const keyRef = extractJwtRef(rawAnonKey);
+  const supabaseKey = rawAnonKey && (!keyRef || !expectedRef || keyRef === expectedRef) ? rawAnonKey : DEFAULT_ANON_KEY;
   if (!supabaseUrl || !supabaseKey) {
     return res.status(503).json({ error: 'Supabase server configuration is missing.' });
   }

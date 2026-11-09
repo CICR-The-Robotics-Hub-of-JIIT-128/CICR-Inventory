@@ -189,6 +189,13 @@ export const UserDashboard: React.FC = () => {
     viewHistoryRef.current = initialView === 'dashboard' ? ['dashboard'] : ['dashboard', initialView];
 
     const cleanPath = window.location.pathname || '/';
+    let tabCameFromOAuth = false;
+    try {
+      tabCameFromOAuth =
+        sessionStorage.getItem('cicr_oauth_tab') === '1' ||
+        /[?&](code|state|error_code)=/.test(window.location.search || '') ||
+        /(accounts\.google\.com|\.supabase\.co)/i.test(document.referrer || '');
+    } catch {}
 
     // 1. Seed root guard at history entry 0 (protects mobile users from abruptly exiting)
     // Strip any hash that might have been present in the initial URL
@@ -242,6 +249,16 @@ export const UserDashboard: React.FC = () => {
       //    Require a double back-press within 2 seconds to exit, preventing accidental closing!
       const now = Date.now();
       if (now - lastBackPressTimeRef.current < 2000) {
+        // Never rewind browser history into a consumed Google / Supabase OAuth callback URL,
+        // which triggers bad_oauth_state and bounces out of the CICR domain.
+        if (tabCameFromOAuth) {
+          try {
+            window.close();
+          } catch {}
+          lastBackPressTimeRef.current = 0;
+          window.history.pushState({ cicrApp: true, view: 'dashboard', depth: 0 }, '', cleanPath);
+          return;
+        }
         // Double back pressed within 2s: allow normal exit from site
         window.history.back();
         return;

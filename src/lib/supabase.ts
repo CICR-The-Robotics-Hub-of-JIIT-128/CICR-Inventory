@@ -1,16 +1,25 @@
 import { createClient } from '@supabase/supabase-js';
 
-const decodeFallback = (encoded: string): string => {
+/**
+ * Decodes a base64 or URL safe base64url encoded ASCII/UTF8 payload safely
+ * in both browser Web APIs and Node.js test environments.
+ *
+ * @param encoded Base64 or base64url encoded string segment.
+ * @returns Decoded UTF8 string, or empty string when malformed.
+ */
+const decodeBase64Url = (encoded: string): string => {
+  const normalized = encoded.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
   if (typeof atob === 'function') {
     try {
-      return atob(encoded);
+      return atob(padded);
     } catch {
       return '';
     }
   }
   if (typeof Buffer !== 'undefined') {
     try {
-      return Buffer.from(encoded, 'base64').toString('utf8');
+      return Buffer.from(padded, 'base64').toString('utf8');
     } catch {
       return '';
     }
@@ -18,9 +27,43 @@ const decodeFallback = (encoded: string): string => {
   return '';
 };
 
+/**
+ * Extracts the Supabase project reference subdomain from a canonical project URL.
+ *
+ * @param urlStr Target Supabase API URL such as https://nmwkljtaymujqnmzgyxn.supabase.co.
+ * @returns Project reference identifier or empty string when unrecognized.
+ */
+const extractUrlRef = (urlStr: string): string => {
+  if (!urlStr) return '';
+  try {
+    const host = new URL(urlStr).hostname.toLowerCase();
+    const match = host.match(/^([a-z0-9-]+)\.supabase\.co$/);
+    return match ? match[1] : '';
+  } catch {
+    return '';
+  }
+};
+
+/**
+ * Extracts the project reference claim ("ref") embedded inside a Supabase JWT key.
+ *
+ * @param token Candidate anon key JWT or opaque publishable key string.
+ * @returns JWT ref claim string when present, or empty string for opaque keys.
+ */
+const extractJwtRef = (token: string): string => {
+  const parts = token.split('.');
+  if (parts.length !== 3 || !parts[1]) return '';
+  try {
+    const payload = JSON.parse(decodeBase64Url(parts[1]));
+    return typeof payload?.ref === 'string' ? payload.ref.trim() : '';
+  } catch {
+    return '';
+  }
+};
+
 const DEFAULT_REF = 'nmwkljtaymujqnmzgyxn';
 const DEFAULT_URL = `https://${DEFAULT_REF}.supabase.co`;
-const DEFAULT_ANON_KEY = decodeFallback(
+const DEFAULT_ANON_KEY = decodeBase64Url(
   'ZXlKaGJHY2lPaUpJVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SnBjM01pT2lKemRYQmhZbUZ6WlNJc0luSmxaaUk2SW01dGQydHNhblJoZVcxMWFuRnViWHBuZVhodUlpd2ljbTlzWlNJNkltRnViMjRpTENKcFlYUWlPakUzT1RNek9EUTBNRFlzSW1WNGNDSTZNakV3T0RrMk1EUXdObjAuTEdFb1g3UVB1Mk85eXh3MExUNzRyZXJJbzRfVGo5Q0hDV2xzVDFob3hUOA=='
 );
 
@@ -31,7 +74,15 @@ const definedSupabaseAnonKey =
 const nodeEnv = typeof process !== 'undefined' && process.env ? process.env : undefined;
 
 const supabaseUrl = (definedSupabaseUrl || nodeEnv?.SUPABASE_URL || DEFAULT_URL).trim();
-const supabaseAnonKey = (definedSupabaseAnonKey || nodeEnv?.SUPABASE_ANON_KEY || DEFAULT_ANON_KEY).trim();
+const candidateAnonKey = (definedSupabaseAnonKey || nodeEnv?.SUPABASE_ANON_KEY || '').trim();
+const expectedUrlRef = extractUrlRef(supabaseUrl) || DEFAULT_REF;
+const candidateKeyRef = extractJwtRef(candidateAnonKey);
+
+// Prevent 401 Invalid API key failures when an unrelated legacy project key is injected via env
+const supabaseAnonKey =
+  candidateAnonKey && (!candidateKeyRef || !expectedUrlRef || candidateKeyRef === expectedUrlRef)
+    ? candidateAnonKey
+    : DEFAULT_ANON_KEY;
 
 // Purge any corrupted legacy session tokens in localStorage on boot to ensure seamless cross-browser compatibility
 if (typeof window !== 'undefined') {

@@ -8,7 +8,7 @@
 
 Track, reserve, and deploy microcontrollers, sensors, actuators, and power electronics from JIIT's robotics laboratory vault with a modern full-stack web platform: **React 18 + TypeScript + Vite**, **Tailwind CSS**, **Supabase (PostgreSQL)** real-time engine, **Neon PostgreSQL** secondary backup failover, **Dual Superadmin Security**, and **Real-Time Requisition Telemetry**.
 
-[![Live Demo](https://img.shields.io/badge/LIVE-cicr--inventory.vercel.app-00f0ff?style=for-the-badge&logo=vercel&logoColor=white)](https://cicr-inventory.vercel.app/)
+[![Live Portal](https://img.shields.io/badge/LIVE-inventory.cicr.in-00f0ff?style=for-the-badge&logo=vercel&logoColor=white)](https://inventory.cicr.in/)
 [![GitHub Repo](https://img.shields.io/badge/GITHUB-cicr__inventory_-bd00ff?style=for-the-badge&logo=github&logoColor=white)](https://github.com/simplyvardaan/cicr_inventory_)
 [![Database](https://img.shields.io/badge/DATABASE-Supabase%20PostgreSQL-3ecf8e?style=for-the-badge&logo=supabase&logoColor=white)](https://supabase.com)
 [![Secondary Mirror](https://img.shields.io/badge/SECONDARY-Neon%20PostgreSQL-00e599?style=for-the-badge&logo=postgresql&logoColor=white)](https://neon.tech)
@@ -315,10 +315,10 @@ Forked or mirror deployments (such as `https://inventory.cicr.in`) can connect d
 
 1. Keep the shared database credentials (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NEON_DATABASE_URL`) identical across deployments.
 2. Configure deployment URL variables in Vercel or `.env`:
-   * `APP_URL`: Canonical origin used in outbound email notification buttons, Legal pages, and fallback links (for example `https://inventory.cicr.in`).
-   * `AUTH_REDIRECT_URL`: Optional hard override for Supabase OAuth `redirectTo` and signup `emailRedirectTo`. Leave empty to keep each active origin on its own host automatically.
-   * `ALLOWED_ORIGINS`: Optional comma separated allowlist of valid origins (for example `https://inventory.cicr.in,https://cicr-inventory.vercel.app`).
-3. In the shared **Supabase Dashboard**, open **Authentication -> URL Configuration -> Redirect URLs** and add the deployment origin and wildcard callback pattern (for example `https://inventory.cicr.in` and `https://inventory.cicr.in/**`).
+   * `APP_URL`: Canonical origin used in outbound email notification buttons, Legal pages, and fallback links (defaults to `https://inventory.cicr.in`).
+   * `AUTH_REDIRECT_URL`: Optional hard override for Supabase OAuth `redirectTo` and signup `emailRedirectTo`. Leave empty to normalize non local traffic onto `https://inventory.cicr.in` automatically.
+   * `ALLOWED_ORIGINS`: Optional comma separated allowlist of valid custom CICR origins (for example `https://inventory.cicr.in`). Legacy `*.vercel.app` deployments automatically redirect to `https://inventory.cicr.in`.
+3. In the shared **Supabase Dashboard**, open **Authentication -> URL Configuration -> Redirect URLs** and **Site URL**, set Site URL to `https://inventory.cicr.in`, and ensure `https://inventory.cicr.in`, `https://inventory.cicr.in/**`, `https://www.inventory.cicr.in`, and `https://www.inventory.cicr.in/**` are permitted.
 
 ### 5. Run Development Server
 ```bash
@@ -345,7 +345,7 @@ The platform is optimized for **zero-configuration Vercel deployment**:
    - **Build Command**: `npm run build`
    - **Output Directory**: `dist`
 4. Add environment variables (`SUPABASE_URL`, `SUPABASE_ANON_KEY`) in the Vercel project settings.
-5. Deployments run on `https://cicr-inventory.vercel.app`.
+5. Production portal runs on `https://inventory.cicr.in` (and any `*.vercel.app` alias automatically redirects there).
 
 ---
 
@@ -376,6 +376,6 @@ For comprehensive technical documentation, refer to the following repository gui
 
 **Copyright 2026 CICR Inventory Hub : Creative & Innovative Cell in Robotics, JIIT Noida**
 
-[![Visit Live Platform](https://img.shields.io/badge/VISIT-VAULT-00f0ff?style=for-the-badge)](https://cicr-inventory.vercel.app/)
+[![Visit Live Platform](https://img.shields.io/badge/VISIT-VAULT-00f0ff?style=for-the-badge)](https://inventory.cicr.in/)
 
 </div>

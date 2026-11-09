@@ -18,7 +18,9 @@ self.addEventListener('notificationclick', (event) => {
         }
       }
       if (self.clients.openWindow) {
-        return self.clients.openWindow('/');
+        const host = (self.location && self.location.hostname ? self.location.hostname : '').toLowerCase();
+        const target = /(^|\.)vercel\.app$/.test(host) ? 'https://inventory.cicr.in/' : '/';
+        return self.clients.openWindow(target);
       }
     })
   );

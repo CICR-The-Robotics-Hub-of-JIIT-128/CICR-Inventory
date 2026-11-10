@@ -1,6 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import { Client } from 'pg';
+import {
+  NotificationEventName,
+  renderAdminAlertEmail,
+  renderNotificationEmail,
+} from './_lib/emailTemplates';
 
 function response(res: VercelResponse, status: number, body: unknown) {
   return res.status(status).json(body);
@@ -9,13 +14,6 @@ function response(res: VercelResponse, status: number, body: unknown) {
 function requireDatabaseSuccess(error: { message: string } | null, operation: string) {
   if (error) throw new Error(`${operation} failed: ${error.message}`);
 }
-
-const DEFAULT_REF = 'nmwkljtaymujqnmzgyxn';
-const DEFAULT_URL = `https://${DEFAULT_REF}.supabase.co`;
-const DEFAULT_SERVICE_ROLE_KEY = Buffer.from(
-  'ZXlKaGJHY2lPaUpJVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SnBjM01pT2lKemRYQmhZbUZ6WlNJc0luSmxaaUk2SW01dGQydHNhblJoZVcxMWFuRnViWHBuZVhodUlpd2ljbTlzWlNJNkluTmxjblpwWTJWZmNtOXNaU0lzSW1saGRDSTZNVGM1TXpNNE5EUXdOaXdpWlhod0lqb3lNVEE0T1RZd05EQTJmUS5JSWhZaXlfYXdYRlZrRFRMMHFXcXB3bWZVZkpvRkJuekpqbUZGbkcyN0R3',
-  'base64'
-).toString('utf8');
 
 function extractSupabaseUrlRef(urlStr: string): string {
   try {
@@ -37,37 +35,33 @@ function extractJwtRef(token: string): string {
   }
 }
 
+/**
+ * Builds a privileged server-side Supabase admin client strictly from environment variables.
+ */
 function getAdminClient() {
-  const url = (process.env.SUPABASE_URL || DEFAULT_URL).trim();
-  const expectedRef = extractSupabaseUrlRef(url) || DEFAULT_REF;
-  const rawKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-  const keyRef = extractJwtRef(rawKey);
-  const key = rawKey && (!keyRef || !expectedRef || keyRef === expectedRef) ? rawKey : DEFAULT_SERVICE_ROLE_KEY;
+  const url = (process.env.SUPABASE_URL || '').trim();
+  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  if (!url || !key) {
+    throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variable.');
+  }
+  const expectedRef = extractSupabaseUrlRef(url);
+  const keyRef = extractJwtRef(key);
+  if (keyRef && expectedRef && keyRef !== expectedRef) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY does not match SUPABASE_URL project ref.');
+  }
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
-
-const MASTER_ADMIN_EMAILS = [
-  'vardaansaxena096@gmail.com',
-  'cicrinventory@gmail.com',
-  'cicrinventoryofficial@gmail.com',
-  '992501030399@mail.jiit.ac.in',
-];
 
 async function requireAdmin(req: VercelRequest, supabase: ReturnType<typeof getAdminClient>) {
   const authorization = req.headers.authorization;
   if (!authorization?.startsWith('Bearer ')) throw new Error('Authentication is required.');
   const { data, error } = await supabase.auth.getUser(authorization.slice(7));
   if (error || !data.user) throw new Error('Authentication is required.');
-  const email = (data.user.email || '').toLowerCase();
-  
-  // 1. Authoritative Superadmins
-  const isSuperadmin = MASTER_ADMIN_EMAILS.includes(email);
-  if (isSuperadmin) return data.user;
 
-  // 2. Query strictly from the secure server-side profiles table - NEVER trust client-writable user_metadata!
+  // Verify administrator clearance exclusively from the server-side profiles table.
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('role, status')
+    .select('id, role, status')
     .eq('id', data.user.id)
     .maybeSingle();
 
@@ -336,50 +330,49 @@ function resolveServerAppUrl(req?: VercelRequest): string {
   return DEFAULT_APP_URL;
 }
 
-function escapeHtml(value: unknown) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+/**
+ * Resolves approved administrator email recipients so new registration requests alert coordinators.
+ */
+async function resolveAccountAlertAdmins(
+  supabase: ReturnType<typeof getAdminClient>,
+  excludeEmail: string
+): Promise<string[]> {
+  const recipients = new Set<string>();
+  const envAdmins = (process.env.ADMIN_ALERT_EMAILS || '').split(',');
+  for (const addr of envAdmins) {
+    const cleaned = addr.trim().toLowerCase();
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cleaned)) {
+      recipients.add(cleaned);
+    }
+  }
+
+  try {
+    const { data: rows } = await supabase
+      .from('profiles')
+      .select('email')
+      .eq('role', 'admin')
+      .eq('status', 'approved');
+    for (const row of rows || []) {
+      const em = typeof (row as any)?.email === 'string' ? (row as any).email.trim().toLowerCase() : '';
+      if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) {
+        recipients.add(em);
+      }
+    }
+  } catch (err) {
+    console.warn('Account admin alert lookup notice:', err);
+  }
+
+  recipients.delete(excludeEmail.trim().toLowerCase());
+  return Array.from(recipients);
 }
 
-function renderAccountEmail(event: string, data: Record<string, unknown>) {
-  const name = String(data.name || 'CICR member');
-  const role = data.role ? String(data.role).toUpperCase() : 'MEMBER';
-  const subjects: Record<string, string> = {
-    account_created: 'CICR registration received - awaiting approval',
-    account_approved: 'CICR account approved - access granted',
-    account_rejected: 'CICR account rejected - registration update',
-    role_updated: 'CICR account privileges updated',
-  };
-  const messages: Record<string, string> = {
-    account_created: `Hello ${name},\n\nYour CICR Inventory account has been registered successfully and is awaiting administrator approval. You will receive another email once your registration has been reviewed.`,
-    account_approved: `Hello ${name},\n\nYour CICR Inventory account has been approved by an administrator. You can now sign in to access laboratory equipment.`,
-    account_rejected: `Hello ${name},\n\nYour CICR Inventory registration request was reviewed and declined by an administrator.`,
-    role_updated: `Hello ${name},\n\nYour CICR Inventory account role has been updated to ${role}.`,
-  };
-  const layouts: Record<string, { label: string; title: string; action: string; path: string }> = {
-    account_created: { label: 'ACCOUNT // REVIEW PENDING', title: 'Registration received', action: 'CHECK ACCOUNT STATUS', path: '/' },
-    account_approved: { label: 'ACCOUNT // ACCESS APPROVED', title: 'Your account is ready', action: 'OPEN CICR VAULT', path: '/' },
-    account_rejected: { label: 'ACCOUNT // REVIEW COMPLETE', title: 'Registration update', action: 'CONTACT CICR', path: '/' },
-    role_updated: { label: 'ACCOUNT // ROLE UPDATED', title: 'Account privileges updated', action: 'OPEN CICR VAULT', path: '/' },
-  };
-  const layout = layouts[event] || { label: 'ACCOUNT // NOTIFICATION', title: 'Account Update', action: 'OPEN CICR VAULT', path: '/' };
-  const accent = event === 'account_rejected' ? '#ff2d8d' : '#00e5ff';
-  const appUrl = normalizeServerOrigin(typeof data.appUrl === 'string' ? data.appUrl : '') || resolveServerAppUrl();
-  const html = `<!doctype html><html><body style="margin:0;background:#05070d;color:#eef2f8;font-family:Arial,sans-serif"><div style="padding:28px 12px;background:#05070d"><table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:640px;margin:auto;background:#0d1320;border:1px solid #1e2a3d;border-radius:6px;overflow:hidden"><tr><td style="padding:20px 24px;border-bottom:1px solid #1e2a3d"><div style="font-size:18px;font-weight:800;letter-spacing:2px;color:#f5dc72"><span style="background:#f5dc72;color:#0d1320;padding:2px 5px">CICR</span> <span style="color:#00e5ff">//</span> INVENTORY</div><div style="margin-top:7px;color:#77839d;font-size:9px;letter-spacing:2px">CENTRE FOR INNOVATION, CONTROL &amp; ROBOTICS</div></td></tr><tr><td style="padding:24px"><div style="display:inline-block;padding:6px 9px;border:1px solid ${accent};color:${accent};font:700 10px monospace;letter-spacing:1px">${layout.label}</div><h1 style="margin:18px 0 8px;color:#f5f7fb;font-size:21px">${layout.title}</h1><p style="margin:0 0 20px;color:#9aa7bc;font-size:13px;line-height:1.6">${escapeHtml(messages[event] || '')}</p><a href="${escapeHtml(`${appUrl}${layout.path}`)}" style="display:inline-block;padding:12px 24px;background:#00d9ed;color:#041018;text-decoration:none;font:800 12px Arial,sans-serif;letter-spacing:1px;border-radius:3px">${layout.action}</a></td></tr></table></div></body></html>`;
-
-  return {
-    subject: subjects[event] || 'CICR Inventory notification',
-    text: messages[event] || '',
-    html,
-  };
-}
-
+/**
+ * Sends transactional account lifecycle emails via SMTP and closes the transport in finally.
+ * For new registrations (`account_created`), also dispatches an administrator review alert.
+ */
 async function sendAccountEmail(
-  event: 'account_created' | 'account_approved' | 'account_rejected' | 'role_updated',
+  supabase: ReturnType<typeof getAdminClient>,
+  event: Extract<NotificationEventName, 'account_created' | 'account_approved' | 'account_rejected' | 'role_updated'>,
   to: string,
   data: Record<string, unknown>
 ) {
@@ -387,10 +380,11 @@ async function sendAccountEmail(
   const pass = (process.env.SMTP_PASS || '').trim().replace(/[\s'"]/g, '');
   if (!user || !pass) return;
 
+  let transporter: any = null;
   try {
     const mod = await import('nodemailer');
     const nodemailer = mod.default || mod;
-    const transporter = (nodemailer.createTransport as any)({
+    transporter = (nodemailer.createTransport as any)({
       host: (process.env.SMTP_HOST || 'smtp.gmail.com').trim(),
       port: Number(process.env.SMTP_PORT) || 465,
       secure: (process.env.SMTP_SECURE === 'true' || Number(process.env.SMTP_PORT) === 465),
@@ -401,14 +395,39 @@ async function sendAccountEmail(
       socketTimeout: 4000,
     });
 
-    const emailContent = renderAccountEmail(event, data);
+    const appUrl = normalizeServerOrigin(typeof data.appUrl === 'string' ? data.appUrl : '') || resolveServerAppUrl();
+    const emailContent = renderNotificationEmail(event, data, appUrl);
     const from = (process.env.SMTP_FROM || user || `CICR Inventory <${user}>`).trim().replace(/^['"]|['"]$/g, '');
+    const primarySend = transporter.sendMail({ from, to, ...emailContent });
+
+    let adminAlertSend: Promise<unknown> | null = null;
+    if (event === 'account_created') {
+      const adminList = await resolveAccountAlertAdmins(supabase, to);
+      if (adminList.length > 0) {
+        const adminMessage = renderAdminAlertEmail('account_created', data, appUrl);
+        adminAlertSend = transporter
+          .sendMail({
+            from,
+            to: adminList[0],
+            ...(adminList.length > 1 ? { bcc: adminList.slice(1) } : {}),
+            ...adminMessage,
+          })
+          .catch((adminErr: unknown) => {
+            console.warn('Admin alert email notice for account_created:', adminErr);
+          });
+      }
+    }
+
     await Promise.race([
-      transporter.sendMail({ from, to, ...emailContent }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP timeout')), 4500)),
+      adminAlertSend ? Promise.all([primarySend, adminAlertSend]) : primarySend,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP timeout')), 6500)),
     ]);
   } catch (err) {
     console.warn(`SMTP delivery notice for ${event}:`, err);
+  } finally {
+    try {
+      transporter?.close?.();
+    } catch {}
   }
 }
 
@@ -435,7 +454,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (action === 'role') {
       const adminUser = await requireAdmin(req, supabase);
-      const targetId = typeof body?.target_id === 'string' ? body.target_id : '';
+      const targetId = typeof body?.target_id === 'string' ? body.target_id.trim() : '';
       const role = body?.role === 'admin' || body?.role === 'member' ? body.role : '';
       if (!targetId || !role) return response(res, 400, { error: 'A valid user and role are required.' });
       if (targetId === adminUser?.id) {
@@ -443,11 +462,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       // Fetch target user profile and auth details
-      const { data: targetProfile } = await supabase
+      const { data: targetProfile, error: targetProfileError } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', targetId)
         .maybeSingle();
+      requireDatabaseSuccess(targetProfileError, 'Target member lookup');
+      if (!targetProfile) {
+        return response(res, 404, { error: 'Target member profile not found.' });
+      }
+      if (role === 'admin' && targetProfile.status !== 'approved') {
+        return response(res, 400, { error: 'Only approved members can be promoted to Administrator.' });
+      }
+      if (targetProfile.role === 'admin' && role !== 'admin') {
+        const { count: remainingAdminsCount, error: remainingAdminsError } = await supabase
+          .from('profiles')
+          .select('id', { count: 'exact', head: true })
+          .eq('role', 'admin')
+          .eq('status', 'approved')
+          .neq('id', targetId);
+        requireDatabaseSuccess(remainingAdminsError, 'Remaining administrator verification');
+        if ((remainingAdminsCount || 0) < 1) {
+          return response(res, 400, { error: 'Cannot demote the last remaining administrator.' });
+        }
+      }
 
       const { data: targetAuth } = await supabase.auth.admin.getUserById(targetId);
       const targetEmail = (targetProfile?.email || targetAuth?.user?.email || '').toLowerCase();
@@ -465,20 +503,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           ? toCleanDisplayName(targetProfile.full_name)
           : targetIdentity.fullName || 'Member';
       const resolvedTargetRoll = targetIdentity.enrollmentNo || targetProfile?.roll_number || '';
-
-      if (
-        targetEmail &&
-        MASTER_ADMIN_EMAILS.includes(targetEmail.toLowerCase())
-      ) {
-        return response(res, 400, { error: 'Master administrator accounts cannot be demoted or modified.' });
-      }
-
-      if (
-        role === 'admin' &&
-        !MASTER_ADMIN_EMAILS.includes((adminUser.email || '').toLowerCase())
-      ) {
-        return response(res, 403, { error: 'Unauthorized: Only Master Superadmins can grant Administrator privileges.' });
-      }
 
       // 1. Update Supabase profiles table (also backfill clean full_name and roll_number)
       const { error: profileError } = await supabase
@@ -564,10 +588,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // 5. Send notification email if target email exists
       if (targetEmail) {
-        await sendAccountEmail('role_updated', targetEmail, {
+        await sendAccountEmail(supabase, 'role_updated', targetEmail, {
           name: targetName,
           email: targetEmail,
           role,
+          adminName: actor.name,
+          notes: `Role changed from ${oldRole} to ${roleGiven}`,
           appUrl: resolveServerAppUrl(req),
         });
       }
@@ -576,6 +602,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (action === 'register') {
+      if (typeof body?.role === 'string' && body.role.trim().toLowerCase() !== 'member') {
+        return response(res, 403, { error: 'Self-assignment of elevated roles is prohibited.' });
+      }
       const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
       const password = typeof body?.password === 'string' ? body.password : '';
       const rawFullName = typeof body?.full_name === 'string' ? body.full_name.trim() : '';
@@ -590,7 +619,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           : identity.fullName;
       const enrollmentNo = rawEnrollmentNo || identity.enrollmentNo;
       const phone = typeof body?.phone === 'string' ? body.phone : '';
-      const role = typeof body?.role === 'string' ? body.role : 'member';
+      // Public registration is strictly locked to member + pending; admin promotion requires an approved admin.
+      const role = 'member' as const;
       const avatarUrl = typeof body?.avatar_url === 'string' ? body.avatar_url : '';
       if (!email || !password || !fullName) return response(res, 400, { error: 'Name, email, and password are required.' });
       // Check if user or pending request already exists
@@ -664,7 +694,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }),
       }]);
       requireDatabaseSuccess(logError, 'Account request logging');
-      await sendAccountEmail('account_created', email, { name: fullName, email, role, status: 'pending', appUrl: resolveServerAppUrl(req) });
+      await sendAccountEmail(supabase, 'account_created', email, { name: fullName, email, role, status: 'pending', appUrl: resolveServerAppUrl(req) });
       return response(res, 201, { success: true });
     }
 
@@ -783,13 +813,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       const members = enrichedProfiles.filter(
-        (m) => m.status === 'approved' || m.role === 'admin' || m.avatar_url === 'status:approved'
+        (m) =>
+          (m.status === 'approved' || m.avatar_url === 'status:approved') &&
+          m.status !== 'rejected' &&
+          m.avatar_url !== 'status:rejected'
       );
 
       const isProfileResolved = (p: Record<string, any>) =>
         p.status === 'approved' ||
         p.status === 'rejected' ||
-        p.role === 'admin' ||
         p.avatar_url === 'status:approved' ||
         p.avatar_url === 'status:rejected';
 
@@ -840,7 +872,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             roll_number: identity.enrollmentNo || '',
             enrollment_no: identity.enrollmentNo || '',
             phone: details?.phone || '',
-            role: details?.role || 'member',
+            role: 'member',
             status: 'pending',
             avatar_url:
               (typeof authMeta.avatar_url === 'string' && !authMeta.avatar_url.startsWith('status:') ? authMeta.avatar_url : '') ||
@@ -863,23 +895,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!authorization?.startsWith('Bearer ')) return response(res, 401, { error: 'Authentication required.' });
       const { data, error } = await supabase.auth.getUser(authorization.slice(7));
       if (error || !data.user) return response(res, 401, { error: 'Invalid session.' });
-      const email = (data.user.email || '').toLowerCase();
-      const isSuperadmin = MASTER_ADMIN_EMAILS.includes(email);
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('role, status')
         .eq('id', data.user.id)
         .maybeSingle();
+      requireDatabaseSuccess(profileError, 'Verify role lookup');
 
-      const realRole = isSuperadmin ? 'admin' : (profile?.role || 'member');
-      const realStatus = isSuperadmin ? 'approved' : (profile?.status || 'pending');
+      const realRole = profile?.role || 'member';
+      const realStatus = profile?.status || 'pending';
 
       return response(res, 200, {
         success: true,
         userId: data.user.id,
         role: realRole,
         status: realStatus,
-        isAdmin: isSuperadmin || realRole === 'admin',
+        isAdmin: realRole === 'admin' && realStatus === 'approved',
       });
     }
 
@@ -988,12 +1019,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
+    const preservedRole = existingProfile?.role === 'admin' ? 'admin' : 'member';
+
     if (action === 'approve') {
       const { error: profileError } = await supabase.from('profiles').upsert([{
         id: resolvedUserId,
         full_name: fullName,
         email: email || existing?.email,
-        role: existingProfile?.role || details?.role || 'member',
+        role: preservedRole,
         status: 'approved',
         roll_number: rollNumber,
         phone: existingProfile?.phone || details?.phone || '',
@@ -1006,7 +1039,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         id: resolvedUserId,
         full_name: fullName,
         email: email || existing?.email,
-        role: existingProfile?.role || details?.role || 'member',
+        role: preservedRole,
         status: 'rejected',
         avatar_url: finalAvatarValue,
         roll_number: rollNumber,
@@ -1093,10 +1126,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }),
     }]);
     requireDatabaseSuccess(actionLogError, 'Account action logging');
-    if (email) { void sendAccountEmail(action === 'approve' ? 'account_approved' : 'account_rejected', email, { name: fullName, email, role: details?.role, status, appUrl: resolveServerAppUrl(req) }).catch(err => console.warn('Background email notice:', err)); }
+    if (email) {
+      await sendAccountEmail(
+        supabase,
+        action === 'approve' ? 'account_approved' : 'account_rejected',
+        email,
+        {
+          name: fullName,
+          email,
+          role: preservedRole,
+          status,
+          adminName: actor.name,
+          appUrl: resolveServerAppUrl(req),
+        }
+      );
+    }
     return response(res, 200, { success: true });
   } catch (error) {
     console.error('Account operation failed:', error);
-    return response(res, 502, { error: error instanceof Error ? error.message : 'Account operation failed.' });
+    const msg = error instanceof Error ? error.message : 'Account operation failed.';
+    if (msg === 'Authentication is required.' || msg === 'Invalid or expired session.') {
+      return response(res, 401, { error: msg });
+    }
+    if (msg.startsWith('Unauthorized:')) {
+      return response(res, 403, { error: msg });
+    }
+    return response(res, 502, { error: msg });
   }
 }

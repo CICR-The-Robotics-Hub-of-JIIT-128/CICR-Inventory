@@ -11,10 +11,10 @@ This document details the defensive security assessment, threat modeling, penetr
 A comprehensive source code security assessment and penetration audit was conducted on October 31, 2026, evaluating the full-stack architecture of the CICR Inventory Hub across authentication, authorization, inventory mutation integrity, data concurrency, and dependency safety.
 
 ### Overall Security Posture
-- **Authentication**: Hardened with institutional domain validation (`@mail.jiit.ac.in`), synchronous session hydration, and an admin verification gate.
-- **Access Control (RBAC)**: Master superadmin whitelist locked to `vardaansaxena096@gmail.com` and `cicrinventory@gmail.com`. Server-level and client-level guards block unauthorized role promotion.
-- **Input Validation**: Requisition quantities strictly validated as positive integers ($\ge 1$). Parameterized PostgREST queries prevent SQL injection.
-- **Resilience**: Session race timeouts (1200ms) and React ErrorBoundaries prevent client lockups and denial-of-service conditions.
+* **Authentication**: Hardened with institutional domain validation (`@mail.jiit.ac.in`) or existing DB approved membership, synchronous session verification, and an admin approval gate.
+* **Access Control (RBAC)**: Zero hardcoded email admin grants in application code or triggers. Only existing database approved administrators (`profiles.role = 'admin'` and `profiles.status = 'approved'`) can approve accounts or promote and demote other approved users, enforced by server guards and PostgreSQL row level security plus `protect_profile_role_and_status()`.
+* **Input Validation**: Requisition quantities strictly validated as positive integers ($\ge 1$). Parameterized PostgREST queries prevent SQL injection.
+* **Resilience**: Session timeouts and React ErrorBoundaries prevent client lockups and denial of service conditions.
 
 ---
 
@@ -48,22 +48,22 @@ flowchart LR
 ## Vulnerability Audit & Remediation Matrix
 
 ### SEC-01: Client-Side Role Escalation via Registration Payload
-- **Severity**: High
-- **Vulnerability**: The `signUp()` function in `AuthContext` previously accepted a generic `role` parameter without validating whether the registering email was an authorized superadmin. A malicious user could submit `{ role: 'admin' }` to claim administrative privileges.
-- **Remediation**: Implemented strict role enforcement in `signUp()`. The assigned role is hard-locked to `'member'` and status is hard-locked to `'pending'` unless the registering email strictly matches the master superadmin whitelist (`vardaansaxena096@gmail.com` or `cicrinventory@gmail.com`).
-- **Status**: **RESOLVED**
+* **Severity**: High
+* **Vulnerability**: Previously, registration handlers could accept elevated `role` values or auto elevate hardcoded emails in application code or triggers.
+* **Remediation**: Hard locked public registration (`signUp()`, `runOAuthProvisioning()`, `/api/accounts` `register`, `handle_new_user()`, and RLS `INSERT`) strictly to `role = 'member'` and `status = 'pending'`. Non `'member'` registration requests fail closed with HTTP `403`.
+* **Status**: **RESOLVED**
 
-### SEC-02: Unauthenticated Account Approval & Rejection Calls
-- **Severity**: High
-- **Vulnerability**: `approveUserAccount()` and `rejectUserAccount()` lacked an explicit caller privilege check before executing profile mutations via the admin client. An unprivileged authenticated user could theoretically invoke these methods from browser developer tools.
-- **Remediation**: Added explicit administrative identity verification at the entry of both functions. If the caller does not hold an authorized `admin` role or match the master whitelist, the request is immediately rejected with an `Unauthorized` error.
-- **Status**: **RESOLVED**
+### SEC-02: Unauthenticated & Self Account Approval / Rejection Calls
+* **Severity**: High
+* **Vulnerability**: Unprivileged authenticated callers or client forged `user_metadata` / `activity_logs` payloads could attempt to bypass approval checks or invoke account moderation endpoints.
+* **Remediation**: All moderation endpoints (`/api/accounts` `approve`, `reject`, `role`, `list_roster`) and UI gates verify both `role === 'admin'` and `status === 'approved'` against `public.profiles`, backed by Postgres RLS and the `SECURITY INVOKER` `protect_profile_role_and_status()` trigger.
+* **Status**: **RESOLVED**
 
-### SEC-03: Self-Approval of Hardware Requisitions
-- **Severity**: High
-- **Vulnerability**: In `InventoryContext`, `updateBorrowStatus()` allowed transitioning request status to `'approved'` or `'rejected'` without validating caller authorization.
-- **Remediation**: Added administrative clearance checks within `updateBorrowStatus()`. Status transitions to `'approved'` and `'rejected'` strictly require `admin` or `lead` credentials. Regular members are restricted solely to dispatching `'returned'` status updates for their own issued hardware.
-- **Status**: **RESOLVED**
+### SEC-03: Self-Approval & Unauthorized Deletion of Hardware Requisitions or Catalog Items
+* **Severity**: High
+* **Vulnerability**: Previously, permissive authenticated PostgreSQL policies and client-side elevation checks allowed non-admin members to attempt direct borrow approvals, status tampering, catalog edits, or record deletions.
+* **Remediation**: Routed all catalog CRUD and borrow request lifecycle transitions through `/api/inventory` (`api/inventory.ts`) requiring database-verified `role = 'admin'` and `status = 'approved'` (removing legacy `lead` elevation), backed by strict PostgreSQL RLS (`is_approved_admin()`, `is_approved_user()`) and `SECURITY INVOKER` triggers (`protect_inventory_item_mutations()`, `protect_borrow_request_mutations()`). Regular approved members can strictly submit their own `pending` borrow requests and initiate `[RETURN_REQUESTED]` return notifications on their own active (`approved`/`overdue`) loans.
+* **Status**: **RESOLVED**
 
 ### SEC-04: Negative and Fractional Quantity Injection in Loans
 - **Severity**: Medium
@@ -76,11 +76,11 @@ flowchart LR
   ```
 - **Status**: **RESOLVED**
 
-### SEC-05: Master Superadmin Demotion Prevention
-- **Severity**: High
-- **Vulnerability**: `handlePromoteRole()` did not prevent an administrator from accidentally or maliciously demoting the master superadmins (`vardaansaxena096@gmail.com` and `cicrinventory@gmail.com`).
-- **Remediation**: Added an explicit immutability guard in `UserDashboard.tsx`. Master superadmin roles cannot be modified or demoted by any user.
-- **Status**: **RESOLVED**
+### SEC-05: Self Role Modification & Last Admin Lockout Prevention
+* **Severity**: High
+* **Vulnerability**: Allowing unguarded admin demotions could accidentally remove the last remaining administrator, while self role mutations violate separation of duties.
+* **Remediation**: Any verified database approved administrator can promote approved members or demote other administrators via `handlePromoteRole()`, `/api/accounts`, and database triggers, while self role changes and demoting the last remaining approved administrator are strictly blocked.
+* **Status**: **RESOLVED**
 
 ### SEC-06: Client Cold-Start Hangs & Session Denial of Service
 - **Severity**: Medium
@@ -117,10 +117,9 @@ flowchart LR
 
 ## Reporting a Security Vulnerability
 
-If you discover a potential security vulnerability within the CICR Inventory Hub, please report it directly to the master superadmin:
+If you discover a potential security vulnerability within the CICR Inventory Hub, please report it directly to the CICR platform administrators:
 
-- **Security Contact**: `vardaansaxena096@gmail.com`
-- **Alternative Contact**: `cicrinventory@gmail.com`
+* **Security Contact**: `cicrinventoryofficial@gmail.com`
 
 Please include a detailed description of the vulnerability, steps to reproduce, and any relevant logs. We request that you adhere to responsible disclosure principles.
 

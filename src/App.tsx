@@ -162,18 +162,12 @@ const AppContent: React.FC = () => {
     );
   }
 
-  const isApproved =
+  const isApproved = Boolean(
     user &&
-    (Boolean(
-      user.email &&
-        ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com', '992501030399@mail.jiit.ac.in'].includes(
-          user.email.toLowerCase()
-        )
-    ) ||
-      profile?.role === 'admin' ||
-      (profile?.status === 'approved' &&
-        profile?.avatar_url !== 'status:pending' &&
-        profile?.avatar_url !== 'status:rejected'));
+      profile?.status === 'approved' &&
+      profile?.avatar_url !== 'status:pending' &&
+      profile?.avatar_url !== 'status:rejected'
+  );
 
   // 2. Verified authenticated session with approved status: Show dashboard
   if (user && isApproved) {

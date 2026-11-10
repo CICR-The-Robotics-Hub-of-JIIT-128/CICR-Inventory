@@ -13,7 +13,7 @@ This document provides a technical deep dive into the architecture, database sch
 - [System Architecture & Data Flow](#system-architecture--data-flow)
 - [Database Schema & Real-Time Tables](#database-schema--real-time-tables)
 - [7-Day Audit Logs & Telemetry Engine](#7-day-audit-logs--telemetry-engine)
-- [Dual Superadmin & Institutional Auth Guard](#dual-superadmin--institutional-auth-guard)
+- [Database RBAC & Institutional Auth Guard](#database-rbac--institutional-auth-guard)
 - [Multi-Tier Hardware Queue & Clearance Portal](#multi-tier-hardware-queue--clearance-portal)
 - [Secondary Redundancy & Synchronization Engine](#secondary-redundancy--synchronization-engine)
 - [Back-of-the-Envelope (BOTE) Scalability Analysis](#back-of-the-envelope-bote-scalability-analysis)
@@ -86,7 +86,7 @@ flowchart TD
     end
 
     subgraph State["Reactive Context Layer"]
-        AuthCtx["AuthContext (Dual Superadmin Guard)"]
+        AuthCtx["AuthContext (Database RBAC Guard)"]
         InvCtx["InventoryContext (Auto-Sync 1.5s)"]
         ThemeCtx["ThemeContext (Dark #07070a / Light #f8fafc)"]
         ToastCtx["ToastContext (Real-Time Feedback)"]
@@ -236,17 +236,17 @@ Activity logs older than 7 days are automatically pruned during scheduled mainte
 
 ---
 
-## Dual Superadmin & Institutional Auth Guard
+## Database RBAC & Institutional Auth Guard
 
-### Master Whitelist Enforcement
-Master administrative access is hardcoded to prevent unauthorized privilege escalation:
-- `vardaansaxena096@gmail.com`
-- `cicrinventory@gmail.com`
-
-Any attempt to revoke or modify these master accounts is automatically blocked by application logic and database triggers.
+### Strict DB Approved Administrator Enforcement
+No email address is hardcoded with automatic `admin` or `approved` status in code or database triggers:
+* Every new account starts strictly with `role = 'member'` and `status = 'pending'`.
+* Only existing database approved administrators (`profiles.role = 'admin'` and `profiles.status = 'approved'`) can approve accounts, promote approved members to `admin`, or demote other admins to `member`.
+* All inventory catalog CRUD (`add_item`, `update_item`, `delete_item`) and borrow request moderation (`approved`, `rejected`, `returned`, `decline_return`, `delete_borrow_request`) run through `/api/inventory` and are protected in PostgreSQL by `is_approved_admin()`, `protect_inventory_item_mutations()`, and `protect_borrow_request_mutations()`.
+* Self role modification, self approval, member requisition approval/deletion, and demoting the last remaining approved administrator are blocked at the UI, serverless API, and PostgreSQL trigger/RLS layers.
 
 ### Institutional Domain Policy
-Student accounts must authenticate using the official `@mail.jiit.ac.in` domain. Unverified or external domains cannot register as standard student operators.
+New student accounts must authenticate using the official `@mail.jiit.ac.in` domain (or match an existing DB approved member profile). Unapproved or external new signups cannot access the portal until authorized.
 
 ### Synchronous Session Hydration
 To eliminate page-refresh blinks and cold-start latency:

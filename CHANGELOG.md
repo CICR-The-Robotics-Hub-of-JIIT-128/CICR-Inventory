@@ -6,6 +6,86 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ***
 
+## [2.18.59] : 2026-11-10
+
+### Mobile Sidebar Navigation & Responsive Header Alignment
+* **Mobile Slide Out Navigation Drawer ([`src/components/layout/MobileSidebar.tsx`](src/components/layout/MobileSidebar.tsx), [`src/utils/navigationProfile.ts`](src/utils/navigationProfile.ts))**:
+  * Replaced the floating bottom dock on mobile viewports (`< 768px` / below `md`) with a standard slide out sidebar drawer toggled from the top header bar, including Core Workspace links, collapsible Vault Categories, Quick Actions, operator profile card, Escape/backdrop dismissal, and Sign Out controls.
+  * Extracted shared navigation categories and operator metadata resolution into [`src/utils/navigationProfile.ts`](src/utils/navigationProfile.ts) so mobile sidebar and desktop dock share identical counts and identity rules.
+* **Responsive Top Header & Laptop Dock Preservation ([`src/components/dashboard/TopNavbar.tsx`](src/components/dashboard/TopNavbar.tsx), [`src/components/common/CicrLogo.tsx`](src/components/common/CicrLogo.tsx), [`src/components/layout/MobileSidebar.tsx`](src/components/layout/MobileSidebar.tsx), [`src/components/layout/BottomNavbar.tsx`](src/components/layout/BottomNavbar.tsx), [`src/components/dashboard/UserDashboard.tsx`](src/components/dashboard/UserDashboard.tsx))**:
+  * Switched the mobile top bar (`< md`) to a normal full width fixed header with a hamburger menu trigger and hidden top bar brand logo on mobile viewports so the CICR logo displays cleanly inside the slide out [`MobileSidebar`](src/components/layout/MobileSidebar.tsx) drawer while keeping the floating top capsule header, CICR logo, and floating bottom expandable dock unchanged on laptop and larger viewports (`>= md`).
+  * Added eager in-memory preloading and multi-tier image fallback in [`src/components/common/CicrLogo.tsx`](src/components/common/CicrLogo.tsx) plus [`index.html`](index.html) preload hints and strict drawer flex overflow containment in [`src/components/layout/MobileSidebar.tsx`](src/components/layout/MobileSidebar.tsx).
+  * Integrated mobile hardware back button drawer dismissal and mobile viewport spacing inside [`src/components/dashboard/UserDashboard.tsx`](src/components/dashboard/UserDashboard.tsx).
+* **Dev Server Logging & SMTP Diagnostic Clarity ([`vite.config.ts`](vite.config.ts), [`scripts/dev-server.mjs`](scripts/dev-server.mjs), [`api/email.ts`](api/email.ts))**:
+  * Restricted esbuild `console`/`debugger` stripping strictly to production builds so local `npm run dev` SSR API error logs remain visible, replaced deprecated `url.parse()` in [`scripts/dev-server.mjs`](scripts/dev-server.mjs) with WHATWG `URL`, and added explicit SMTP authentication diagnostics when `EAUTH` (`535`) occurs on `/api/email`.
+
+***
+
+## [2.18.58] : 2026-11-10
+
+### Server & Database Enforced Inventory Catalog and Requisition RBAC
+* **Authoritative Serverless Inventory & Requisition Gateway ([`api/inventory.ts`](api/inventory.ts), [`api/_lib/supabaseServer.ts`](api/_lib/supabaseServer.ts), [`api/_lib/inventoryCatalogOps.ts`](api/_lib/inventoryCatalogOps.ts), [`api/_lib/borrowRequestOps.ts`](api/_lib/borrowRequestOps.ts), [`api/_lib/borrowLifecycleOps.ts`](api/_lib/borrowLifecycleOps.ts), [`src/lib/inventoryApi.ts`](src/lib/inventoryApi.ts), [`scripts/dev-server.mjs`](scripts/dev-server.mjs))**:
+  * Routed all inventory CRUD (`add_item`, `update_item`, `delete_item`), requisition submission (`submit_borrow_request`), status transitions (`update_borrow_status` for `approved`/`rejected`/`returned`), return requests (`request_return`), return declines (`decline_return`), and requisition deletion (`delete_borrow_request`) through `/api/inventory` backed by verified caller tokens and `service_role` database execution.
+  * Restricted catalog mutations, borrow request approvals/rejections/returns, return declines, and requisition deletions exclusively to database verified approved administrators (`role = 'admin'` and `status = 'approved'`), while limiting approved regular members strictly to submitting their own `pending` borrow requests (with IST calendar validation and anti-spoofing ownership/status assignment) and requesting return on their own active (`approved`/`overdue`) loans.
+* **PostgreSQL RLS Policies & Mutation Triggers ([`supabase_schema.sql`](supabase_schema.sql), [`supabase_admin_security_migration.sql`](supabase_admin_security_migration.sql), [`src/components/layout/SchemaNoticeModal.tsx`](src/components/layout/SchemaNoticeModal.tsx))**:
+  * Replaced permissive authenticated policies with explicit `public.is_approved_user()` and `public.is_approved_admin()` row level security policies across `inventory_items`, `borrow_requests`, `profiles`, and `activity_logs`, closing direct Supabase REST approval, stock tampering, and deletion bypasses for regular members and unapproved accounts.
+  * Added `SECURITY INVOKER` `BEFORE` triggers `public.protect_inventory_item_mutations()` and `public.protect_borrow_request_mutations()` to block non-admin catalog inserts/updates/deletes, block non-admin borrow approvals/rejections/deletions, lock member inserts to `status = 'pending'`, and prevent borrowers from altering `item_id`, `quantity`, or `status` during return notifications.
+* **Removal of Legacy `lead` Clearance & Fail-Closed Client Guards ([`src/context/AuthContext.tsx`](src/context/AuthContext.tsx), [`src/context/InventoryContext.tsx`](src/context/InventoryContext.tsx), [`src/components/dashboard/UserDashboard.tsx`](src/components/dashboard/UserDashboard.tsx), [`src/components/dashboard/ComponentVaultView.tsx`](src/components/dashboard/ComponentVaultView.tsx), [`src/components/dashboard/RequisitionsView.tsx`](src/components/dashboard/RequisitionsView.tsx), [`src/components/requests/RequestsList.tsx`](src/components/requests/RequestsList.tsx), [`src/components/inventory/ItemDetailModal.tsx`](src/components/inventory/ItemDetailModal.tsx), [`src/components/inventory/InventoryList.tsx`](src/components/inventory/InventoryList.tsx), [`api/email.ts`](api/email.ts), [`api/accounts.ts`](api/accounts.ts), [`api/auth.ts`](api/auth.ts))**:
+  * Removed `lead` privilege elevation across Auth, Inventory, Email, Accounts, Neon failover auth, sidebar navigation, dashboard modals, and requisition actions so only verified `admin` accounts hold elevated privileges.
+  * Enforced auth-change state/cache cleanup on signout/role changes, owner-only client request filtering for non-admins, and approved status checks during Neon failover sign-in.
+* **Privacy Policy Copy & Institutional Address Update ([`src/components/legal/PrivacyPolicy.tsx`](src/components/legal/PrivacyPolicy.tsx))**:
+  * Updated the institutional campus address to Sector 128 (`Jaypee Institute of Information Technology, Sector 128, Noida, Uttar Pradesh 201305`), removed the inline sample roll number example, and removed the parenthetical hosting infrastructure clause.
+
+***
+
+## [2.18.57] : 2026-11-10
+
+### Database Enforced Admin RBAC & Hardcoded Privilege Removal
+* **Full Removal of Code Side Admin Grants ([`api/accounts.ts`](api/accounts.ts), [`api/email.ts`](api/email.ts), [`src/context/AuthContext.tsx`](src/context/AuthContext.tsx), [`src/context/InventoryContext.tsx`](src/context/InventoryContext.tsx), [`src/App.tsx`](src/App.tsx), [`src/components/layout/AppSidebar.tsx`](src/components/layout/AppSidebar.tsx), [`src/lib/audit.ts`](src/lib/audit.ts), [`scripts/return_all.cjs`](scripts/return_all.cjs))**:
+  * Deleted `MASTER_ADMIN_EMAILS`, `MASTER_ADMIN_SET`, and all email based admin or approval bypasses across serverless routes, frontend contexts, UI guards, and utility scripts so no user can ever be granted `admin` role or `approved` status from application code.
+  * Locked registration (`signUp`, `runOAuthProvisioning`, and `/api/accounts` `register`) strictly to `role: 'member'` and `status: 'pending'`, rejecting non member role requests with HTTP `403` and preserving pre approved DB member sign ins without email whitelist bypasses.
+* **Admin Only Promotion & Demotion Controls ([`api/accounts.ts`](api/accounts.ts), [`src/context/AuthContext.tsx`](src/context/AuthContext.tsx), [`src/components/dashboard/UserDashboard.tsx`](src/components/dashboard/UserDashboard.tsx), [`src/components/dashboard/AdminHubView.tsx`](src/components/dashboard/AdminHubView.tsx))**:
+  * Enforced strict verification of both `role === 'admin'` and `status === 'approved'` against `public.profiles` for `/api/accounts` (`requireAdmin`, `verify_role`, `list_roster`, `role`, `approve`, `reject`) and `/api/email`, and stripped `user_metadata` and client `activity_logs` fallbacks from approval checks.
+  * Removed hardcoded master superadmin modification locks so any verified DB approved admin can promote approved members or demote any other admin, while blocking self role changes and preventing demotion of the last remaining approved admin.
+* **PostgreSQL Trigger & RLS Hardening ([`supabase_schema.sql`](supabase_schema.sql), [`supabase_admin_security_migration.sql`](supabase_admin_security_migration.sql), [`src/components/layout/SchemaNoticeModal.tsx`](src/components/layout/SchemaNoticeModal.tsx))**:
+  * Hardened `public.handle_new_user()` to ignore registration metadata and default all new accounts to `member` + `pending`, added `public.is_approved_admin()` and the `SECURITY INVOKER` `BEFORE UPDATE` trigger `public.protect_profile_role_and_status()`, and tightened `public.profiles` `INSERT` and `UPDATE` RLS policies.
+
+***
+
+## [2.18.56] : 2026-11-10
+
+### Environment Only Supabase Keys & Secret Fallback Removal
+* **Environment Driven Supabase Client & Vite Configuration ([`src/lib/supabase.ts`](src/lib/supabase.ts), [`vite.config.ts`](vite.config.ts), [`src/components/layout/SchemaNoticeModal.tsx`](src/components/layout/SchemaNoticeModal.tsx))**:
+  * Removed hardcoded `DEFAULT_REF`, `DEFAULT_URL`, `DEFAULT_ANON_KEY`, and `DEFAULT_SUPABASE_REF` fallbacks so Supabase URL, anon key, and derived `supabaseProjectRef` come strictly from `.env` or deployment environment variables.
+  * Updated client initialization to fail closed with an explicit error when `SUPABASE_URL` or `SUPABASE_ANON_KEY` is missing or targets a mismatched project ref, and updated [`SchemaNoticeModal.tsx`](src/components/layout/SchemaNoticeModal.tsx) and [`README.md`](README.md) to eliminate hardcoded project URLs and refs.
+* **Serverless API Hardcoded Key Purge ([`api/accounts.ts`](api/accounts.ts), [`api/auth.ts`](api/auth.ts), [`api/email.ts`](api/email.ts), [`api/reminders.ts`](api/reminders.ts))**:
+  * Removed `DEFAULT_SERVICE_ROLE_KEY`, `DEFAULT_ANON_KEY`, `DEFAULT_URL`, and `DEFAULT_REF` from all serverless API routes so every endpoint resolves credentials exclusively from `process.env` (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`) and rejects missing or cross project mismatched keys with HTTP `502`/`503`.
+
+***
+
+## [2.18.55] : 2026-11-10
+
+### Compact Audit Timestamps & Complete Transactional Email Notifications
+* **Compact Date & Time Stamps on Admin Logs ([`src/components/dashboard/AdminHubView.tsx`](src/components/dashboard/AdminHubView.tsx), [`src/components/dashboard/RecentActivity.tsx`](src/components/dashboard/RecentActivity.tsx))**:
+  * Added a compact monospace date and 24 hour time stamp (`dateStr`, `timeStr.slice(0, 5)`) alongside the Inspect button in Admin Activity Logs, inside the Inspect modal footer, and on the Recent Activity feed while keeping `where` location clutter hidden.
+* **Transactional Emails & Admin Alerts for Every Action ([`api/_lib/emailSpecs.ts`](api/_lib/emailSpecs.ts), [`api/_lib/emailTemplates.ts`](api/_lib/emailTemplates.ts), [`api/email.ts`](api/email.ts), [`api/accounts.ts`](api/accounts.ts), [`src/lib/notifications.ts`](src/lib/notifications.ts), [`src/context/AuthContext.tsx`](src/context/AuthContext.tsx), [`src/context/InventoryContext.tsx`](src/context/InventoryContext.tsx))**:
+  * Expanded allowed notification events and branded HTML templates across all 17 platform actions: Google OAuth SSO sign in, credentials login, manual and inactivity signout, account registration, account approval, account rejection, role update, profile and password update, borrow request submission, borrow approval, borrow rejection, return request submission, return acceptance, return decline, inventory creation, inventory editing, inventory removal, and return reminders.
+  * Fixed `/api/email` server authorization lookup to query `profiles` with the service role client instead of an unauthenticated client blocked by row level security, and awaited `/api/accounts` account approval/rejection emails before terminating the serverless response.
+  * Added administrator action alert emails (`account_created`, `borrow_requested`, `return_requested`) sent to approved administrators whenever clearance is required, and added pre revocation JWT capture (`keepalive: true`) inside `signOut()` so logout notifications authenticate reliably before token revocation.
+
+***
+
+## [2.18.54] : 2026-11-10
+
+### Expected Return Date Validation & Past Date Prevention
+* **Local Calendar Return Date Utilities ([`src/utils/returnDate.ts`](src/utils/returnDate.ts))**:
+  * Added `formatLocalIsoDate()`, `getTodayIsoDate()`, `getDefaultReturnDateIso()`, `parseIsoCalendarDate()`, and `validateExpectedReturnDate()` to validate Gregorian calendar dates using local calendar time instead of UTC `toISOString()` slices so midnight IST submissions never drift backward by one day.
+* **Borrow Form Pickers & Submission Guards ([`src/components/inventory/RequestCartModal.tsx`](src/components/inventory/RequestCartModal.tsx), [`src/components/inventory/BorrowModal.tsx`](src/components/inventory/BorrowModal.tsx), [`src/context/InventoryContext.tsx`](src/context/InventoryContext.tsx))**:
+  * Added `min` local date bounds, real time inline validation highlights, slider reset on invalid dispatch attempts, and central validation inside `submitBorrowRequest()` so past or invalid expected return dates are blocked before database writes, audit logs, or email notifications.
+  * Aligned `borrow_date` and `actual_return_date` status timestamps inside [`InventoryContext.tsx`](src/context/InventoryContext.tsx) with local calendar dates via `getTodayIsoDate()`.
+
+***
+
 ## [2.18.53] : 2026-11-09
 
 ### Canonical CICR Domain Enforcement, OAuth Back Navigation Guard & Supabase Key Validation

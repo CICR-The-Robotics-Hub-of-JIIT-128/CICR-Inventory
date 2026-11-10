@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 
 import { useAuth } from '../../context/AuthContext';
 import { useInventory } from '../../context/InventoryContext';
 import { BottomNavbar, ActiveView } from '../layout/BottomNavbar';
+import { MobileSidebar } from '../layout/MobileSidebar';
 import { CartItem } from '../inventory/RequestCartModal';
 import { TopNavbar } from './TopNavbar';
 import { DashboardOverview } from './DashboardOverview';
@@ -71,7 +72,6 @@ export const UserDashboard: React.FC = () => {
     user,
     profile,
     isAdmin,
-    isLeadOrAdmin,
     approveUserAccount,
     rejectUserAccount,
     updateUserRole,
@@ -93,6 +93,7 @@ export const UserDashboard: React.FC = () => {
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [selectedIssuePassReq, setSelectedIssuePassReq] = useState<BorrowRequest | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Filters in Component Vault
   const [searchQuery, setSearchQuery] = useState('');
@@ -161,6 +162,7 @@ export const UserDashboard: React.FC = () => {
     selectedIssuePassReq !== null;
 
   const isAnyModalOpenRef = useRef(isAnyModalOpen);
+  const mobileMenuOpenRef = useRef(mobileMenuOpen);
   const activeViewRef = useRef<ActiveView>(activeView);
   const viewHistoryRef = useRef<ActiveView[]>([]);
   const lastBackPressTimeRef = useRef<number>(0);
@@ -169,6 +171,10 @@ export const UserDashboard: React.FC = () => {
   useEffect(() => {
     isAnyModalOpenRef.current = isAnyModalOpen;
   }, [isAnyModalOpen]);
+
+  useEffect(() => {
+    mobileMenuOpenRef.current = mobileMenuOpen;
+  }, [mobileMenuOpen]);
 
   useEffect(() => {
     activeViewRef.current = activeView;
@@ -215,7 +221,18 @@ export const UserDashboard: React.FC = () => {
         return;
       }
 
-      // 1. If any modal is open, pressing back closes the modal and stays in the active view
+      // 1. Close mobile navigation drawer on back press before popping views
+      if (mobileMenuOpenRef.current) {
+        setMobileMenuOpen(false);
+        window.history.pushState(
+          { cicrApp: true, view: activeViewRef.current, depth: viewHistoryRef.current.length },
+          '',
+          cleanPath
+        );
+        return;
+      }
+
+      // 2. If any modal is open, pressing back closes the modal and stays in the active view
       if (isAnyModalOpenRef.current) {
         setCartModalOpen(false);
         setAddItemModalOpen(false);
@@ -323,6 +340,10 @@ export const UserDashboard: React.FC = () => {
   };
 
   const handleOpenAddItem = () => {
+    if (!isAdmin) {
+      showToast('error', 'Admin Clearance Required', 'Only administrators can add components.');
+      return;
+    }
     setEditingItem(null);
     openModalWithHistory('add-item');
     setAddItemModalOpen(true);
@@ -472,7 +493,12 @@ export const UserDashboard: React.FC = () => {
 
       // 1. Process Approved Roster Members and hydrate identity from institutional email when missing
       const approvedMembers = profData
-        .filter((m) => m.status === 'approved' || m.role === 'admin' || m.avatar_url === 'status:approved')
+        .filter(
+          (m) =>
+            (m.status === 'approved' || m.avatar_url === 'status:approved') &&
+            m.status !== 'rejected' &&
+            m.avatar_url !== 'status:rejected'
+        )
         .map((m) => hydrateMemberIdentity(m));
       setAllMembers(approvedMembers);
       try {
@@ -483,7 +509,6 @@ export const UserDashboard: React.FC = () => {
       const isProfileResolved = (p: any) =>
         p.status === 'approved' ||
         p.status === 'rejected' ||
-        p.role === 'admin' ||
         p.avatar_url === 'status:approved' ||
         p.avatar_url === 'status:rejected';
 
@@ -575,6 +600,19 @@ export const UserDashboard: React.FC = () => {
   useEffect(() => {
     if (isAdmin) {
       syncAdminHubData();
+      return;
+    }
+
+    setAddItemModalOpen(false);
+    setEditingItem(null);
+    setPendingAccounts([]);
+    setAllMembers([]);
+    try {
+      localStorage.removeItem('cicr-cached-members');
+      localStorage.removeItem('cicr-cached-pending-accounts');
+    } catch {}
+    if (activeViewRef.current === 'logs') {
+      setActiveView('dashboard');
     }
   }, [isAdmin, syncAdminHubData]);
 
@@ -600,7 +638,7 @@ export const UserDashboard: React.FC = () => {
     }
 
     const pendingReqs = requests.filter((r) => r.status === 'pending');
-    if (isLeadOrAdmin && pendingReqs.length > 0) {
+    if (isAdmin && pendingReqs.length > 0) {
       const notifId = `pending-reqs-alert-${pendingReqs.map((r) => r.id).join('_')}`;
       if (!dismissedNotifIds.has(notifId) && !dismissedNotifIds.has('pending-reqs-alert')) {
         list.push({
@@ -616,7 +654,7 @@ export const UserDashboard: React.FC = () => {
     }
 
     const returnReqs = requests.filter((r) => isReturnRequested(r));
-    if (isLeadOrAdmin && returnReqs.length > 0) {
+    if (isAdmin && returnReqs.length > 0) {
       const notifId = `pending-returns-alert-${returnReqs.map((r) => r.id).join('_')}`;
       if (!dismissedNotifIds.has(notifId) && !dismissedNotifIds.has('pending-returns-alert')) {
         list.push({
@@ -649,7 +687,9 @@ export const UserDashboard: React.FC = () => {
     // Member-specific requisition updates
     if (user?.email) {
       const myApproved = requests.filter(
-        (r) => (r.user_email?.toLowerCase() === user.email?.toLowerCase() || r.user_id === user.id) && r.status === 'approved'
+        (r) =>
+          (r.user_email?.toLowerCase() === user.email?.toLowerCase() || r.user_id === user.id) &&
+          (r.status === 'approved' || r.status === 'overdue')
       );
       if (myApproved.length > 0) {
         const notifId = `my-approved-${myApproved.map((r) => r.id).join('_')}`;
@@ -712,7 +752,7 @@ export const UserDashboard: React.FC = () => {
       }
       return list;
     });
-  }, [items, requests, isLeadOrAdmin, isAdmin, user, readNotifIds, dismissedNotifIds, handleNavigateView]);
+  }, [items, requests, pendingAccounts, isAdmin, user, readNotifIds, dismissedNotifIds, handleNavigateView]);
 
   // Cart operations
   const handleAddToCart = (item: InventoryItem) => {
@@ -764,6 +804,10 @@ export const UserDashboard: React.FC = () => {
     action: 'approved' | 'rejected' | 'returned',
     note?: string
   ) => {
+    if (!isAdmin) {
+      showToast('error', 'Admin Clearance Required', 'Only administrators can approve, reject, or process returns.');
+      return;
+    }
     const res = await updateBorrowStatus(requestId, action, note);
     if (res.success) {
       showToast('success', `Requisition ${action.toUpperCase()}`, `Borrow status updated to ${action}.`);
@@ -780,12 +824,8 @@ export const UserDashboard: React.FC = () => {
         showToast('error', 'Unauthorized', 'Administrative privileges required.');
         return;
       }
-      const targetMember = allMembers.find((m) => m.id === targetUserId);
-      if (
-        targetMember?.email &&
-        ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com'].includes(targetMember.email.toLowerCase())
-      ) {
-        showToast('error', 'Action Restricted', 'Master superadmin roles cannot be modified.');
+      if (user?.id && targetUserId === user.id) {
+        showToast('error', 'Action Restricted', 'You cannot change your own administrator role.');
         return;
       }
 
@@ -807,6 +847,10 @@ export const UserDashboard: React.FC = () => {
   };
 
   const handleApproveAccount = async (targetUserId: string, targetName: string, targetEmail?: string) => {
+    if (!isAdmin) {
+      showToast('error', 'Admin Clearance Required', 'Only administrators can approve member accounts.');
+      return;
+    }
     const emailKey = targetEmail?.toLowerCase() || '';
     setLocallyProcessedIds((prev) => {
       const next = new Set(prev);
@@ -866,6 +910,10 @@ export const UserDashboard: React.FC = () => {
   };
 
   const handleRejectAccount = async (targetUserId: string, targetName: string, targetEmail?: string) => {
+    if (!isAdmin) {
+      showToast('error', 'Admin Clearance Required', 'Only administrators can reject member accounts.');
+      return;
+    }
     const emailKey = targetEmail?.toLowerCase() || '';
     setLocallyProcessedIds((prev) => {
       const next = new Set(prev);
@@ -924,6 +972,10 @@ export const UserDashboard: React.FC = () => {
   };
 
   const handleDeleteItem = async (id: string, name: string) => {
+    if (!isAdmin) {
+      showToast('error', 'Admin Clearance Required', 'Only administrators can delete components.');
+      return;
+    }
     if (window.confirm(`Delete "${name}" from inventory?`)) {
       const res = await deleteItem(id);
       if (res.success) {
@@ -951,16 +1003,24 @@ export const UserDashboard: React.FC = () => {
     ? toCleanDisplayName(validProfileName)
     : userIdentity.fullName || 'Member';
   const enrollmentNo = profile?.roll_number || profile?.enrollment_no || userIdentity.enrollmentNo || '';
-  const roleName = profile?.role === 'admin' ? 'ADMIN' : profile?.role === 'lead' ? 'LEAD' : 'MEMBER';
+  const roleName = isAdmin ? 'ADMIN' : 'MEMBER';
+  const pendingRequisitionBadges = isAdmin
+    ? requests.filter((r) => r.status === 'pending' || isReturnRequested(r)).length
+    : requests.filter(
+        (r) =>
+          (r.user_id === user?.id || r.user_email?.toLowerCase() === (user?.email || '').toLowerCase()) &&
+          (r.status === 'pending' || isReturnRequested(r))
+      ).length;
+  const mobileNavBadgeCount = pendingRequisitionBadges + (isAdmin ? pendingAccounts.length : 0);
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#07070a] text-slate-900 dark:text-slate-100 flex flex-col relative overflow-x-hidden selection:bg-blue-600 selection:text-white">
-      {/* 1. Top Floating Header Bar */}
+      {/* 1. Top Header Bar (Normal sticky full width bar on mobile, floating capsule on laptop) */}
       <TopNavbar
         activeView={activeView}
         setActiveView={handleNavigateView}
         isAdmin={isAdmin}
-        isLeadOrAdmin={isLeadOrAdmin}
+        isLeadOrAdmin={Boolean(isAdmin)}
         cartCount={cart.reduce((s, c) => s + c.quantity, 0)}
         onOpenCart={handleOpenCart}
         notifications={notifications}
@@ -969,10 +1029,13 @@ export const UserDashboard: React.FC = () => {
         onClearNotifications={handleClearNotifications}
         onDismissNotification={handleDismissNotification}
         lowReservesCount={lowReservesCount}
+        isMobileMenuOpen={mobileMenuOpen}
+        onToggleMobileMenu={() => setMobileMenuOpen((prev) => !prev)}
+        mobileBadgeCount={mobileNavBadgeCount}
       />
 
-      {/* 2. Main Workspace Body - Generous top spacing pt-24 sm:pt-28 md:pt-32 between floating navbar and hero section */}
-      <main className="flex-1 max-w-[1720px] w-full mx-auto px-3 sm:px-6 lg:px-8 xl:px-10 2xl:px-12 pt-24 sm:pt-28 md:pt-32 pb-36 sm:pb-44 space-y-8 animate-in fade-in duration-300">
+      {/* 2. Main Workspace Body - Compact spacing below normal bar on mobile, generous dock clearance on laptop */}
+      <main className="flex-1 max-w-[1720px] w-full mx-auto px-3 sm:px-6 lg:px-8 xl:px-10 2xl:px-12 pt-20 md:pt-32 pb-10 md:pb-40 space-y-8 animate-in fade-in duration-300">
         {/* VIEW 1: DASHBOARD */}
         {activeView === 'dashboard' && (
           <DashboardOverview
@@ -989,7 +1052,7 @@ export const UserDashboard: React.FC = () => {
             items={items}
             requests={requests}
             isAdmin={isAdmin}
-            isLeadOrAdmin={isLeadOrAdmin}
+            isLeadOrAdmin={Boolean(isAdmin)}
             currentUserEmail={user?.email}
             currentUserId={user?.id}
             searchQuery={searchQuery}
@@ -1016,7 +1079,7 @@ export const UserDashboard: React.FC = () => {
               requests={requests}
               items={items}
               allMembers={allMembers}
-              isLeadOrAdmin={isLeadOrAdmin}
+              isLeadOrAdmin={Boolean(isAdmin)}
               userEmail={user?.email}
               userId={user?.id}
               onNavigateToVault={() => handleNavigateView('inventory')}
@@ -1030,6 +1093,7 @@ export const UserDashboard: React.FC = () => {
         {activeView === 'logs' && isAdmin && (
           <AdminHubView
             isAdmin={isAdmin}
+            currentUserId={user?.id}
             logs={logs}
             items={items}
             requests={requests}
@@ -1054,7 +1118,18 @@ export const UserDashboard: React.FC = () => {
         )}
       </main>
 
-      {/* 3. Modern Bottom Docked Navbar */}
+      {/* 3. Mobile Slide Out Sidebar & Laptop Bottom Docked Navbar */}
+      <MobileSidebar
+        isOpen={mobileMenuOpen}
+        onClose={() => setMobileMenuOpen(false)}
+        activeView={activeView}
+        setActiveView={handleNavigateView}
+        activeCategory={categoryFilter}
+        onSelectCategory={(cat) => setCategoryFilter(cat)}
+        pendingAccountsCount={pendingAccounts.length}
+        lowReservesCount={lowReservesCount}
+      />
+
       <BottomNavbar
         activeView={activeView}
         setActiveView={handleNavigateView}
@@ -1076,7 +1151,7 @@ export const UserDashboard: React.FC = () => {
           />
         )}
 
-        {addItemModalOpen && (
+        {addItemModalOpen && isAdmin && (
           <AddEditItemModal
             isOpen={addItemModalOpen}
             onClose={handleCloseAddEditItem}

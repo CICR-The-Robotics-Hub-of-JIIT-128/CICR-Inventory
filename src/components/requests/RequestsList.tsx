@@ -18,7 +18,7 @@ import {
 
 export const RequestsList: React.FC = () => {
   const { requests, updateBorrowStatus, items } = useInventory();
-  const { user, profile, isLeadOrAdmin } = useAuth();
+  const { user, isAdmin } = useAuth();
   const { showToast } = useToast();
 
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -125,7 +125,7 @@ export const RequestsList: React.FC = () => {
           {filteredRequests.map((req) => {
             const isProcessing = processingId === req.id;
             const isPending = req.status === 'pending';
-            const isApproved = req.status === 'approved';
+            const isApproved = req.status === 'approved' || req.status === 'overdue';
             const isOwnRequest = user?.id === req.user_id || user?.email === req.user_email;
 
             return (
@@ -187,7 +187,7 @@ export const RequestsList: React.FC = () => {
                 </div>
 
                 {/* Admin Actions Bar */}
-                {isLeadOrAdmin && (isPending || isApproved) && (
+                {isAdmin && (isPending || isApproved) && (
                   <div className="pt-2 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                     <input
                       type="text"

@@ -32,10 +32,8 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
   isAdmin,
   onEdit,
 }) => {
-  const { user, isAdmin: authIsAdmin, profile } = useAuth();
-  const isUserAdmin = Boolean(
-    (isAdmin ?? true) && (profile?.role === 'admin' || authIsAdmin)
-  );
+  const { user, isAdmin: authIsAdmin } = useAuth();
+  const isUserAdmin = Boolean((isAdmin ?? true) && authIsAdmin);
   const { requests, requestItemReturn } = useInventory();
   const { showToast } = useToast();
 
@@ -51,7 +49,7 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
   const myActiveLoans = requests.filter(
     (r) =>
       r.item_id === item.id &&
-      r.status === 'approved' &&
+      (r.status === 'approved' || r.status === 'overdue') &&
       ((user?.id && r.user_id === user.id) ||
         (user?.email && r.user_email?.toLowerCase() === user.email.toLowerCase()))
   );

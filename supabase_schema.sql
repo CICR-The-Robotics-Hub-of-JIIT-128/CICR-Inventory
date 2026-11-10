@@ -50,7 +50,7 @@ UPDATE public.profiles
 SET status = CASE
   WHEN avatar_url = 'status:pending' THEN 'pending'
   WHEN avatar_url = 'status:rejected' THEN 'rejected'
-  ELSE COALESCE(status, 'approved')
+  ELSE COALESCE(status, 'pending')
 END
 WHERE status IS NULL OR avatar_url IN ('status:pending', 'status:rejected');
 
@@ -129,12 +129,6 @@ DECLARE
   cleaned_meta_name TEXT;
   cleaned_email_name TEXT;
   final_name TEXT;
-  is_master_admin BOOLEAN := email_lower IN (
-    'vardaansaxena096@gmail.com',
-    'cicrinventory@gmail.com',
-    'cicrinventoryofficial@gmail.com',
-    '992501030399@mail.jiit.ac.in'
-  );
   resolved_role TEXT;
   resolved_status TEXT;
   resolved_avatar TEXT;
@@ -197,15 +191,8 @@ BEGIN
     final_name := 'Member';
   END IF;
 
-  resolved_role := CASE
-    WHEN is_master_admin THEN 'admin'
-    ELSE coalesce(NULLIF(NEW.raw_user_meta_data->>'role', ''), 'member')
-  END;
-
-  resolved_status := CASE
-    WHEN is_master_admin THEN 'approved'
-    ELSE coalesce(NULLIF(NEW.raw_user_meta_data->>'status', ''), 'pending')
-  END;
+  resolved_role := 'member';
+  resolved_status := 'pending';
 
   resolved_avatar := coalesce(
     NULLIF(trim(NEW.raw_user_meta_data->>'avatar_url'), ''),
@@ -239,7 +226,214 @@ BEGIN
     updated_at = NOW();
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- Helper: checks whether current authenticated user is an approved DB member or admin
+CREATE OR REPLACE FUNCTION public.is_approved_user()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.profiles
+    WHERE id = auth.uid()
+      AND status = 'approved'
+      AND COALESCE(avatar_url, '') NOT IN ('status:pending', 'status:rejected')
+  );
+$$;
+
+-- Helper: checks whether current authenticated user is an approved DB administrator
+CREATE OR REPLACE FUNCTION public.is_approved_admin()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.profiles
+    WHERE id = auth.uid()
+      AND role = 'admin'
+      AND status = 'approved'
+      AND COALESCE(avatar_url, '') NOT IN ('status:pending', 'status:rejected')
+  );
+$$;
+
+-- Guardrail: blocks non-admins and self-targeting updates to role/status (runs SECURITY INVOKER)
+CREATE OR REPLACE FUNCTION public.protect_profile_role_and_status()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE
+  remaining_admins INTEGER;
+BEGIN
+  IF auth.role() = 'service_role' OR current_user IN ('postgres', 'supabase_admin') THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.role IS DISTINCT FROM OLD.role OR NEW.status IS DISTINCT FROM OLD.status THEN
+    IF NOT public.is_approved_admin() THEN
+      RAISE EXCEPTION 'Unauthorized: Only approved administrators can modify account role or status.';
+    END IF;
+
+    IF auth.uid() IS NOT NULL AND (NEW.id = auth.uid() OR OLD.id = auth.uid()) THEN
+      RAISE EXCEPTION 'Unauthorized: You cannot change your own role or approval status.';
+    END IF;
+
+    IF NEW.role = 'admin' AND COALESCE(NEW.status, OLD.status) <> 'approved' THEN
+      RAISE EXCEPTION 'Only approved members can be promoted to administrator.';
+    END IF;
+
+    IF OLD.role = 'admin' AND OLD.status = 'approved' AND (NEW.role IS DISTINCT FROM 'admin' OR NEW.status IS DISTINCT FROM 'approved') THEN
+      SELECT COUNT(*) INTO remaining_admins
+      FROM public.profiles
+      WHERE role = 'admin'
+        AND status = 'approved'
+        AND id <> OLD.id;
+
+      IF remaining_admins < 1 THEN
+        RAISE EXCEPTION 'Cannot demote or suspend the last remaining administrator.';
+      END IF;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_protect_profile_role_and_status ON public.profiles;
+CREATE TRIGGER trg_protect_profile_role_and_status
+  BEFORE UPDATE ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.protect_profile_role_and_status();
+
+-- Guardrail: restricts catalog item creation, modification, and deletion strictly to approved administrators
+CREATE OR REPLACE FUNCTION public.protect_inventory_item_mutations()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+BEGIN
+  IF auth.role() = 'service_role' OR current_user IN ('postgres', 'supabase_admin') THEN
+    RETURN COALESCE(NEW, OLD);
+  END IF;
+
+  IF NOT public.is_approved_admin() THEN
+    RAISE EXCEPTION 'Unauthorized: Only approved administrators can add, edit, or delete inventory catalog items.';
+  END IF;
+
+  IF TG_OP IN ('INSERT', 'UPDATE') THEN
+    IF COALESCE(NEW.total_qty, -1) < 0 OR COALESCE(NEW.available_qty, -1) < 0 THEN
+      RAISE EXCEPTION 'Inventory quantities cannot be negative.';
+    END IF;
+  END IF;
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_protect_inventory_item_mutations ON public.inventory_items;
+CREATE TRIGGER trg_protect_inventory_item_mutations
+  BEFORE INSERT OR UPDATE OR DELETE ON public.inventory_items
+  FOR EACH ROW EXECUTE FUNCTION public.protect_inventory_item_mutations();
+
+-- Guardrail: locks borrow request approvals, rejections, clearances, and deletions strictly to approved admins
+CREATE OR REPLACE FUNCTION public.protect_borrow_request_mutations()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+BEGIN
+  IF auth.role() = 'service_role' OR current_user IN ('postgres', 'supabase_admin') THEN
+    RETURN COALESCE(NEW, OLD);
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    IF NOT public.is_approved_admin() THEN
+      RAISE EXCEPTION 'Unauthorized: Only approved administrators can delete borrow requests.';
+    END IF;
+    RETURN OLD;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    IF NOT public.is_approved_user() THEN
+      RAISE EXCEPTION 'Unauthorized: Approved membership is required to submit inventory requests.';
+    END IF;
+
+    IF COALESCE(NEW.quantity, 0) < 1 THEN
+      RAISE EXCEPTION 'Invalid quantity: Must be at least 1.';
+    END IF;
+
+    IF NEW.expected_return_date IS NULL OR NEW.expected_return_date < ((NOW() AT TIME ZONE 'Asia/Kolkata')::date) THEN
+      RAISE EXCEPTION 'Expected return date cannot be in the past.';
+    END IF;
+
+    IF NOT public.is_approved_admin() THEN
+      IF auth.uid() IS NULL OR NEW.user_id IS DISTINCT FROM auth.uid() THEN
+        RAISE EXCEPTION 'Unauthorized: You can only submit borrow requests for your own account.';
+      END IF;
+
+      IF COALESCE(NEW.status, 'pending') <> 'pending'
+         OR NEW.approved_by IS NOT NULL
+         OR NEW.borrow_date IS NOT NULL
+         OR NEW.actual_return_date IS NOT NULL
+         OR NEW.admin_notes IS NOT NULL THEN
+        RAISE EXCEPTION 'Unauthorized: Members cannot pre-approve, issue, or alter requisition clearance fields.';
+      END IF;
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'UPDATE' THEN
+    IF public.is_approved_admin() THEN
+      RETURN NEW;
+    END IF;
+
+    IF NOT public.is_approved_user() OR auth.uid() IS NULL OR OLD.user_id IS DISTINCT FROM auth.uid() THEN
+      RAISE EXCEPTION 'Unauthorized: Only approved administrators can approve, reject, return, or modify borrow requests.';
+    END IF;
+
+    IF NEW.id IS DISTINCT FROM OLD.id
+       OR NEW.item_id IS DISTINCT FROM OLD.item_id
+       OR NEW.user_id IS DISTINCT FROM OLD.user_id
+       OR NEW.user_name IS DISTINCT FROM OLD.user_name
+       OR NEW.user_email IS DISTINCT FROM OLD.user_email
+       OR NEW.item_name IS DISTINCT FROM OLD.item_name
+       OR NEW.quantity IS DISTINCT FROM OLD.quantity
+       OR NEW.project_name IS DISTINCT FROM OLD.project_name
+       OR NEW.purpose IS DISTINCT FROM OLD.purpose
+       OR NEW.status IS DISTINCT FROM OLD.status
+       OR NEW.borrow_date IS DISTINCT FROM OLD.borrow_date
+       OR NEW.expected_return_date IS DISTINCT FROM OLD.expected_return_date
+       OR NEW.actual_return_date IS DISTINCT FROM OLD.actual_return_date
+       OR NEW.approved_by IS DISTINCT FROM OLD.approved_by
+       OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+      RAISE EXCEPTION 'Unauthorized: Only approved administrators can approve, reject, return, or alter borrow request clearance fields.';
+    END IF;
+
+    IF OLD.status NOT IN ('approved', 'overdue') OR COALESCE(NEW.admin_notes, '') NOT LIKE '[RETURN_REQUESTED]%' THEN
+      RAISE EXCEPTION 'Unauthorized: Members can only submit a return request for their own active loan.';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_protect_borrow_request_mutations ON public.borrow_requests;
+CREATE TRIGGER trg_protect_borrow_request_mutations
+  BEFORE INSERT OR UPDATE OR DELETE ON public.borrow_requests
+  FOR EACH ROW EXECUTE FUNCTION public.protect_borrow_request_mutations();
 
 -- Trigger for auth.users on signup
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
@@ -253,6 +447,13 @@ RETURNS TRIGGER AS $$
 BEGIN
   -- When request is approved
   IF NEW.status = 'approved' AND (OLD.status IS NULL OR OLD.status != 'approved') THEN
+    IF EXISTS (
+      SELECT 1 FROM public.inventory_items
+      WHERE id = NEW.item_id AND available_qty < NEW.quantity
+    ) THEN
+      RAISE EXCEPTION 'Insufficient vault stock available for this requisition.';
+    END IF;
+
     UPDATE public.inventory_items
     SET available_qty = GREATEST(0, available_qty - NEW.quantity),
         status = CASE 
@@ -279,7 +480,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 DROP TRIGGER IF EXISTS on_borrow_request_status_change ON public.borrow_requests;
 CREATE TRIGGER on_borrow_request_status_change
@@ -292,58 +493,112 @@ ALTER TABLE public.inventory_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.borrow_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
 
--- 9. RLS Policies
--- Profiles: everyone can view profiles, users can update their own profile
-DROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON public.profiles;
-DROP POLICY IF EXISTS "Users can insert their own profile" ON public.profiles;
-DROP POLICY IF EXISTS "Users can update their own profile" ON public.profiles;
-CREATE POLICY "Public profiles are viewable by everyone" 
+-- 9. Dynamically drop all legacy permissive policies before recreating strict RBAC policies
+DO $$
+DECLARE
+  pol RECORD;
+BEGIN
+  FOR pol IN
+    SELECT schemaname, tablename, policyname
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename IN ('profiles', 'inventory_items', 'borrow_requests', 'activity_logs')
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I.%I', pol.policyname, pol.schemaname, pol.tablename);
+  END LOOP;
+END;
+$$;
+
+-- Profiles: public read for duplicate/roster lookup, self-insert locked to member+pending, admin or self update (trigger locks role/status)
+CREATE POLICY "Public profiles are viewable by everyone"
   ON public.profiles FOR SELECT USING (true);
 
-CREATE POLICY "Users can insert their own profile" 
-  ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
+CREATE POLICY "Users can insert their own profile"
+  ON public.profiles FOR INSERT WITH CHECK (
+    auth.uid() = id
+    AND role = 'member'
+    AND status = 'pending'
+  );
 
-CREATE POLICY "Users can update their own profile" 
-  ON public.profiles FOR UPDATE USING (auth.uid() = id);
+CREATE POLICY "Users can update their own profile"
+  ON public.profiles FOR UPDATE
+  USING (auth.uid() = id OR public.is_approved_admin())
+  WITH CHECK (auth.uid() = id OR public.is_approved_admin());
 
--- Inventory items: readable by anyone, editable by authenticated users
-DROP POLICY IF EXISTS "Inventory is viewable by all users" ON public.inventory_items;
-DROP POLICY IF EXISTS "Authenticated users can insert inventory items" ON public.inventory_items;
-DROP POLICY IF EXISTS "Authenticated users can update inventory items" ON public.inventory_items;
-DROP POLICY IF EXISTS "Authenticated users can delete inventory items" ON public.inventory_items;
-CREATE POLICY "Inventory is viewable by all users" 
+CREATE POLICY "Admins can delete profiles"
+  ON public.profiles FOR DELETE USING (public.is_approved_admin());
+
+-- Inventory items: readable by anyone, mutable strictly by approved administrators
+CREATE POLICY "Inventory is viewable by all users"
   ON public.inventory_items FOR SELECT USING (true);
 
-CREATE POLICY "Authenticated users can insert inventory items" 
-  ON public.inventory_items FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Admins can insert inventory items"
+  ON public.inventory_items FOR INSERT WITH CHECK (public.is_approved_admin());
 
-CREATE POLICY "Authenticated users can update inventory items" 
-  ON public.inventory_items FOR UPDATE USING (auth.role() = 'authenticated');
+CREATE POLICY "Admins can update inventory items"
+  ON public.inventory_items FOR UPDATE
+  USING (public.is_approved_admin())
+  WITH CHECK (public.is_approved_admin());
 
-CREATE POLICY "Authenticated users can delete inventory items" 
-  ON public.inventory_items FOR DELETE USING (auth.role() = 'authenticated');
+CREATE POLICY "Admins can delete inventory items"
+  ON public.inventory_items FOR DELETE USING (public.is_approved_admin());
 
--- Borrow requests: all authenticated users can view, users can insert their own requests, authenticated can update
-DROP POLICY IF EXISTS "Borrow requests viewable by authenticated users" ON public.borrow_requests;
-DROP POLICY IF EXISTS "Users can create borrow requests" ON public.borrow_requests;
-DROP POLICY IF EXISTS "Authenticated users can update borrow requests" ON public.borrow_requests;
-CREATE POLICY "Borrow requests viewable by authenticated users" 
-  ON public.borrow_requests FOR SELECT USING (auth.role() = 'authenticated');
+-- Borrow requests: members view/create own pending requests and initiate own returns; admins control approve/reject/return/delete
+CREATE POLICY "Borrow requests viewable by owner or admin"
+  ON public.borrow_requests FOR SELECT USING (
+    auth.uid() = user_id OR public.is_approved_admin()
+  );
 
-CREATE POLICY "Users can create borrow requests" 
-  ON public.borrow_requests FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Approved users can create own pending borrow requests"
+  ON public.borrow_requests FOR INSERT WITH CHECK (
+    public.is_approved_user()
+    AND auth.uid() = user_id
+    AND status = 'pending'
+    AND approved_by IS NULL
+    AND borrow_date IS NULL
+    AND actual_return_date IS NULL
+  );
 
-CREATE POLICY "Authenticated users can update borrow requests" 
-  ON public.borrow_requests FOR UPDATE USING (auth.role() = 'authenticated');
+CREATE POLICY "Admins manage borrow requests or borrowers request return"
+  ON public.borrow_requests FOR UPDATE
+  USING (
+    public.is_approved_admin()
+    OR (
+      public.is_approved_user()
+      AND auth.uid() = user_id
+      AND status IN ('approved', 'overdue')
+    )
+  )
+  WITH CHECK (
+    public.is_approved_admin()
+    OR (
+      public.is_approved_user()
+      AND auth.uid() = user_id
+      AND status IN ('approved', 'overdue')
+      AND COALESCE(admin_notes, '') LIKE '[RETURN_REQUESTED]%'
+    )
+  );
 
--- Activity logs: viewable and insertable by authenticated users
-DROP POLICY IF EXISTS "Activity logs viewable by authenticated users" ON public.activity_logs;
-DROP POLICY IF EXISTS "Activity logs insertable by authenticated users" ON public.activity_logs;
-CREATE POLICY "Activity logs viewable by authenticated users" 
-  ON public.activity_logs FOR SELECT USING (auth.role() = 'authenticated');
+CREATE POLICY "Admins can delete borrow requests"
+  ON public.borrow_requests FOR DELETE USING (public.is_approved_admin());
 
-CREATE POLICY "Activity logs insertable by authenticated users" 
-  ON public.activity_logs FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+-- Activity logs: readable by approved admins or owning user; insertable only for own activity or by admin; immutable
+CREATE POLICY "Activity logs viewable by admin or owner"
+  ON public.activity_logs FOR SELECT USING (
+    public.is_approved_admin() OR auth.uid() = user_id
+  );
+
+CREATE POLICY "Activity logs insertable by authenticated actor"
+  ON public.activity_logs FOR INSERT WITH CHECK (
+    auth.role() = 'authenticated'
+    AND (user_id IS NULL OR user_id = auth.uid() OR public.is_approved_admin())
+  );
+
+CREATE POLICY "Activity logs are immutable against update"
+  ON public.activity_logs FOR UPDATE USING (false);
+
+CREATE POLICY "Activity logs are immutable against delete"
+  ON public.activity_logs FOR DELETE USING (false);
 
 -- 10. Initial Seed Data for CICR Inventory (53 Authentic Components, 172 Total Assets)
 INSERT INTO public.inventory_items (name, sku, category, description, location, total_qty, available_qty, min_threshold, condition, status, image_url, datasheet_url)

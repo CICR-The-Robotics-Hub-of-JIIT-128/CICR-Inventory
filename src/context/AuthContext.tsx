@@ -12,13 +12,6 @@ import {
   toCleanDisplayName,
 } from '../lib/identity';
 
-export const MASTER_ADMIN_EMAILS = [
-  'vardaansaxena096@gmail.com',
-  'cicrinventory@gmail.com',
-  'cicrinventoryofficial@gmail.com',
-  '992501030399@mail.jiit.ac.in',
-];
-
 const safeParseJSON = <T,>(raw: string | null): T | null => {
   if (!raw || typeof raw !== 'string') return null;
   try {
@@ -72,37 +65,6 @@ interface AuthContextType {
   updatePassword: (password: string) => Promise<{ success: boolean; error?: string }>;
 }
 
-const getInitialAuth = (): { user: User | null; profile: UserProfile | null } => {
-  if (typeof window === 'undefined') return { user: null, profile: null };
-  try {
-    const rawUser = localStorage.getItem('cicr-active-user');
-    const rawProfile = localStorage.getItem('cicr-active-profile');
-    if (rawUser && rawProfile) {
-      const u = safeParseJSON<User>(rawUser);
-      const p = safeParseJSON<UserProfile>(rawProfile);
-      if (!u || !p) return { user: null, profile: null };
-      const email = (u?.email || '').toLowerCase();
-      const isMasterAdmin = MASTER_ADMIN_EMAILS.includes(email);
-      // Hard security check: ONLY master admin emails can ever have admin role pre-loaded from localStorage
-      if (!isMasterAdmin && p.role === 'admin') {
-        p.role = 'member';
-      }
-      const isAdmin = isMasterAdmin || p.role === 'admin';
-      const isPending = p.status === 'pending' || p.avatar_url === 'status:pending';
-      const isRejected = p.status === 'rejected' || p.avatar_url === 'status:rejected';
-      if (!isAdmin && (isPending || isRejected)) {
-        localStorage.removeItem('cicr-active-user');
-        localStorage.removeItem('cicr-active-profile');
-        return { user: null, profile: null };
-      }
-      return { user: u, profile: p };
-    }
-  } catch {
-    // ignore
-  }
-  return { user: null, profile: null };
-};
-
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -113,11 +75,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loggedSignInMarkersRef = useRef<Set<string>>(new Set());
   const provisioningPromisesRef = useRef<Map<string, Promise<{ allowed: boolean; error?: string }>>>(new Map());
   const syncedMetadataUserIdsRef = useRef<Set<string>>(new Set());
+  const notifiedAccountReqRef = useRef<Set<string>>(new Set());
 
   const logUserSignInIfNeeded = async (
     currentUser: User,
     resolvedProf?: Partial<UserProfile> | null,
-    forceLog?: boolean
+    forceLog?: boolean,
+    accessToken?: string
   ) => {
     try {
       const marker = currentUser.last_sign_in_at || (forceLog ? `session-${Date.now()}` : '');
@@ -164,8 +128,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         resolvedProf?.enrollment_no ||
         (currentUser.user_metadata?.enrollment_no as string) ||
         '';
-      const isMaster = MASTER_ADMIN_EMAILS.includes(email);
-      const actorRole = isMaster ? 'admin' : resolvedProf?.role || 'member';
+      const actorRole = resolvedProf?.role || 'member';
       const providerRaw = (currentUser.app_metadata?.provider || '').toLowerCase();
       const whereModule = providerRaw === 'google' ? 'Auth Portal > Google OAuth SSO' : 'Auth Portal > Credentials Login';
 
@@ -189,6 +152,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }),
         },
       ]);
+
+      await notifyEmail(
+        'login',
+        email,
+        {
+          name: actorName,
+          email,
+          role: actorRole,
+          notes:
+            providerRaw === 'google'
+              ? 'Signed in via Google OAuth SSO'
+              : 'Signed in with CICR credentials',
+        },
+        { accessToken }
+      );
     } catch (logErr) {
       console.warn('Sign-in audit log notice:', logErr);
     }
@@ -206,14 +184,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .maybeSingle();
 
       if (!error && data) {
-        const rawStatus =
-          data.status ||
-          (data.avatar_url?.startsWith('status:') ? data.avatar_url.replace('status:', '') : '') ||
-          'approved';
-        const isMasterAdmin = MASTER_ADMIN_EMAILS.includes(email);
-        const resolvedRole: UserRole = isMasterAdmin
-          ? 'admin'
-          : (data.role === 'admin' ? 'admin' : (data.role as UserRole) || 'member');
+        const rawStatus: 'pending' | 'approved' | 'rejected' =
+          data.status === 'rejected' || data.avatar_url === 'status:rejected'
+            ? 'rejected'
+            : data.status === 'approved' || data.avatar_url === 'status:approved'
+            ? 'approved'
+            : 'pending';
+        const resolvedRole: UserRole = data.role === 'admin' ? 'admin' : 'member';
 
         const validDataName =
           data.full_name && !isDirtyOrPlaceholderName(data.full_name, email) ? data.full_name : '';
@@ -297,7 +274,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // ignore
     }
 
-    const isMasterAdmin = MASTER_ADMIN_EMAILS.includes(email);
     const extracted = extractIdentityFromEmail(email, meta);
     const fallbackProfile: UserProfile = {
       id: currentUser.id,
@@ -306,8 +282,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       username: meta.username || '',
       enrollment_no: extracted.enrollmentNo,
       roll_number: extracted.enrollmentNo,
-      role: isMasterAdmin ? 'admin' : 'member',
-      status: isMasterAdmin ? 'approved' : 'pending',
+      role: 'member',
+      status: 'pending',
       phone: meta.phone || '',
       avatar_url: meta.avatar_url || meta.picture || '',
       created_at: currentUser.created_at,
@@ -321,12 +297,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     currentUser: User
   ): Promise<{ approved: boolean; reason?: 'pending' | 'rejected' }> => {
     const email = (currentUser.email || '').toLowerCase().trim();
-    const isMasterAdmin = MASTER_ADMIN_EMAILS.includes(email);
-    if (isMasterAdmin) {
-      return { approved: true };
-    }
 
-    // 1. Check profiles table first (by id or email)
+    // 1. Check authoritative profiles table (by id or email)
     try {
       const { data: prof } = await supabase
         .from('profiles')
@@ -335,28 +307,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .maybeSingle();
 
       if (prof) {
-        if (prof.role === 'admin') return { approved: true };
-        if (prof.status === 'approved' || prof.avatar_url === 'status:approved') {
-          return { approved: true };
-        }
-        if (prof.status === 'pending' || prof.avatar_url === 'status:pending') {
-          return { approved: false, reason: 'pending' };
-        }
         if (prof.status === 'rejected' || prof.avatar_url === 'status:rejected') {
           return { approved: false, reason: 'rejected' };
         }
+        if (prof.status === 'approved' || prof.avatar_url === 'status:approved') {
+          return { approved: true };
+        }
+        return { approved: false, reason: 'pending' };
       }
     } catch (err) {
       console.warn('Profile approval check notice:', err);
     }
 
-    // 2. Check user metadata status
-    const metaStatus = currentUser.user_metadata?.status;
-    if (metaStatus === 'pending') return { approved: false, reason: 'pending' };
-    if (metaStatus === 'rejected') return { approved: false, reason: 'rejected' };
-    if (metaStatus === 'approved') return { approved: true };
-
-    // 3. Check activity_logs for unapproved requests
+    // 2. Check activity_logs for explicit rejection notices only (never trust client logs for approval)
     try {
       const { data: logs } = await supabase
         .from('activity_logs')
@@ -373,9 +336,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             details = JSON.parse(details);
           } catch {}
         }
-        if (details?.status === 'approved') return { approved: true };
         if (details?.status === 'rejected') return { approved: false, reason: 'rejected' };
-        return { approved: false, reason: 'pending' };
       }
     } catch {}
 
@@ -385,25 +346,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let mounted = true;
 
-    async function runOAuthProvisioning(u: User): Promise<{ allowed: boolean; error?: string }> {
+    async function runOAuthProvisioning(
+      u: User,
+      accessToken?: string
+    ): Promise<{ allowed: boolean; error?: string }> {
       const email = (u.email || '').toLowerCase().trim();
       const isJiit = email.endsWith('@mail.jiit.ac.in') || email.endsWith('@jiit.ac.in');
-      const isMaster = MASTER_ADMIN_EMAILS.includes(email);
-
-      if (!isJiit && !isMaster) {
-        return {
-          allowed: false,
-          error: 'Access Restricted: Only college email accounts (@mail.jiit.ac.in) are permitted to sign in.',
-        };
-      }
 
       const meta = u.user_metadata || {};
       const extracted = extractIdentityFromEmail(email, meta);
       const googleAvatarUrl =
         (typeof meta.avatar_url === 'string' && meta.avatar_url.startsWith('http') ? meta.avatar_url : '') ||
         (typeof meta.picture === 'string' && meta.picture.startsWith('http') ? meta.picture : '');
-      const initialStatus = isMaster ? 'approved' : 'pending';
-      const roleLabel = isMaster ? 'admin' : 'member';
 
       try {
         const { data: existingProf } = await supabase
@@ -411,6 +365,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .select('id, email, full_name, roll_number, status, role, avatar_url, phone')
           .or(`id.eq.${u.id},email.ilike.${email}`)
           .maybeSingle();
+
+        const isApprovedExistingAccount = Boolean(
+          existingProf &&
+            existingProf.status !== 'rejected' &&
+            existingProf.avatar_url !== 'status:rejected' &&
+            (existingProf.status === 'approved' || existingProf.avatar_url === 'status:approved')
+        );
+
+        if (!isJiit && !isApprovedExistingAccount) {
+          return {
+            allowed: false,
+            error: 'Access Restricted: Only college email accounts (@mail.jiit.ac.in) are permitted to sign in.',
+          };
+        }
 
         // Compute cleanest Name and Enrollment/Roll Number by blending DB + Email + Google metadata
         const mergedIdentity = extractIdentityFromEmail(email, {
@@ -443,16 +411,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           existingProf?.roll_number ||
           '';
 
-        const resolvedStatus = isMaster
-          ? 'approved'
-          : (existingProf?.status as 'pending' | 'approved' | 'rejected') ||
-            (existingProf?.avatar_url === 'status:approved'
-              ? 'approved'
-              : existingProf?.avatar_url === 'status:rejected'
-              ? 'rejected'
-              : initialStatus);
+        const resolvedStatus: 'pending' | 'approved' | 'rejected' =
+          existingProf?.status === 'rejected' || existingProf?.avatar_url === 'status:rejected'
+            ? 'rejected'
+            : existingProf?.status === 'approved' || existingProf?.avatar_url === 'status:approved'
+            ? 'approved'
+            : 'pending';
 
-        const resolvedRole = isMaster ? 'admin' : existingProf?.role || roleLabel;
+        const resolvedRole: UserRole = existingProf?.role === 'admin' ? 'admin' : 'member';
         const resolvedAvatar =
           (existingProf?.avatar_url && !existingProf.avatar_url.startsWith('status:')
             ? existingProf.avatar_url
@@ -467,8 +433,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               full_name: resolvedName,
               email,
               roll_number: resolvedRoll,
-              role: resolvedRole,
-              status: resolvedStatus,
+              role: 'member',
+              status: 'pending',
               avatar_url: resolvedAvatar,
               updated_at: new Date().toISOString(),
             },
@@ -497,11 +463,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
           if (googleAvatarUrl && (!existingProf.avatar_url || existingProf.avatar_url.startsWith('status:'))) {
             patch.avatar_url = googleAvatarUrl;
-            needsPatch = true;
-          }
-          if (isMaster && (existingProf.role !== 'admin' || existingProf.status !== 'approved')) {
-            patch.role = 'admin';
-            patch.status = 'approved';
             needsPatch = true;
           }
 
@@ -537,7 +498,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         // Ensure pending SSO registrations always appear in Management Hub -> Account Requests
-        if (!isMaster && (!existingProf || resolvedStatus === 'pending')) {
+        if (!existingProf || resolvedStatus === 'pending') {
           const { data: existingReqLogs } = await supabase
             .from('activity_logs')
             .select('id')
@@ -580,6 +541,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }),
               },
             ]);
+
+            if (!notifiedAccountReqRef.current.has(u.id)) {
+              notifiedAccountReqRef.current.add(u.id);
+              await notifyEmail(
+                'account_created',
+                email,
+                {
+                  name: resolvedName,
+                  email,
+                  role: resolvedRole,
+                  status: resolvedStatus,
+                  notes: 'Registered via Google OAuth SSO',
+                  notifyAdmins: true,
+                },
+                { accessToken, keepalive: true }
+              );
+            }
           }
         }
       } catch (e) {
@@ -589,11 +567,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { allowed: true };
     }
 
-    async function validateAndProvisionOAuthUser(u: User): Promise<{ allowed: boolean; error?: string }> {
+    async function validateAndProvisionOAuthUser(
+      u: User,
+      accessToken?: string
+    ): Promise<{ allowed: boolean; error?: string }> {
       const inFlight = provisioningPromisesRef.current.get(u.id);
       if (inFlight) return inFlight;
 
-      const task = runOAuthProvisioning(u).finally(() => {
+      const task = runOAuthProvisioning(u, accessToken).finally(() => {
         provisioningPromisesRef.current.delete(u.id);
       });
       provisioningPromisesRef.current.set(u.id, task);
@@ -723,7 +704,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           try {
             localStorage.removeItem('cicr_auth_error');
           } catch {}
-          const oauthValidation = await validateAndProvisionOAuthUser(currentUser);
+          const oauthValidation = await validateAndProvisionOAuthUser(currentUser, session?.access_token);
           if (!oauthValidation.allowed) {
             await supabase.auth.signOut();
             localStorage.removeItem('cicr-active-user');
@@ -763,7 +744,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setSession(session);
           setUser(currentUser);
           const loadedProfile = await loadProfile(currentUser);
-          void logUserSignInIfNeeded(currentUser, loadedProfile);
+          void logUserSignInIfNeeded(currentUser, loadedProfile, false, session?.access_token);
         } else {
           if (pendingUrlAuthError.hasError && pendingUrlAuthError.message) {
             publishAuthError(pendingUrlAuthError.message);
@@ -808,7 +789,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      const oauthValidation = await validateAndProvisionOAuthUser(newSession.user);
+      const oauthValidation = await validateAndProvisionOAuthUser(newSession.user, newSession.access_token);
       if (!oauthValidation.allowed) {
         await supabase.auth.signOut();
         localStorage.removeItem('cicr-active-user');
@@ -844,7 +825,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSession(newSession);
       setUser(newSession.user);
       const loadedProfile = await loadProfile(newSession.user);
-      void logUserSignInIfNeeded(newSession.user, loadedProfile);
+      void logUserSignInIfNeeded(
+        newSession.user,
+        loadedProfile,
+        event === 'SIGNED_IN' && !newSession.user.last_sign_in_at,
+        newSession.access_token
+      );
       setLoading(false);
     });
 
@@ -911,6 +897,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 ? hydrateMemberIdentity(fallbackData.profile, fallbackUser.user_metadata)
                 : null;
               if (resolvedFailoverProfile) {
+                if (
+                  resolvedFailoverProfile.status !== 'approved' ||
+                  resolvedFailoverProfile.avatar_url === 'status:pending' ||
+                  resolvedFailoverProfile.avatar_url === 'status:rejected'
+                ) {
+                  return {
+                    success: false,
+                    error:
+                      resolvedFailoverProfile.status === 'rejected' ||
+                      resolvedFailoverProfile.avatar_url === 'status:rejected'
+                        ? 'Your account request was declined by an administrator. Please contact club leadership.'
+                        : 'Your registration request has been sent to the Admin Portal. Please wait for an administrator to review and approve your account before signing in.',
+                  };
+                }
+                resolvedFailoverProfile = {
+                  ...resolvedFailoverProfile,
+                  role: resolvedFailoverProfile.role === 'admin' ? 'admin' : 'member',
+                };
                 setProfile(resolvedFailoverProfile);
                 try {
                   localStorage.setItem('cicr-active-profile', JSON.stringify(resolvedFailoverProfile));
@@ -921,15 +925,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               try {
                 localStorage.setItem('cicr-active-user', JSON.stringify(fallbackUser));
               } catch {}
-              void logUserSignInIfNeeded(fallbackUser, resolvedFailoverProfile, !fallbackUser.last_sign_in_at);
-              await notifyEmail('login', fallbackUser.email, {
-                name: resolvedFailoverProfile?.full_name || fallbackUser.user_metadata?.full_name,
-                email: fallbackUser.email,
-                role: resolvedFailoverProfile?.role || 'member',
-              });
+              await logUserSignInIfNeeded(
+                fallbackUser,
+                resolvedFailoverProfile,
+                !fallbackUser.last_sign_in_at,
+                fallbackData.session?.access_token
+              );
               return { success: true };
             }
-          } else if (fallback.status === 401) {
+          } else if (fallback.status === 401 || fallback.status === 403) {
             const errJson = await fallback.json().catch(() => ({}));
             return {
               success: false,
@@ -990,14 +994,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setSession(res.data.session);
         const loadedProf = await loadProfile(res.data.user);
 
-        // Real-time log sign-in to activity_logs (deduplicated with onAuthStateChange)
+        // Real-time log sign-in to activity_logs and send login email (deduplicated with onAuthStateChange)
         try {
-          void logUserSignInIfNeeded(res.data.user, loadedProf, !res.data.user.last_sign_in_at);
-          await notifyEmail('login', res.data.user.email, {
-            name: loadedProf.full_name || res.data.user.user_metadata?.full_name,
-            email: res.data.user.email,
-            role: loadedProf.role || 'member',
-          });
+          await logUserSignInIfNeeded(
+            res.data.user,
+            loadedProf,
+            !res.data.user.last_sign_in_at,
+            res.data.session?.access_token
+          );
         } catch (logErr) {
           console.warn('Sign-in log error:', logErr);
         }
@@ -1049,6 +1053,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     avatar_url = '',
   }: SignUpData) => {
     try {
+      if (role && role !== 'member') {
+        return {
+          success: false,
+          error: 'Self-assignment of elevated roles is prohibited.',
+        };
+      }
       let emailToRegister = email.trim();
       if (!emailToRegister.includes('@')) {
         emailToRegister = `${emailToRegister.toLowerCase()}@mail.jiit.ac.in`;
@@ -1062,9 +1072,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           : extracted.fullName;
       const effectiveEnrollmentNo = enrollment_no?.trim() || extracted.enrollmentNo;
 
-      const isMasterAdminEmail = MASTER_ADMIN_EMAILS.includes(emailToRegister.toLowerCase());
-      const enforcedRole = isMasterAdminEmail ? 'admin' : 'member';
-      const initialStatus = isMasterAdminEmail ? 'approved' : 'pending';
+      const enforcedRole = 'member' as const;
+      const initialStatus = 'pending' as const;
 
       // 0. Pre-registration check via supabase client
       try {
@@ -1122,7 +1131,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             errMsg.includes('already exists') ||
             errMsg.includes('already been submitted') ||
             errMsg.includes('Password should be') ||
-            errMsg.includes('valid email')
+            errMsg.includes('valid email') ||
+            errMsg.includes('prohibited')
           ) {
             return {
               success: false,
@@ -1212,6 +1222,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }),
           },
         ]);
+
+        if (authData.session?.access_token) {
+          await notifyEmail(
+            'account_created',
+            emailToRegister,
+            {
+              name: effectiveFullName,
+              email: emailToRegister,
+              role: enforcedRole,
+              status: initialStatus,
+              notifyAdmins: true,
+            },
+            { accessToken: authData.session.access_token }
+          );
+        }
       }
 
       return {
@@ -1273,13 +1298,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }),
           },
         ]);
+        if (email) {
+          await notifyEmail(
+            'account_approved',
+            email,
+            {
+              name: resolvedTarget,
+              email,
+              status: 'approved',
+              adminName: actorName,
+            },
+            { accessToken: session?.access_token }
+          );
+        }
       } catch {}
     };
 
     try {
-      const isCallerAdmin =
-        MASTER_ADMIN_EMAILS.includes((user?.email || '').toLowerCase()) ||
-        profile?.role === 'admin';
+      const isCallerAdmin = Boolean(
+        profile &&
+          profile.role === 'admin' &&
+          profile.status === 'approved' &&
+          profile.avatar_url !== 'status:pending' &&
+          profile.avatar_url !== 'status:rejected'
+      );
       if (!isCallerAdmin) {
         return { success: false, error: 'Unauthorized: Administrative privileges required.' };
       }
@@ -1383,13 +1425,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }),
           },
         ]);
+        if (email) {
+          await notifyEmail(
+            'account_rejected',
+            email,
+            {
+              name: resolvedTarget,
+              email,
+              status: 'rejected',
+              adminName: actorName,
+            },
+            { accessToken: session?.access_token }
+          );
+        }
       } catch {}
     };
 
     try {
-      const isCallerAdmin =
-        MASTER_ADMIN_EMAILS.includes((user?.email || '').toLowerCase()) ||
-        profile?.role === 'admin';
+      const isCallerAdmin = Boolean(
+        profile &&
+          profile.role === 'admin' &&
+          profile.status === 'approved' &&
+          profile.avatar_url !== 'status:pending' &&
+          profile.avatar_url !== 'status:rejected'
+      );
       if (!isCallerAdmin) {
         return { success: false, error: 'Unauthorized: Administrative privileges required.' };
       }
@@ -1406,16 +1465,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: true };
       }
       // If server returns error, execute direct fallback
+      const rejectFallbackPatch: Record<string, unknown> = {
+        ...(email ? { email } : {}),
+        full_name: resolvedTarget,
+        ...(resolvedTargetRoll ? { roll_number: resolvedTargetRoll } : {}),
+        status: 'rejected',
+        updated_at: new Date().toISOString(),
+      };
       const { error: profError } = await supabase
         .from('profiles')
-        .upsert([{
-          id: targetId,
-          ...(email ? { email } : {}),
-          full_name: resolvedTarget,
-          ...(resolvedTargetRoll ? { roll_number: resolvedTargetRoll } : {}),
-          status: 'rejected',
-          updated_at: new Date().toISOString(),
-        }]);
+        .update(rejectFallbackPatch)
+        .match(email ? { email } : { id: targetId });
       if (!profError) {
         await logRejectionFallback();
         return { success: true };
@@ -1425,16 +1485,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // Network failure fallback
       try {
+        const rejectFallbackPatch: Record<string, unknown> = {
+          ...(email ? { email } : {}),
+          full_name: resolvedTarget,
+          ...(resolvedTargetRoll ? { roll_number: resolvedTargetRoll } : {}),
+          status: 'rejected',
+          updated_at: new Date().toISOString(),
+        };
         const { error: profError } = await supabase
           .from('profiles')
-          .upsert([{
-            id: targetId,
-            ...(email ? { email } : {}),
-            full_name: resolvedTarget,
-            ...(resolvedTargetRoll ? { roll_number: resolvedTargetRoll } : {}),
-            status: 'rejected',
-            updated_at: new Date().toISOString(),
-          }]);
+          .update(rejectFallbackPatch)
+          .match(email ? { email } : { id: targetId });
         if (!profError) {
           await logRejectionFallback();
           return { success: true };
@@ -1446,11 +1507,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateUserRole = async (targetId: string, newRole: 'admin' | 'member') => {
     try {
-      const isCallerAdmin =
-        MASTER_ADMIN_EMAILS.includes((user?.email || '').toLowerCase()) ||
-        profile?.role === 'admin';
+      const isCallerAdmin = Boolean(
+        profile &&
+          profile.role === 'admin' &&
+          profile.status === 'approved' &&
+          profile.avatar_url !== 'status:pending' &&
+          profile.avatar_url !== 'status:rejected'
+      );
       if (!isCallerAdmin) {
         return { success: false, error: 'Unauthorized: Administrative privileges required.' };
+      }
+      if (user?.id && targetId === user.id) {
+        return { success: false, error: 'You cannot change your own administrator role.' };
       }
 
       const response = await fetch('/api/accounts', {
@@ -1533,7 +1601,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         rawActorCand && !isDirtyOrPlaceholderName(rawActorCand, actorEmail)
           ? toCleanDisplayName(rawActorCand)
           : actorIdentity.fullName;
-      const actorRole = MASTER_ADMIN_EMAILS.includes(actorEmail) ? 'admin' : (profile?.role || 'member');
+      const actorRole = profile?.role || 'member';
 
       if (changes.length > 0) {
         try {
@@ -1559,6 +1627,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               }),
             },
           ]);
+          await notifyEmail(
+            'profile_updated',
+            actorEmail,
+            {
+              name: actorName,
+              email: actorEmail,
+              role: actorRole,
+              notes: changes.join(', '),
+            },
+            { accessToken: session?.access_token }
+          );
         } catch {}
       }
 
@@ -1571,9 +1650,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOut = async () => {
-    // 1. Instantly (0ms) clear local state & storage so UI immediately returns to Login screen
+    // 1. Capture user, profile, session token, and inactivity reason before resetting state
     const userToLog = user;
     const profileToLog = profile;
+    const tokenBeforeSignOut = session?.access_token || '';
+    let isInactivitySignOut = false;
+    try {
+      isInactivitySignOut = localStorage.getItem('cicr_session_expired_reason') === 'inactivity';
+    } catch {}
 
     setUser(null);
     setSession(null);
@@ -1582,6 +1666,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('cicr-active-profile');
     localStorage.removeItem('neon-fallback-user');
     localStorage.removeItem('cicr-cached-logs');
+    localStorage.removeItem('cicr-cached-requests');
     localStorage.removeItem('cicr-cached-members');
     localStorage.removeItem('cicr-cached-pending-accounts');
     try {
@@ -1591,56 +1676,87 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         localStorage.removeItem(`cicr_last_signin_logged_${userToLog.id}`);
       } catch {}
+      for (const markerKey of Array.from(loggedSignInMarkersRef.current)) {
+        if (markerKey.startsWith(`${userToLog.id}:`)) {
+          loggedSignInMarkersRef.current.delete(markerKey);
+        }
+      }
     }
 
-    // 2. Log sign-out BEFORE revoking session JWT (so RLS authenticated insert succeeds)
-    (async () => {
-      try {
-        if (userToLog) {
-          const actorEmail = (profileToLog?.email || userToLog.email || '').toLowerCase();
-          const rawActorCand =
-            (profileToLog?.full_name && !isDirtyOrPlaceholderName(profileToLog.full_name, actorEmail) ? profileToLog.full_name : '') ||
-            (userToLog.user_metadata?.full_name as string) ||
-            (userToLog.user_metadata?.name as string) ||
-            profileToLog?.full_name ||
-            '';
-          const actorIdentity = extractIdentityFromEmail(actorEmail, {
-            ...(userToLog.user_metadata || {}),
-            full_name: rawActorCand,
-            enrollment_no: profileToLog?.roll_number,
-          });
-          const actorName =
-            rawActorCand && !isDirtyOrPlaceholderName(rawActorCand, actorEmail)
-              ? toCleanDisplayName(rawActorCand)
-              : actorIdentity.fullName;
-          const actorRoll = profileToLog?.roll_number || actorIdentity.enrollmentNo || '';
-          const actorRole = MASTER_ADMIN_EMAILS.includes(actorEmail)
-            ? 'admin'
-            : profileToLog?.role || 'member';
-
-          await supabase.from('activity_logs').insert([
-            {
-              user_id: userToLog.id,
-              user_name: actorName,
-              action: 'USER_SIGNOUT',
-              details: buildAuditDetails({
-                summary: `${actorName} logged out`,
-                actorId: userToLog.id,
-                actorName,
-                actorEmail,
-                actorRoll,
-                actorRole,
-                targetType: 'account',
-                where: 'CICR Portal > Session Sign-Out',
-              }),
-            },
-          ]);
+    // 2. Record audit log and send signout notification BEFORE revoking the JWT token
+    try {
+      if (userToLog) {
+        let resolvedToken = tokenBeforeSignOut;
+        if (!resolvedToken) {
+          try {
+            const { data: sessionData } = await supabase.auth.getSession();
+            resolvedToken = sessionData?.session?.access_token || '';
+          } catch {}
         }
-        await supabase.auth.signOut();
-      } catch (err) {
-        console.warn('Background sign out error:', err);
+
+        const actorEmail = (profileToLog?.email || userToLog.email || '').toLowerCase();
+        const rawActorCand =
+          (profileToLog?.full_name && !isDirtyOrPlaceholderName(profileToLog.full_name, actorEmail) ? profileToLog.full_name : '') ||
+          (userToLog.user_metadata?.full_name as string) ||
+          (userToLog.user_metadata?.name as string) ||
+          profileToLog?.full_name ||
+          '';
+        const actorIdentity = extractIdentityFromEmail(actorEmail, {
+          ...(userToLog.user_metadata || {}),
+          full_name: rawActorCand,
+          enrollment_no: profileToLog?.roll_number,
+        });
+        const actorName =
+          rawActorCand && !isDirtyOrPlaceholderName(rawActorCand, actorEmail)
+            ? toCleanDisplayName(rawActorCand)
+            : actorIdentity.fullName;
+        const actorRoll = profileToLog?.roll_number || actorIdentity.enrollmentNo || '';
+        const actorRole = profileToLog?.role || 'member';
+
+        await supabase.from('activity_logs').insert([
+          {
+            user_id: userToLog.id,
+            user_name: actorName,
+            action: 'USER_SIGNOUT',
+            details: buildAuditDetails({
+              summary: `${actorName} logged out`,
+              actorId: userToLog.id,
+              actorName,
+              actorEmail,
+              actorRoll,
+              actorRole,
+              targetType: 'account',
+              where: 'CICR Portal > Session Sign-Out',
+            }),
+          },
+        ]);
+
+        await Promise.race([
+          notifyEmail(
+            'logout',
+            actorEmail,
+            {
+              name: actorName,
+              email: actorEmail,
+              role: actorRole,
+              notes: isInactivitySignOut
+                ? 'Automatically signed out after 10 minutes of inactivity'
+                : 'Signed out by operator',
+            },
+            { accessToken: resolvedToken, keepalive: true }
+          ),
+          new Promise((resolve) => setTimeout(resolve, 4500)),
+        ]);
       }
-    })();
+    } catch (err) {
+      console.warn('Background sign out telemetry error:', err);
+    } finally {
+      try {
+        await supabase.auth.signOut();
+      } catch (signOutErr) {
+        console.warn('Supabase signOut error:', signOutErr);
+      }
+    }
   };
 
   const refreshProfile = async () => {
@@ -1653,6 +1769,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) {
         return { success: false, error: error.message };
       }
+      if (user?.email) {
+        await notifyEmail(
+          'profile_updated',
+          user.email,
+          {
+            name: profile?.full_name || user.user_metadata?.full_name || 'CICR member',
+            email: user.email,
+            role: profile?.role || 'member',
+            notes: 'Account password updated',
+          },
+          { accessToken: session?.access_token }
+        );
+      }
       return { success: true };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Password update failed';
@@ -1660,7 +1789,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Anti-tampering listener: instantly revert any console modifications to localStorage role
+  // Anti-tampering listener: instantly revert any console modifications to localStorage profile state
   useEffect(() => {
     const handleStorage = () => {
       try {
@@ -1668,11 +1797,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (raw && user) {
           const p = safeParseJSON<UserProfile>(raw);
           if (!p) return;
-          const email = (user.email || '').toLowerCase();
-          const isMaster = MASTER_ADMIN_EMAILS.includes(email);
-          if (p.role === 'admin' && !isMaster && profile?.role !== 'admin') {
-            console.warn('[Security] Unauthorized role escalation detected in localStorage. Reverting.');
-            p.role = 'member';
+          const expectedRole = profile?.role || 'member';
+          const expectedStatus = profile?.status || 'pending';
+          if (p.role !== expectedRole || p.status !== expectedStatus) {
+            console.warn('[Security] Unauthorized profile state modification detected in localStorage. Reverting.');
+            p.role = expectedRole;
+            p.status = expectedStatus;
             localStorage.setItem('cicr-active-profile', JSON.stringify(p));
             setProfile(p);
           }
@@ -1684,9 +1814,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => window.removeEventListener('storage', handleStorage);
   }, [user, profile]);
 
-  const isMasterAdmin = MASTER_ADMIN_EMAILS.includes((user?.email || '').toLowerCase());
-  const isAdmin = Boolean(isMasterAdmin || profile?.role === 'admin');
-  const isLeadOrAdmin = isAdmin || profile?.role === 'lead';
+  const isApprovedAccount = Boolean(
+    profile &&
+      profile.status === 'approved' &&
+      profile.avatar_url !== 'status:pending' &&
+      profile.avatar_url !== 'status:rejected'
+  );
+  const isAdmin = Boolean(isApprovedAccount && profile?.role === 'admin');
+  const isLeadOrAdmin = isAdmin;
 
   return (
     <AuthContext.Provider

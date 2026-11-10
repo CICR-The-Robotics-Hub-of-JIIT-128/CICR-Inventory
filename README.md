@@ -6,7 +6,7 @@
 
 **Creative & Innovative Cell in Robotics — Hardware Allocation & Laboratory Vault System**
 
-Track, reserve, and deploy microcontrollers, sensors, actuators, and power electronics from JIIT's robotics laboratory vault with a modern full-stack web platform: **React 18 + TypeScript + Vite**, **Tailwind CSS**, **Supabase (PostgreSQL)** real-time engine, **Neon PostgreSQL** secondary backup failover, **Dual Superadmin Security**, and **Real-Time Requisition Telemetry**.
+Track, reserve, and deploy microcontrollers, sensors, actuators, and power electronics from JIIT's robotics laboratory vault with a modern full stack web platform: **React 18 + TypeScript + Vite**, **Tailwind CSS**, **Supabase (PostgreSQL)** realtime engine, **Neon PostgreSQL** secondary backup failover, **Database Enforced Admin RBAC**, and **Real Time Requisition Telemetry**.
 
 [![Live Portal](https://img.shields.io/badge/LIVE-inventory.cicr.in-00f0ff?style=for-the-badge&logo=vercel&logoColor=white)](https://inventory.cicr.in/)
 [![GitHub Repo](https://img.shields.io/badge/GITHUB-cicr__inventory_-bd00ff?style=for-the-badge&logo=github&logoColor=white)](https://github.com/simplyvardaan/cicr_inventory_)
@@ -53,7 +53,7 @@ flowchart TD
     end
 
     subgraph State["Reactive Context Layer"]
-        AuthCtx["AuthContext (Dual Superadmin Guard)"]
+        AuthCtx["AuthContext (Database RBAC Guard)"]
         InvCtx["InventoryContext (Auto-Sync 1.5s)"]
         ThemeCtx["ThemeContext (Dark #07070a / Light #f8fafc)"]
         ToastCtx["ToastContext (Real-Time Feedback)"]
@@ -86,14 +86,12 @@ flowchart TD
 
 ## Core Features & Platform Capabilities
 
-### 1. Dual Superadmin & Institutional Authentication Guard
-- **Master Admin Whitelist**: Master administrative privileges are strictly locked to verified institutional superadmins:
-  - `vardaansaxena096@gmail.com`
-  - `cicrinventory@gmail.com`
-- **Institutional Email Validation**: Student self-registration requires valid institutional email accounts (`@mail.jiit.ac.in`).
-- **Account Clearance Gate**: New member accounts enter `pending` verification status; members cannot request hardware until an administrator authorizes their profile.
-- **Cold-Start Resilient Session Hydration**: Synchronous session hydration from `localStorage` eliminates page-refresh authentication blinks.
-- **Zero Stuck Authentication**: Dedicated local form submission state prevents login buttons from hanging on "Authenticating...".
+### 1. Database Enforced RBAC & Institutional Authentication Guard
+* **No Code Side Admin Grants**: Zero accounts receive `admin` or `approved` status from hardcoded lists; all privileges are stored in `public.profiles` and guarded by PostgreSQL triggers, RLS policies, and server verification.
+* **Admin Only Role & Requisition Governance**: Only existing approved administrators (`role = 'admin'` and `status = 'approved'`) can approve accounts, promote approved members to `admin`, demote other administrators to `member`, mutate inventory items, or approve, reject, confirm returns, and delete borrow requests across UI, `/api/inventory`, `/api/accounts`, and PostgreSQL triggers. Self modification and demoting the last remaining admin are blocked.
+* **Institutional Email Validation**: Student self registration requires valid institutional email accounts (`@mail.jiit.ac.in`).
+* **Account Clearance Gate**: New member accounts enter `pending` verification status; members cannot request hardware until an administrator authorizes their profile.
+* **Zero Stuck Authentication**: Dedicated local form submission state prevents login buttons from hanging on "Authenticating...".
 
 ### 2. Multi-Tier Requisition Clearance Portal
 - **Admin Clearance Gate**: Members stage hardware requisitions; components cannot be issued or collected without verified administrative approval.
@@ -175,10 +173,10 @@ cicr_inventory_/
 │   │   ├── requests/           # RequestsList (Requisition queues)
 │   │   └── ui/                 # airport-matrix-clock, liquid-toggle, notification-bell
 │   ├── context/
-│   │   ├── AuthContext.tsx     # Institutional auth, superadmin whitelist, session hydration
-│   │   └── InventoryContext.tsx# 1.5s auto-sync, 172-item CRUD, borrow & return dispatches
+│   │   ├── AuthContext.tsx     # Institutional auth, DB RBAC guards, session hydration
+│   │   └── InventoryContext.tsx# Realtime sync, 172-item CRUD, borrow & return dispatches
 │   ├── lib/
-│   │   ├── supabase.ts         # Supabase client + admin service-role key fallbacks
+│   │   ├── supabase.ts         # Environment driven Supabase client initialization
 │   │   ├── sampleData.ts       # 172 authentic robotics hardware components
 │   │   └── theme/              # useTheme hook (dark / light persistence)
 │   ├── types/
@@ -237,7 +235,7 @@ Create a `.env` file in the project root:
 
 ```env
 # Supabase Configuration
-SUPABASE_URL=https://nmwkljtaymujqnmzgyxn.supabase.co
+SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_ANON_KEY=your-supabase-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 NEON_DATABASE_URL=postgresql://user:password@ep-example.neon.tech/neondb?sslmode=require

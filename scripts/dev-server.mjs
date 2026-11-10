@@ -1,6 +1,5 @@
 import http from 'node:http';
 import fs from 'node:fs';
-import { parse } from 'node:url';
 import { createServer } from 'vite';
 
 function loadLocalEnvironment() {
@@ -24,6 +23,7 @@ const routes = {
   '/api/accounts': './api/accounts.ts',
   '/api/auth': './api/auth.ts',
   '/api/email': './api/email.ts',
+  '/api/inventory': './api/inventory.ts',
   '/api/reminders': './api/reminders.ts',
 };
 
@@ -69,13 +69,13 @@ const vite = await createServer({
 });
 
 const server = http.createServer(async (req, res) => {
-  const url = parse(req.url || '/', true);
+  const url = new URL(req.url || '/', 'http://localhost');
   const modulePath = routes[url.pathname];
 
   if (modulePath) {
     try {
       const handler = (await vite.ssrLoadModule(modulePath)).default;
-      req.query = url.query;
+      req.query = Object.fromEntries(url.searchParams.entries());
       req.body = await readBody(req);
       await handler(req, createResponse(res));
     } catch (error) {

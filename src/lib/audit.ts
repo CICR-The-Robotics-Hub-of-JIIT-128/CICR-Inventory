@@ -97,13 +97,6 @@ export interface ParsedAuditEntry {
   rawDetails: string;
 }
 
-const MASTER_ADMIN_SET = new Set([
-  'vardaansaxena096@gmail.com',
-  'cicrinventory@gmail.com',
-  'cicrinventoryofficial@gmail.com',
-  '992501030399@mail.jiit.ac.in',
-]);
-
 export function getCurrentRoute(): string {
   if (typeof window === 'undefined') return '/api';
   const path = window.location.pathname || '/';
@@ -142,8 +135,7 @@ export function buildAuditDetails(input: BuildAuditInput): string {
   return JSON.stringify(payload);
 }
 
-function normalizeRole(role?: string, email?: string): 'admin' | 'lead' | 'member' | 'system' {
-  if (email && MASTER_ADMIN_SET.has(email.toLowerCase().trim())) return 'admin';
+function normalizeRole(role?: string): 'admin' | 'lead' | 'member' | 'system' {
   const r = (role || '').toLowerCase().trim();
   if (r === 'admin' || r === 'administrator' || r === 'superadmin') return 'admin';
   if (r === 'lead') return 'lead';
@@ -971,8 +963,7 @@ export function parseAuditLog(
         'item_deleted',
       ].includes(badgeVariant)
         ? 'admin'
-        : 'member'),
-    actorEmail
+        : 'member')
   );
 
   // Domain-specific normalization for clean, unambiguous UI & summaries

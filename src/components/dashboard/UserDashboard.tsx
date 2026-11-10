@@ -71,7 +71,6 @@ export const UserDashboard: React.FC = () => {
     user,
     profile,
     isAdmin,
-    isLeadOrAdmin,
     approveUserAccount,
     rejectUserAccount,
     updateUserRole,
@@ -323,6 +322,10 @@ export const UserDashboard: React.FC = () => {
   };
 
   const handleOpenAddItem = () => {
+    if (!isAdmin) {
+      showToast('error', 'Admin Clearance Required', 'Only administrators can add components.');
+      return;
+    }
     setEditingItem(null);
     openModalWithHistory('add-item');
     setAddItemModalOpen(true);
@@ -472,7 +475,12 @@ export const UserDashboard: React.FC = () => {
 
       // 1. Process Approved Roster Members and hydrate identity from institutional email when missing
       const approvedMembers = profData
-        .filter((m) => m.status === 'approved' || m.role === 'admin' || m.avatar_url === 'status:approved')
+        .filter(
+          (m) =>
+            (m.status === 'approved' || m.avatar_url === 'status:approved') &&
+            m.status !== 'rejected' &&
+            m.avatar_url !== 'status:rejected'
+        )
         .map((m) => hydrateMemberIdentity(m));
       setAllMembers(approvedMembers);
       try {
@@ -483,7 +491,6 @@ export const UserDashboard: React.FC = () => {
       const isProfileResolved = (p: any) =>
         p.status === 'approved' ||
         p.status === 'rejected' ||
-        p.role === 'admin' ||
         p.avatar_url === 'status:approved' ||
         p.avatar_url === 'status:rejected';
 
@@ -575,6 +582,19 @@ export const UserDashboard: React.FC = () => {
   useEffect(() => {
     if (isAdmin) {
       syncAdminHubData();
+      return;
+    }
+
+    setAddItemModalOpen(false);
+    setEditingItem(null);
+    setPendingAccounts([]);
+    setAllMembers([]);
+    try {
+      localStorage.removeItem('cicr-cached-members');
+      localStorage.removeItem('cicr-cached-pending-accounts');
+    } catch {}
+    if (activeViewRef.current === 'logs') {
+      setActiveView('dashboard');
     }
   }, [isAdmin, syncAdminHubData]);
 
@@ -600,7 +620,7 @@ export const UserDashboard: React.FC = () => {
     }
 
     const pendingReqs = requests.filter((r) => r.status === 'pending');
-    if (isLeadOrAdmin && pendingReqs.length > 0) {
+    if (isAdmin && pendingReqs.length > 0) {
       const notifId = `pending-reqs-alert-${pendingReqs.map((r) => r.id).join('_')}`;
       if (!dismissedNotifIds.has(notifId) && !dismissedNotifIds.has('pending-reqs-alert')) {
         list.push({
@@ -616,7 +636,7 @@ export const UserDashboard: React.FC = () => {
     }
 
     const returnReqs = requests.filter((r) => isReturnRequested(r));
-    if (isLeadOrAdmin && returnReqs.length > 0) {
+    if (isAdmin && returnReqs.length > 0) {
       const notifId = `pending-returns-alert-${returnReqs.map((r) => r.id).join('_')}`;
       if (!dismissedNotifIds.has(notifId) && !dismissedNotifIds.has('pending-returns-alert')) {
         list.push({
@@ -649,7 +669,9 @@ export const UserDashboard: React.FC = () => {
     // Member-specific requisition updates
     if (user?.email) {
       const myApproved = requests.filter(
-        (r) => (r.user_email?.toLowerCase() === user.email?.toLowerCase() || r.user_id === user.id) && r.status === 'approved'
+        (r) =>
+          (r.user_email?.toLowerCase() === user.email?.toLowerCase() || r.user_id === user.id) &&
+          (r.status === 'approved' || r.status === 'overdue')
       );
       if (myApproved.length > 0) {
         const notifId = `my-approved-${myApproved.map((r) => r.id).join('_')}`;
@@ -712,7 +734,7 @@ export const UserDashboard: React.FC = () => {
       }
       return list;
     });
-  }, [items, requests, isLeadOrAdmin, isAdmin, user, readNotifIds, dismissedNotifIds, handleNavigateView]);
+  }, [items, requests, pendingAccounts, isAdmin, user, readNotifIds, dismissedNotifIds, handleNavigateView]);
 
   // Cart operations
   const handleAddToCart = (item: InventoryItem) => {
@@ -764,6 +786,10 @@ export const UserDashboard: React.FC = () => {
     action: 'approved' | 'rejected' | 'returned',
     note?: string
   ) => {
+    if (!isAdmin) {
+      showToast('error', 'Admin Clearance Required', 'Only administrators can approve, reject, or process returns.');
+      return;
+    }
     const res = await updateBorrowStatus(requestId, action, note);
     if (res.success) {
       showToast('success', `Requisition ${action.toUpperCase()}`, `Borrow status updated to ${action}.`);
@@ -780,12 +806,8 @@ export const UserDashboard: React.FC = () => {
         showToast('error', 'Unauthorized', 'Administrative privileges required.');
         return;
       }
-      const targetMember = allMembers.find((m) => m.id === targetUserId);
-      if (
-        targetMember?.email &&
-        ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com'].includes(targetMember.email.toLowerCase())
-      ) {
-        showToast('error', 'Action Restricted', 'Master superadmin roles cannot be modified.');
+      if (user?.id && targetUserId === user.id) {
+        showToast('error', 'Action Restricted', 'You cannot change your own administrator role.');
         return;
       }
 
@@ -807,6 +829,10 @@ export const UserDashboard: React.FC = () => {
   };
 
   const handleApproveAccount = async (targetUserId: string, targetName: string, targetEmail?: string) => {
+    if (!isAdmin) {
+      showToast('error', 'Admin Clearance Required', 'Only administrators can approve member accounts.');
+      return;
+    }
     const emailKey = targetEmail?.toLowerCase() || '';
     setLocallyProcessedIds((prev) => {
       const next = new Set(prev);
@@ -866,6 +892,10 @@ export const UserDashboard: React.FC = () => {
   };
 
   const handleRejectAccount = async (targetUserId: string, targetName: string, targetEmail?: string) => {
+    if (!isAdmin) {
+      showToast('error', 'Admin Clearance Required', 'Only administrators can reject member accounts.');
+      return;
+    }
     const emailKey = targetEmail?.toLowerCase() || '';
     setLocallyProcessedIds((prev) => {
       const next = new Set(prev);
@@ -924,6 +954,10 @@ export const UserDashboard: React.FC = () => {
   };
 
   const handleDeleteItem = async (id: string, name: string) => {
+    if (!isAdmin) {
+      showToast('error', 'Admin Clearance Required', 'Only administrators can delete components.');
+      return;
+    }
     if (window.confirm(`Delete "${name}" from inventory?`)) {
       const res = await deleteItem(id);
       if (res.success) {
@@ -951,7 +985,7 @@ export const UserDashboard: React.FC = () => {
     ? toCleanDisplayName(validProfileName)
     : userIdentity.fullName || 'Member';
   const enrollmentNo = profile?.roll_number || profile?.enrollment_no || userIdentity.enrollmentNo || '';
-  const roleName = profile?.role === 'admin' ? 'ADMIN' : profile?.role === 'lead' ? 'LEAD' : 'MEMBER';
+  const roleName = isAdmin ? 'ADMIN' : 'MEMBER';
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#07070a] text-slate-900 dark:text-slate-100 flex flex-col relative overflow-x-hidden selection:bg-blue-600 selection:text-white">
@@ -960,7 +994,7 @@ export const UserDashboard: React.FC = () => {
         activeView={activeView}
         setActiveView={handleNavigateView}
         isAdmin={isAdmin}
-        isLeadOrAdmin={isLeadOrAdmin}
+        isLeadOrAdmin={Boolean(isAdmin)}
         cartCount={cart.reduce((s, c) => s + c.quantity, 0)}
         onOpenCart={handleOpenCart}
         notifications={notifications}
@@ -989,7 +1023,7 @@ export const UserDashboard: React.FC = () => {
             items={items}
             requests={requests}
             isAdmin={isAdmin}
-            isLeadOrAdmin={isLeadOrAdmin}
+            isLeadOrAdmin={Boolean(isAdmin)}
             currentUserEmail={user?.email}
             currentUserId={user?.id}
             searchQuery={searchQuery}
@@ -1016,7 +1050,7 @@ export const UserDashboard: React.FC = () => {
               requests={requests}
               items={items}
               allMembers={allMembers}
-              isLeadOrAdmin={isLeadOrAdmin}
+              isLeadOrAdmin={Boolean(isAdmin)}
               userEmail={user?.email}
               userId={user?.id}
               onNavigateToVault={() => handleNavigateView('inventory')}
@@ -1030,6 +1064,7 @@ export const UserDashboard: React.FC = () => {
         {activeView === 'logs' && isAdmin && (
           <AdminHubView
             isAdmin={isAdmin}
+            currentUserId={user?.id}
             logs={logs}
             items={items}
             requests={requests}
@@ -1076,7 +1111,7 @@ export const UserDashboard: React.FC = () => {
           />
         )}
 
-        {addItemModalOpen && (
+        {addItemModalOpen && isAdmin && (
           <AddEditItemModal
             isOpen={addItemModalOpen}
             onClose={handleCloseAddEditItem}

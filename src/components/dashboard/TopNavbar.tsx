@@ -41,7 +41,7 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
       case 'inventory':
         return 'COMPONENT VAULT';
       case 'review-requests':
-        return isLeadOrAdmin ? 'CLEARANCE PORTAL' : 'MY REQUISITIONS';
+        return isAdmin ? 'CLEARANCE PORTAL' : 'MY REQUISITIONS';
       case 'logs':
         return 'MANAGEMENT HUB';
       case 'developers':

@@ -7,13 +7,6 @@ import {
   renderNotificationEmail,
 } from './_lib/emailTemplates';
 
-const MASTER_ADMIN_EMAILS = [
-  'vardaansaxena096@gmail.com',
-  'cicrinventory@gmail.com',
-  'cicrinventoryofficial@gmail.com',
-  '992501030399@mail.jiit.ac.in',
-];
-
 const DEFAULT_APP_URL = 'https://inventory.cicr.in';
 
 function extractSupabaseUrlRef(urlStr: string): string {
@@ -96,13 +89,13 @@ function resolveServerAppUrl(req?: VercelRequest): string {
 }
 
 /**
- * Queries approved administrator emails using the server side client while falling back to master admins.
+ * Queries approved administrator emails using the server side service role client.
  */
 async function resolveAdminAlertRecipients(
   adminClient: SupabaseClient<any, any, any>,
   excludeEmail: string
 ): Promise<string[]> {
-  const recipients = new Set<string>(MASTER_ADMIN_EMAILS);
+  const recipients = new Set<string>();
   const envAdmins = (process.env.ADMIN_ALERT_EMAILS || '').split(',');
   for (const addr of envAdmins) {
     const cleaned = addr.trim().toLowerCase();
@@ -192,16 +185,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const callerEmail = (user.email || '').trim().toLowerCase();
   const recipientEmail = to.trim().toLowerCase();
-  const isMaster = MASTER_ADMIN_EMAILS.includes(callerEmail);
 
-  if (!isMaster && callerEmail !== recipientEmail) {
+  if (callerEmail !== recipientEmail) {
     const { data: profile } = await adminClient
       .from('profiles')
       .select('role, status')
       .eq('id', user.id)
       .maybeSingle();
 
-    const isPrivilegedRole = profile?.role === 'admin' || profile?.role === 'lead';
+    const isPrivilegedRole = profile?.role === 'admin';
     if (!profile || !isPrivilegedRole || profile.status !== 'approved') {
       return res.status(403).json({ error: 'Unauthorized to send notifications to other recipients.' });
     }

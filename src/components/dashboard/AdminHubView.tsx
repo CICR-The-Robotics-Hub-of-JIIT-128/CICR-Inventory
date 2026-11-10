@@ -32,6 +32,7 @@ import {
 
 interface AdminHubViewProps {
   isAdmin: boolean;
+  currentUserId?: string;
   logs: any[];
   items?: InventoryItem[];
   requests: BorrowRequest[];
@@ -137,6 +138,7 @@ const getAuditBadgeStyle = (variant: AuditBadgeVariant) => {
 
 export const AdminHubView: React.FC<AdminHubViewProps> = ({
   isAdmin,
+  currentUserId,
   logs,
   items = [],
   requests,
@@ -580,7 +582,11 @@ export const AdminHubView: React.FC<AdminHubViewProps> = ({
 
                 {/* Management Action Button */}
                 <td className="py-3.5 px-4 sm:px-6 text-right whitespace-nowrap">
-                  {isAdminMember ? (
+                  {currentUserId && member.id === currentUserId ? (
+                    <span className="inline-flex items-center px-3 py-1.5 rounded-xl text-[11px] font-bold border bg-slate-100 text-slate-500 dark:bg-zinc-900 dark:text-zinc-500 border-slate-200 dark:border-zinc-800 select-none">
+                      Current Admin
+                    </span>
+                  ) : isAdminMember ? (
                     <button
                       type="button"
                       disabled={processingUserId === member.id}

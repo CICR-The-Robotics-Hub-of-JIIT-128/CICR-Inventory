@@ -50,10 +50,10 @@ src/
 │   ├── requests/           # Requisition queues and clearance cards
 │   └── ui/                 # airport-matrix-clock, liquid-toggle, notification-bell
 ├── context/
-│   ├── AuthContext.tsx     # Institutional auth, superadmin whitelist, session hydration
-│   └── InventoryContext.tsx# 1.5s auto-sync, 172-item CRUD, borrow & return dispatches
+│   ├── AuthContext.tsx     # Institutional auth, DB RBAC verification, session hydration
+│   └── InventoryContext.tsx# Realtime broadcast sync, 172-item CRUD, borrow & return dispatches
 ├── lib/
-│   ├── supabase.ts         # Supabase client initialization & service-role fallbacks
+│   ├── supabase.ts         # Environment driven Supabase client initialization
 │   ├── sampleData.ts       # 172 authentic robotics hardware components
 │   └── theme/              # useTheme hook (dark / light persistence)
 ├── types/
@@ -67,22 +67,21 @@ src/
 
 ## 4. Security & Role-Based Access Control (RBAC)
 
-### Master Superadmin Whitelist
-The master superadmin role is strictly hardcoded and protected against reassignment:
-- `vardaansaxena096@gmail.com`
-- `cicrinventory@gmail.com`
-
-**Agent Rule**: Never modify or demote these master administrator accounts. Any automated script or refactor must preserve this whitelist unconditionally.
+### Database Verified Administrator Governance
+Administrative privileges are governed strictly by `public.profiles` (`role = 'admin'` and `status = 'approved'`):
+* Zero hardcoded admin or auto approval email lists may exist anywhere in frontend code, serverless APIs, utility scripts, or database triggers.
+* Legacy `lead` roles do not grant administrative privileges; only existing DB approved administrators (`role = 'admin'` and `status = 'approved'`) can approve accounts, promote/demote roles, mutate `inventory_items`, or approve, reject, mark returned, decline returns, or delete `borrow_requests` (enforced via `/api/inventory`, `/api/accounts`, RLS policies, and `SECURITY INVOKER` PostgreSQL triggers).
+* Self role promotion, self demotion, and demoting the last remaining approved administrator are strictly prohibited by API guards and database triggers.
 
 ### Institutional Email Format
-Student self-registration requires valid institutional emails:
-- Pattern: `*@mail.jiit.ac.in`
-- If a user inputs an enrollment number without `@`, the system automatically appends `@mail.jiit.ac.in`.
+Student self registration requires valid institutional emails:
+* Pattern: `*@mail.jiit.ac.in`
+* If a user inputs an enrollment number without `@`, the system automatically appends `@mail.jiit.ac.in`.
 
 ### Registration Clearance Pipeline
-1. All newly registered student accounts receive `status: 'pending'` and `role: 'member'`.
-2. Pending accounts **cannot sign in or request hardware** until an administrator explicitly authorizes their registration in the Admin Control Center (`AdminHubView`).
-3. Only the master superadmins bypass the pending queue upon registration.
+1. All newly registered accounts unconditionally receive `status: 'pending'` and `role: 'member'`.
+2. Pending accounts **cannot sign in or request hardware** until an existing DB approved administrator explicitly authorizes their registration in the Admin Control Center (`AdminHubView`).
+3. New administrators are appointed solely through post approval role promotion by an existing approved administrator.
 
 ---
 

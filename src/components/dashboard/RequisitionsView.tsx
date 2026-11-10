@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { BorrowRequest, InventoryItem, isReturnRequested } from '../../types/inventory';
 import { useInventory } from '../../context/InventoryContext';
+import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../common/Toast';
 import {
   extractIdentityFromEmail,
@@ -51,8 +52,10 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
   onBorrowAction,
   onOpenIssuePass,
 }) => {
+  const { isAdmin } = useAuth();
   const { requestItemReturn, cancelReturnRequest } = useInventory();
   const { showToast } = useToast();
+  const hasAdminClearance = Boolean(isAdmin && isLeadOrAdmin);
 
   const [requestStatusTab, setRequestStatusTab] = useState<
     'all' | 'pending' | 'returns' | 'approved' | 'rejected' | 'returned'
@@ -62,7 +65,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
   const [confirmReturnId, setConfirmReturnId] = useState<string | null>(null);
   const [returnNote, setReturnNote] = useState('');
 
-  const activeRequestsList = isLeadOrAdmin
+  const activeRequestsList = hasAdminClearance
     ? requests
     : requests.filter(
         (r) =>
@@ -74,7 +77,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
   const pendingCount = activeRequestsList.filter((r) => r.status === 'pending').length;
   const returnRequestsCount = activeRequestsList.filter((r) => isReturnRequested(r)).length;
   const normalApprovedCount = activeRequestsList.filter(
-    (r) => r.status === 'approved' && !isReturnRequested(r)
+    (r) => (r.status === 'approved' || r.status === 'overdue') && !isReturnRequested(r)
   ).length;
   const rejectedCount = activeRequestsList.filter((r) => r.status === 'rejected').length;
   const returnedCount = activeRequestsList.filter((r) => r.status === 'returned').length;
@@ -120,7 +123,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
     } else if (requestStatusTab === 'returns') {
       matchesTab = isReturnRequested(req);
     } else if (requestStatusTab === 'approved') {
-      matchesTab = req.status === 'approved' && !isReturnRequested(req);
+      matchesTab = (req.status === 'approved' || req.status === 'overdue') && !isReturnRequested(req);
     } else if (requestStatusTab === 'rejected') {
       matchesTab = req.status === 'rejected';
     } else if (requestStatusTab === 'returned') {
@@ -199,7 +202,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
         <div>
           <h2 className="text-base sm:text-xl lg:text-2xl font-black text-slate-900 dark:text-white flex items-start lg:items-center gap-2 sm:gap-2.5 tracking-tight">
             <Bell className="w-5 h-5 text-blue-600 dark:text-purple-400 shrink-0 mt-0.5 lg:mt-0" />
-            {isLeadOrAdmin ? (
+            {hasAdminClearance ? (
               <span className="leading-snug lg:leading-normal">
                 <span className="block lg:inline">Requisition &amp; Return </span>
                 <span className="block lg:inline text-sm sm:text-lg lg:text-2xl text-slate-800 dark:text-zinc-200 lg:text-slate-900 lg:dark:text-white">
@@ -212,7 +215,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
           </h2>
         </div>
 
-        {!isLeadOrAdmin && (
+        {!hasAdminClearance && (
           <button
             type="button"
             onClick={onNavigateToVault}
@@ -293,11 +296,11 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
                 : `No ${requestStatusTab} requests found`}
             </h3>
             <p className="text-xs text-slate-500 dark:text-zinc-400 max-w-sm mx-auto">
-              {!isLeadOrAdmin
+              {!hasAdminClearance
                 ? 'You currently have no requisitions in this tab. Explore our component vault to check out electronics.'
                 : 'No requisitions currently match this filter criteria.'}
             </p>
-            {!isLeadOrAdmin && (
+            {!hasAdminClearance && (
               <button
                 type="button"
                 onClick={onNavigateToVault}
@@ -335,7 +338,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
                       <div className="flex items-center gap-2">
                         <RotateCcw className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0 animate-spin" />
                         <span className="font-bold">
-                          {isLeadOrAdmin
+                          {hasAdminClearance
                             ? `Return Submitted by ${borrower.cleanName} — Admin Approval Needed`
                             : 'Return Request Sent to Admin Portal (Awaiting Clearance)'}
                         </span>
@@ -365,7 +368,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
                       ) : (
                         <span
                           className={`capitalize px-2.5 py-0.5 rounded-full text-[10px] font-extrabold flex items-center gap-1.5 ${
-                            req.status === 'approved'
+                            req.status === 'approved' || req.status === 'overdue'
                               ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
                               : req.status === 'pending'
                               ? 'bg-amber-950 text-amber-400 border border-amber-800 animate-pulse'
@@ -374,17 +377,17 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
                               : 'bg-zinc-800 text-zinc-300 border border-zinc-700'
                           }`}
                         >
-                          {req.status === 'approved' && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
+                          {(req.status === 'approved' || req.status === 'overdue') && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
                           {req.status === 'pending' && <Clock className="w-3 h-3 text-amber-400" />}
                           {req.status === 'rejected' && <XCircle className="w-3 h-3 text-rose-400" />}
                           {req.status === 'returned' && <RotateCcw className="w-3 h-3 text-blue-600 dark:text-purple-400" />}
-                          {req.status === 'approved' ? 'Active Loan / Issued' : req.status === 'pending' ? 'Pending Admin Clearance' : req.status}
+                          {req.status === 'approved' ? 'Active Loan / Issued' : req.status === 'overdue' ? 'Overdue Loan' : req.status === 'pending' ? 'Pending Admin Clearance' : req.status}
                         </span>
                       )}
                     </div>
 
                     {/* Borrower Info (prominent for Admins) */}
-                    {isLeadOrAdmin && (
+                    {hasAdminClearance && (
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-slate-700 dark:text-zinc-400 text-xs font-medium">
                         <div className="flex items-center gap-1.5 shrink-0">
                           <User className="w-3.5 h-3.5 text-zinc-500" />
@@ -467,7 +470,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
 
                   {/* Action Column for Both Admins & Members */}
                   <div className="flex flex-col sm:items-end gap-2.5 shrink-0 pt-2 border-t border-slate-200 dark:border-zinc-800">
-                    {isLeadOrAdmin ? (
+                    {hasAdminClearance ? (
                       /* Admin Actions */
                       <div className="w-full sm:w-auto space-y-2">
                         {req.status === 'pending' && (
@@ -499,7 +502,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
                           </div>
                         )}
 
-                        {req.status === 'approved' && (
+                        {(req.status === 'approved' || req.status === 'overdue') && (
                           <div className="flex items-center gap-2 w-full sm:w-auto">
                             {returnPending ? (
                               <>
@@ -551,7 +554,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
                           </div>
                         )}
 
-                        {req.status === 'approved' && (
+                        {(req.status === 'approved' || req.status === 'overdue') && (
                           <div className="flex flex-col sm:items-end gap-2 w-full">
                             {returnPending ? (
                               <div className="flex flex-col sm:items-end gap-1">

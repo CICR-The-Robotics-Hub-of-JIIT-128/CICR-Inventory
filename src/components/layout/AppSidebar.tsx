@@ -52,7 +52,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   onClose,
   onOpenChangePassword,
 }) => {
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, isAdmin, signOut } = useAuth();
   const { requests } = useInventory();
 
   // Collapsible section state
@@ -60,7 +60,13 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   const [vaultOpen, setVaultOpen] = useState(true);
   const [miscOpen, setMiscOpen] = useState(true);
 
-  const pendingRequestsCount = requests.filter((r) => r.status === 'pending').length;
+  const pendingRequestsCount = isAdmin
+    ? requests.filter((r) => r.status === 'pending').length
+    : requests.filter(
+        (r) =>
+          (r.user_id === user?.id || r.user_email?.toLowerCase() === user?.email?.toLowerCase()) &&
+          r.status === 'pending'
+      ).length;
 
   const handleSelect = (tab: NavTab) => {
     setActiveTab(tab);
@@ -94,10 +100,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     (typeof user?.user_metadata?.avatar_url === 'string' ? user.user_metadata.avatar_url : '') ||
     (typeof user?.user_metadata?.picture === 'string' ? user.user_metadata.picture : '') ||
     '';
-  const roleName = (
-    profile?.role ||
-    (user?.email && ['vardaansaxena096@gmail.com', 'cicrinventory@gmail.com', 'cicrinventoryofficial@gmail.com', '992501030399@mail.jiit.ac.in'].includes(user.email.toLowerCase()) ? 'ADMIN' : 'MEMBER')
-  ).toUpperCase();
+  const roleName = isAdmin ? 'ADMIN' : 'MEMBER';
 
   const getNavItemClass = (tab: NavTab) => {
     const isActive = activeTab === tab;
@@ -161,7 +164,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-[#7d7d8a] mt-0.5">All User Requests</p>
+              <p className="text-[11px] text-[#7d7d8a] mt-0.5">{isAdmin ? 'All User Requests' : 'My Requisitions'}</p>
             </div>
           </button>
 
@@ -205,15 +208,17 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                 </button>
 
                 {/* Management & Logs (Admin Only) */}
-                <button
-                  onClick={() => handleSelect('logs')}
-                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-[13px] transition-all ${getNavItemClass(
-                    'logs'
-                  )}`}
-                >
-                  <ScrollText className={`w-4 h-4 ${getIconClass('logs')}`} />
-                  <span>Management & Logs</span>
-                </button>
+                {isAdmin && (
+                  <button
+                    onClick={() => handleSelect('logs')}
+                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-[13px] transition-all ${getNavItemClass(
+                      'logs'
+                    )}`}
+                  >
+                    <ScrollText className={`w-4 h-4 ${getIconClass('logs')}`} />
+                    <span>Management & Logs</span>
+                  </button>
+                )}
               </div>
             )}
           </div>

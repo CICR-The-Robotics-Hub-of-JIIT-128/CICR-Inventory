@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ***
 
+## [2.18.58] : 2026-11-10
+
+### Server & Database Enforced Inventory Catalog and Requisition RBAC
+* **Authoritative Serverless Inventory & Requisition Gateway ([`api/inventory.ts`](api/inventory.ts), [`api/_lib/supabaseServer.ts`](api/_lib/supabaseServer.ts), [`api/_lib/inventoryCatalogOps.ts`](api/_lib/inventoryCatalogOps.ts), [`api/_lib/borrowRequestOps.ts`](api/_lib/borrowRequestOps.ts), [`api/_lib/borrowLifecycleOps.ts`](api/_lib/borrowLifecycleOps.ts), [`src/lib/inventoryApi.ts`](src/lib/inventoryApi.ts), [`scripts/dev-server.mjs`](scripts/dev-server.mjs))**:
+  * Routed all inventory CRUD (`add_item`, `update_item`, `delete_item`), requisition submission (`submit_borrow_request`), status transitions (`update_borrow_status` for `approved`/`rejected`/`returned`), return requests (`request_return`), return declines (`decline_return`), and requisition deletion (`delete_borrow_request`) through `/api/inventory` backed by verified caller tokens and `service_role` database execution.
+  * Restricted catalog mutations, borrow request approvals/rejections/returns, return declines, and requisition deletions exclusively to database verified approved administrators (`role = 'admin'` and `status = 'approved'`), while limiting approved regular members strictly to submitting their own `pending` borrow requests (with IST calendar validation and anti-spoofing ownership/status assignment) and requesting return on their own active (`approved`/`overdue`) loans.
+* **PostgreSQL RLS Policies & Mutation Triggers ([`supabase_schema.sql`](supabase_schema.sql), [`supabase_admin_security_migration.sql`](supabase_admin_security_migration.sql), [`src/components/layout/SchemaNoticeModal.tsx`](src/components/layout/SchemaNoticeModal.tsx))**:
+  * Replaced permissive authenticated policies with explicit `public.is_approved_user()` and `public.is_approved_admin()` row level security policies across `inventory_items`, `borrow_requests`, `profiles`, and `activity_logs`, closing direct Supabase REST approval, stock tampering, and deletion bypasses for regular members and unapproved accounts.
+  * Added `SECURITY INVOKER` `BEFORE` triggers `public.protect_inventory_item_mutations()` and `public.protect_borrow_request_mutations()` to block non-admin catalog inserts/updates/deletes, block non-admin borrow approvals/rejections/deletions, lock member inserts to `status = 'pending'`, and prevent borrowers from altering `item_id`, `quantity`, or `status` during return notifications.
+* **Removal of Legacy `lead` Clearance & Fail-Closed Client Guards ([`src/context/AuthContext.tsx`](src/context/AuthContext.tsx), [`src/context/InventoryContext.tsx`](src/context/InventoryContext.tsx), [`src/components/dashboard/UserDashboard.tsx`](src/components/dashboard/UserDashboard.tsx), [`src/components/dashboard/ComponentVaultView.tsx`](src/components/dashboard/ComponentVaultView.tsx), [`src/components/dashboard/RequisitionsView.tsx`](src/components/dashboard/RequisitionsView.tsx), [`src/components/requests/RequestsList.tsx`](src/components/requests/RequestsList.tsx), [`src/components/inventory/ItemDetailModal.tsx`](src/components/inventory/ItemDetailModal.tsx), [`src/components/inventory/InventoryList.tsx`](src/components/inventory/InventoryList.tsx), [`api/email.ts`](api/email.ts), [`api/accounts.ts`](api/accounts.ts), [`api/auth.ts`](api/auth.ts))**:
+  * Removed `lead` privilege elevation across Auth, Inventory, Email, Accounts, Neon failover auth, sidebar navigation, dashboard modals, and requisition actions so only verified `admin` accounts hold elevated privileges.
+  * Enforced auth-change state/cache cleanup on signout/role changes, owner-only client request filtering for non-admins, and approved status checks during Neon failover sign-in.
+* **Privacy Policy Copy & Institutional Address Update ([`src/components/legal/PrivacyPolicy.tsx`](src/components/legal/PrivacyPolicy.tsx))**:
+  * Updated the institutional campus address to Sector 128 (`Jaypee Institute of Information Technology, Sector 128, Noida, Uttar Pradesh 201305`), removed the inline sample roll number example, and removed the parenthetical hosting infrastructure clause.
+
+***
+
+## [2.18.57] : 2026-11-10
+
+### Database Enforced Admin RBAC & Hardcoded Privilege Removal
+* **Full Removal of Code Side Admin Grants ([`api/accounts.ts`](api/accounts.ts), [`api/email.ts`](api/email.ts), [`src/context/AuthContext.tsx`](src/context/AuthContext.tsx), [`src/context/InventoryContext.tsx`](src/context/InventoryContext.tsx), [`src/App.tsx`](src/App.tsx), [`src/components/layout/AppSidebar.tsx`](src/components/layout/AppSidebar.tsx), [`src/lib/audit.ts`](src/lib/audit.ts), [`scripts/return_all.cjs`](scripts/return_all.cjs))**:
+  * Deleted `MASTER_ADMIN_EMAILS`, `MASTER_ADMIN_SET`, and all email based admin or approval bypasses across serverless routes, frontend contexts, UI guards, and utility scripts so no user can ever be granted `admin` role or `approved` status from application code.
+  * Locked registration (`signUp`, `runOAuthProvisioning`, and `/api/accounts` `register`) strictly to `role: 'member'` and `status: 'pending'`, rejecting non member role requests with HTTP `403` and preserving pre approved DB member sign ins without email whitelist bypasses.
+* **Admin Only Promotion & Demotion Controls ([`api/accounts.ts`](api/accounts.ts), [`src/context/AuthContext.tsx`](src/context/AuthContext.tsx), [`src/components/dashboard/UserDashboard.tsx`](src/components/dashboard/UserDashboard.tsx), [`src/components/dashboard/AdminHubView.tsx`](src/components/dashboard/AdminHubView.tsx))**:
+  * Enforced strict verification of both `role === 'admin'` and `status === 'approved'` against `public.profiles` for `/api/accounts` (`requireAdmin`, `verify_role`, `list_roster`, `role`, `approve`, `reject`) and `/api/email`, and stripped `user_metadata` and client `activity_logs` fallbacks from approval checks.
+  * Removed hardcoded master superadmin modification locks so any verified DB approved admin can promote approved members or demote any other admin, while blocking self role changes and preventing demotion of the last remaining approved admin.
+* **PostgreSQL Trigger & RLS Hardening ([`supabase_schema.sql`](supabase_schema.sql), [`supabase_admin_security_migration.sql`](supabase_admin_security_migration.sql), [`src/components/layout/SchemaNoticeModal.tsx`](src/components/layout/SchemaNoticeModal.tsx))**:
+  * Hardened `public.handle_new_user()` to ignore registration metadata and default all new accounts to `member` + `pending`, added `public.is_approved_admin()` and the `SECURITY INVOKER` `BEFORE UPDATE` trigger `public.protect_profile_role_and_status()`, and tightened `public.profiles` `INSERT` and `UPDATE` RLS policies.
+
+***
+
 ## [2.18.56] : 2026-11-10
 
 ### Environment Only Supabase Keys & Secret Fallback Removal

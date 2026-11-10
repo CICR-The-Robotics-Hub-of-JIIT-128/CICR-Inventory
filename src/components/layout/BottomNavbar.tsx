@@ -46,7 +46,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
   onOpenChangePassword = () => {},
   pendingAccountsCount = 0,
 }) => {
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, isAdmin, signOut } = useAuth();
   const { requests } = useInventory();
 
   const [submenuOpen, setSubmenuOpen] = useState(false);
@@ -87,9 +87,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
   const navContainerRef = useRef<HTMLDivElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const isAdmin = profile?.role === 'admin';
-  const isLead = profile?.role === 'lead';
-  const roleName = isAdmin ? 'ADMIN' : isLead ? 'LEAD' : 'MEMBER';
+  const roleName = isAdmin ? 'ADMIN' : 'MEMBER';
   const displayName =
     profile?.full_name && !isDirtyOrPlaceholderName(profile.full_name, rawEmail)
       ? toCleanDisplayName(profile.full_name)
@@ -101,8 +99,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
     ''
   ).trim();
 
-  const isLeadOrAdmin = isAdmin || isLead;
-  const pendingCount = isLeadOrAdmin
+  const pendingCount = isAdmin
     ? requests.filter((r) => r.status === 'pending' || isReturnRequested(r)).length
     : requests.filter((r) => (r.user_id === user?.id || r.user_email?.toLowerCase() === user?.email?.toLowerCase()) && (r.status === 'pending' || isReturnRequested(r))).length;
 

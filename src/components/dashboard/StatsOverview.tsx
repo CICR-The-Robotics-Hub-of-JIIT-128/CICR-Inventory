@@ -15,7 +15,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
   onOpenInventory,
 }) => {
   const { items, requests } = useInventory();
-  const { isLeadOrAdmin } = useAuth();
+  const { isAdmin } = useAuth();
 
   const totalTypes = items.length;
   const totalUnits = items.reduce((sum, item) => sum + (item.total_qty || 0), 0);
@@ -76,7 +76,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
         </div>
 
         <div className="relative flex items-center gap-2.5">
-          {isLeadOrAdmin && (
+          {isAdmin && (
             <button
               onClick={onOpenAddItem}
               className="btn-purple-glow flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-xs shadow-md"

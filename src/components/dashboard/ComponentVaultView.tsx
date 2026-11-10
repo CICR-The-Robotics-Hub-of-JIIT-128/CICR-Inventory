@@ -83,13 +83,14 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
   loading = false,
 }) => {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const hasAdminClearance = Boolean(isAdmin);
   // Active loans calculation:
   // For administrators: displays active loans across all members.
   // For normal members: strictly personalized to display only their own active checkouts.
-  const relevantApprovedRequests = isLeadOrAdmin
-    ? requests.filter((r) => r.status === 'approved')
+  const relevantApprovedRequests = hasAdminClearance
+    ? requests.filter((r) => r.status === 'approved' || r.status === 'overdue')
     : requests.filter((r) => {
-        if (r.status !== 'approved') return false;
+        if (r.status !== 'approved' && r.status !== 'overdue') return false;
         const matchesEmail = Boolean(currentUserEmail && r.user_email?.toLowerCase() === currentUserEmail.toLowerCase());
         const matchesId = Boolean(currentUserId && r.user_id === currentUserId);
         return matchesEmail || matchesId;
@@ -361,7 +362,7 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
             </span>
           </div>
           <div className="text-2xl font-black text-slate-900 dark:text-cyan-400">{totalActiveLoansCount}</div>
-          <p className="text-[10px] text-slate-500 dark:text-zinc-500 mt-0.5 truncate">{isLeadOrAdmin ? "Checked out by members" : "Checked out by you"}</p>
+          <p className="text-[10px] text-slate-500 dark:text-zinc-500 mt-0.5 truncate">{hasAdminClearance ? "Checked out by members" : "Checked out by you"}</p>
         </div>
 
         {/* Low Reserves */}
@@ -419,7 +420,7 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
           </p>
         </div>
 
-        {isLeadOrAdmin && (
+        {hasAdminClearance && (
           <button
             type="button"
             onClick={onOpenAddItem}
@@ -591,7 +592,7 @@ export const ComponentVaultView: React.FC<ComponentVaultViewProps> = ({
                       </button>
                     )}
 
-                    {isLeadOrAdmin && (
+                    {hasAdminClearance && (
                       <button
                         type="button"
                         onClick={() => onDeleteItem(item.id, item.name)}

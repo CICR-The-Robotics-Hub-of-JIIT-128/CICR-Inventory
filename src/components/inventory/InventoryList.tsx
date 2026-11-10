@@ -24,7 +24,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({
   preselectedCategory = 'All Categories',
 }) => {
   const { items, deleteItem } = useInventory();
-  const { isLeadOrAdmin, isAdmin } = useAuth();
+  const { isAdmin } = useAuth();
   const { showToast } = useToast();
 
   const [search, setSearch] = useState('');
@@ -206,7 +206,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({
                           Borrow
                         </button>
 
-                        {isLeadOrAdmin && (
+                        {isAdmin && (
                           <>
                             <button
                               onClick={() => onEditItem(item)}

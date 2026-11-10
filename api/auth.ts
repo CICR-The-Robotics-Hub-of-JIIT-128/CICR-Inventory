@@ -123,7 +123,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await client.connect();
       const result = await client.query(
         `SELECT au.id, au.email, au.password_hash, p.full_name, p.roll_number, p.role,
-                p.phone, p.avatar_url, p.created_at
+                p.status, p.phone, p.avatar_url, p.created_at
          FROM auth_users au
          JOIN profiles p ON p.id = au.id
          WHERE lower(au.email) = $1
@@ -137,6 +137,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           [password, user.password_hash]
         );
         if (verified.rows[0]?.valid) {
+          const isApprovedNeonAccount =
+            user.status === 'approved' &&
+            user.avatar_url !== 'status:pending' &&
+            user.avatar_url !== 'status:rejected';
+          if (!isApprovedNeonAccount) {
+            return jsonResponse(res, 403, {
+              error:
+                user.status === 'rejected' || user.avatar_url === 'status:rejected'
+                  ? 'Your account request was declined by an administrator. Please contact club leadership.'
+                  : 'Your registration request is pending administrator approval before signing in.',
+            });
+          }
+
+          const normalizedRole = user.role === 'admin' ? 'admin' : 'member';
           return jsonResponse(res, 200, {
             user: {
               id: user.id,
@@ -146,7 +160,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               user_metadata: {
                 full_name: user.full_name,
                 enrollment_no: user.roll_number || '',
-                role: user.role,
+                role: normalizedRole,
                 phone: user.phone || '',
                 avatar_url: user.avatar_url || '',
               },
@@ -157,7 +171,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               email: user.email,
               full_name: user.full_name,
               roll_number: user.roll_number,
-              role: user.role,
+              role: normalizedRole,
+              status: 'approved',
               phone: user.phone,
               avatar_url: user.avatar_url,
               created_at: user.created_at,

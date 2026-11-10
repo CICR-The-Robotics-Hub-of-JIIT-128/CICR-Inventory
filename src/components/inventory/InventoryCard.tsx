@@ -19,7 +19,7 @@ export const InventoryCard: React.FC<InventoryCardProps> = ({
   onEdit,
   onDelete,
 }) => {
-  const { isLeadOrAdmin, isAdmin } = useAuth();
+  const { isAdmin } = useAuth();
   const availablePct = Math.round((item.available_qty / (item.total_qty || 1)) * 100);
 
   return (

@@ -52,28 +52,16 @@ function getAdminClient() {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
-const MASTER_ADMIN_EMAILS = [
-  'vardaansaxena096@gmail.com',
-  'cicrinventory@gmail.com',
-  'cicrinventoryofficial@gmail.com',
-  '992501030399@mail.jiit.ac.in',
-];
-
 async function requireAdmin(req: VercelRequest, supabase: ReturnType<typeof getAdminClient>) {
   const authorization = req.headers.authorization;
   if (!authorization?.startsWith('Bearer ')) throw new Error('Authentication is required.');
   const { data, error } = await supabase.auth.getUser(authorization.slice(7));
   if (error || !data.user) throw new Error('Authentication is required.');
-  const email = (data.user.email || '').toLowerCase();
-  
-  // 1. Authoritative Superadmins
-  const isSuperadmin = MASTER_ADMIN_EMAILS.includes(email);
-  if (isSuperadmin) return data.user;
 
-  // 2. Query strictly from the secure server-side profiles table - NEVER trust client-writable user_metadata!
+  // Verify administrator clearance exclusively from the server-side profiles table.
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('role, status')
+    .select('id, role, status')
     .eq('id', data.user.id)
     .maybeSingle();
 
@@ -349,7 +337,7 @@ async function resolveAccountAlertAdmins(
   supabase: ReturnType<typeof getAdminClient>,
   excludeEmail: string
 ): Promise<string[]> {
-  const recipients = new Set<string>(MASTER_ADMIN_EMAILS);
+  const recipients = new Set<string>();
   const envAdmins = (process.env.ADMIN_ALERT_EMAILS || '').split(',');
   for (const addr of envAdmins) {
     const cleaned = addr.trim().toLowerCase();
@@ -466,7 +454,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (action === 'role') {
       const adminUser = await requireAdmin(req, supabase);
-      const targetId = typeof body?.target_id === 'string' ? body.target_id : '';
+      const targetId = typeof body?.target_id === 'string' ? body.target_id.trim() : '';
       const role = body?.role === 'admin' || body?.role === 'member' ? body.role : '';
       if (!targetId || !role) return response(res, 400, { error: 'A valid user and role are required.' });
       if (targetId === adminUser?.id) {
@@ -474,11 +462,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       // Fetch target user profile and auth details
-      const { data: targetProfile } = await supabase
+      const { data: targetProfile, error: targetProfileError } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', targetId)
         .maybeSingle();
+      requireDatabaseSuccess(targetProfileError, 'Target member lookup');
+      if (!targetProfile) {
+        return response(res, 404, { error: 'Target member profile not found.' });
+      }
+      if (role === 'admin' && targetProfile.status !== 'approved') {
+        return response(res, 400, { error: 'Only approved members can be promoted to Administrator.' });
+      }
+      if (targetProfile.role === 'admin' && role !== 'admin') {
+        const { count: remainingAdminsCount, error: remainingAdminsError } = await supabase
+          .from('profiles')
+          .select('id', { count: 'exact', head: true })
+          .eq('role', 'admin')
+          .eq('status', 'approved')
+          .neq('id', targetId);
+        requireDatabaseSuccess(remainingAdminsError, 'Remaining administrator verification');
+        if ((remainingAdminsCount || 0) < 1) {
+          return response(res, 400, { error: 'Cannot demote the last remaining administrator.' });
+        }
+      }
 
       const { data: targetAuth } = await supabase.auth.admin.getUserById(targetId);
       const targetEmail = (targetProfile?.email || targetAuth?.user?.email || '').toLowerCase();
@@ -496,20 +503,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           ? toCleanDisplayName(targetProfile.full_name)
           : targetIdentity.fullName || 'Member';
       const resolvedTargetRoll = targetIdentity.enrollmentNo || targetProfile?.roll_number || '';
-
-      if (
-        targetEmail &&
-        MASTER_ADMIN_EMAILS.includes(targetEmail.toLowerCase())
-      ) {
-        return response(res, 400, { error: 'Master administrator accounts cannot be demoted or modified.' });
-      }
-
-      if (
-        role === 'admin' &&
-        !MASTER_ADMIN_EMAILS.includes((adminUser.email || '').toLowerCase())
-      ) {
-        return response(res, 403, { error: 'Unauthorized: Only Master Superadmins can grant Administrator privileges.' });
-      }
 
       // 1. Update Supabase profiles table (also backfill clean full_name and roll_number)
       const { error: profileError } = await supabase
@@ -609,6 +602,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (action === 'register') {
+      if (typeof body?.role === 'string' && body.role.trim().toLowerCase() !== 'member') {
+        return response(res, 403, { error: 'Self-assignment of elevated roles is prohibited.' });
+      }
       const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
       const password = typeof body?.password === 'string' ? body.password : '';
       const rawFullName = typeof body?.full_name === 'string' ? body.full_name.trim() : '';
@@ -623,7 +619,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           : identity.fullName;
       const enrollmentNo = rawEnrollmentNo || identity.enrollmentNo;
       const phone = typeof body?.phone === 'string' ? body.phone : '';
-      const role = typeof body?.role === 'string' ? body.role : 'member';
+      // Public registration is strictly locked to member + pending; admin promotion requires an approved admin.
+      const role = 'member' as const;
       const avatarUrl = typeof body?.avatar_url === 'string' ? body.avatar_url : '';
       if (!email || !password || !fullName) return response(res, 400, { error: 'Name, email, and password are required.' });
       // Check if user or pending request already exists
@@ -816,13 +813,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       const members = enrichedProfiles.filter(
-        (m) => m.status === 'approved' || m.role === 'admin' || m.avatar_url === 'status:approved'
+        (m) =>
+          (m.status === 'approved' || m.avatar_url === 'status:approved') &&
+          m.status !== 'rejected' &&
+          m.avatar_url !== 'status:rejected'
       );
 
       const isProfileResolved = (p: Record<string, any>) =>
         p.status === 'approved' ||
         p.status === 'rejected' ||
-        p.role === 'admin' ||
         p.avatar_url === 'status:approved' ||
         p.avatar_url === 'status:rejected';
 
@@ -873,7 +872,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             roll_number: identity.enrollmentNo || '',
             enrollment_no: identity.enrollmentNo || '',
             phone: details?.phone || '',
-            role: details?.role || 'member',
+            role: 'member',
             status: 'pending',
             avatar_url:
               (typeof authMeta.avatar_url === 'string' && !authMeta.avatar_url.startsWith('status:') ? authMeta.avatar_url : '') ||
@@ -896,23 +895,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!authorization?.startsWith('Bearer ')) return response(res, 401, { error: 'Authentication required.' });
       const { data, error } = await supabase.auth.getUser(authorization.slice(7));
       if (error || !data.user) return response(res, 401, { error: 'Invalid session.' });
-      const email = (data.user.email || '').toLowerCase();
-      const isSuperadmin = MASTER_ADMIN_EMAILS.includes(email);
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('role, status')
         .eq('id', data.user.id)
         .maybeSingle();
+      requireDatabaseSuccess(profileError, 'Verify role lookup');
 
-      const realRole = isSuperadmin ? 'admin' : (profile?.role || 'member');
-      const realStatus = isSuperadmin ? 'approved' : (profile?.status || 'pending');
+      const realRole = profile?.role || 'member';
+      const realStatus = profile?.status || 'pending';
 
       return response(res, 200, {
         success: true,
         userId: data.user.id,
         role: realRole,
         status: realStatus,
-        isAdmin: isSuperadmin || realRole === 'admin',
+        isAdmin: realRole === 'admin' && realStatus === 'approved',
       });
     }
 
@@ -1021,12 +1019,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
+    const preservedRole = existingProfile?.role === 'admin' ? 'admin' : 'member';
+
     if (action === 'approve') {
       const { error: profileError } = await supabase.from('profiles').upsert([{
         id: resolvedUserId,
         full_name: fullName,
         email: email || existing?.email,
-        role: existingProfile?.role || details?.role || 'member',
+        role: preservedRole,
         status: 'approved',
         roll_number: rollNumber,
         phone: existingProfile?.phone || details?.phone || '',
@@ -1039,7 +1039,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         id: resolvedUserId,
         full_name: fullName,
         email: email || existing?.email,
-        role: existingProfile?.role || details?.role || 'member',
+        role: preservedRole,
         status: 'rejected',
         avatar_url: finalAvatarValue,
         roll_number: rollNumber,
@@ -1134,7 +1134,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         {
           name: fullName,
           email,
-          role: existingProfile?.role || details?.role || 'member',
+          role: preservedRole,
           status,
           adminName: actor.name,
           appUrl: resolveServerAppUrl(req),
@@ -1144,6 +1144,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return response(res, 200, { success: true });
   } catch (error) {
     console.error('Account operation failed:', error);
-    return response(res, 502, { error: error instanceof Error ? error.message : 'Account operation failed.' });
+    const msg = error instanceof Error ? error.message : 'Account operation failed.';
+    if (msg === 'Authentication is required.' || msg === 'Invalid or expired session.') {
+      return response(res, 401, { error: msg });
+    }
+    if (msg.startsWith('Unauthorized:')) {
+      return response(res, 403, { error: msg });
+    }
+    return response(res, 502, { error: msg });
   }
 }

@@ -29,7 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenAddItem,
   onOpenSchemaModal,
 }) => {
-  const { isLeadOrAdmin } = useAuth();
+  const { isAdmin } = useAuth();
   const { requests, items, isLiveDatabase } = useInventory();
 
   const pendingRequestsCount = requests.filter((r) => r.status === 'pending').length;
@@ -96,7 +96,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {/* Quick Action Button with signature purple gradient */}
-          {isLeadOrAdmin && (
+          {isAdmin && (
             <button
               onClick={() => {
                 onOpenAddItem();

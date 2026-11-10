@@ -32,25 +32,28 @@ function buildReturnedAdminNotes(existingNotes) {
  * @returns {Promise<{actorId: string | null, actorName: string, actorEmail: string, actorRoll: string, actorRole: string}>}
  */
 async function resolveAdminActor(supabase) {
-  const preferredEmail = (process.env.RETURN_ADMIN_EMAIL || '992501030399@mail.jiit.ac.in')
+  const preferredEmail = (process.env.RETURN_ADMIN_EMAIL || '')
     .trim()
     .toLowerCase();
 
   try {
     const { data: admins, error } = await supabase
       .from('profiles')
-      .select('id, full_name, email, roll_number, role')
-      .in('role', ['admin', 'lead']);
+      .select('id, full_name, email, roll_number, role, status')
+      .in('role', ['admin', 'lead'])
+      .eq('status', 'approved');
 
     if (!error && Array.isArray(admins) && admins.length > 0) {
       const matched =
-        admins.find((profile) => String(profile.email || '').toLowerCase() === preferredEmail) ||
-        admins.find((profile) => /vardaan/i.test(String(profile.full_name || ''))) ||
+        (preferredEmail
+          ? admins.find((profile) => String(profile.email || '').toLowerCase() === preferredEmail)
+          : undefined) ||
+        admins.find((profile) => profile.role === 'admin') ||
         admins[0];
       if (matched) {
         return {
           actorId: matched.id || null,
-          actorName: matched.full_name || 'Vardaan Saxena',
+          actorName: matched.full_name || 'System Operator',
           actorEmail: matched.email || preferredEmail,
           actorRoll: matched.roll_number || '',
           actorRole: matched.role || 'admin',
@@ -61,7 +64,7 @@ async function resolveAdminActor(supabase) {
     console.warn('Warning: Could not resolve admin profile, using fallback actor metadata.', err);
   }
 
-  return { actorId: null, actorName: 'Vardaan Saxena', actorEmail: preferredEmail, actorRoll: '', actorRole: 'admin' };
+  return { actorId: null, actorName: 'System Operator', actorEmail: preferredEmail, actorRoll: '', actorRole: 'admin' };
 }
 
 /**

@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     email TEXT NOT NULL,
     roll_number TEXT,
     role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('member', 'lead', 'admin')),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
     phone TEXT,
     avatar_url TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -70,20 +71,36 @@ CREATE TABLE IF NOT EXISTS public.activity_logs (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE OR REPLACE FUNCTION public.is_approved_user()
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND status = 'approved' AND COALESCE(avatar_url, '') NOT IN ('status:pending', 'status:rejected'));
+$$;
+
+CREATE OR REPLACE FUNCTION public.is_approved_admin()
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin' AND status = 'approved' AND COALESCE(avatar_url, '') NOT IN ('status:pending', 'status:rejected'));
+$$;
+
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.inventory_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.borrow_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Public profiles are viewable" ON public.profiles FOR SELECT USING (true);
-CREATE POLICY "Users can update own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id);
+CREATE POLICY "Users can insert own profile" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id AND role = 'member' AND status = 'pending');
+CREATE POLICY "Users and admins update profiles" ON public.profiles FOR UPDATE USING (auth.uid() = id OR public.is_approved_admin()) WITH CHECK (auth.uid() = id OR public.is_approved_admin());
 CREATE POLICY "Inventory viewable by all" ON public.inventory_items FOR SELECT USING (true);
-CREATE POLICY "Authenticated users modify inventory" ON public.inventory_items FOR ALL USING (auth.role() = 'authenticated');
-CREATE POLICY "Borrow requests viewable" ON public.borrow_requests FOR SELECT USING (auth.role() = 'authenticated');
-CREATE POLICY "Create borrow requests" ON public.borrow_requests FOR INSERT WITH CHECK (auth.role() = 'authenticated');
-CREATE POLICY "Update borrow requests" ON public.borrow_requests FOR UPDATE USING (auth.role() = 'authenticated');
-CREATE POLICY "Logs viewable" ON public.activity_logs FOR SELECT USING (auth.role() = 'authenticated');
-CREATE POLICY "Logs insertable" ON public.activity_logs FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Admins insert inventory" ON public.inventory_items FOR INSERT WITH CHECK (public.is_approved_admin());
+CREATE POLICY "Admins update inventory" ON public.inventory_items FOR UPDATE USING (public.is_approved_admin()) WITH CHECK (public.is_approved_admin());
+CREATE POLICY "Admins delete inventory" ON public.inventory_items FOR DELETE USING (public.is_approved_admin());
+CREATE POLICY "Borrow requests viewable by owner or admin" ON public.borrow_requests FOR SELECT USING (auth.uid() = user_id OR public.is_approved_admin());
+CREATE POLICY "Approved users create pending requests" ON public.borrow_requests FOR INSERT WITH CHECK (public.is_approved_user() AND auth.uid() = user_id AND status = 'pending' AND approved_by IS NULL);
+CREATE POLICY "Admins manage borrow requests" ON public.borrow_requests FOR UPDATE USING (public.is_approved_admin() OR (public.is_approved_user() AND auth.uid() = user_id AND status IN ('approved', 'overdue'))) WITH CHECK (public.is_approved_admin() OR (public.is_approved_user() AND auth.uid() = user_id AND status IN ('approved', 'overdue') AND COALESCE(admin_notes, '') LIKE '[RETURN_REQUESTED]%'));
+CREATE POLICY "Admins delete borrow requests" ON public.borrow_requests FOR DELETE USING (public.is_approved_admin());
+CREATE POLICY "Logs viewable by admin or owner" ON public.activity_logs FOR SELECT USING (public.is_approved_admin() OR auth.uid() = user_id);
+CREATE POLICY "Logs insertable" ON public.activity_logs FOR INSERT WITH CHECK (auth.role() = 'authenticated' AND (user_id IS NULL OR user_id = auth.uid() OR public.is_approved_admin()));
+CREATE POLICY "Logs immutable update" ON public.activity_logs FOR UPDATE USING (false);
+CREATE POLICY "Logs immutable delete" ON public.activity_logs FOR DELETE USING (false);
 `;
 
 export const SchemaNoticeModal: React.FC<SchemaNoticeModalProps> = ({ isOpen, onClose }) => {

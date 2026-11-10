@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ***
 
+## [2.18.59] : 2026-11-10
+
+### Mobile Sidebar Navigation & Responsive Header Alignment
+* **Mobile Slide Out Navigation Drawer ([`src/components/layout/MobileSidebar.tsx`](src/components/layout/MobileSidebar.tsx), [`src/utils/navigationProfile.ts`](src/utils/navigationProfile.ts))**:
+  * Replaced the floating bottom dock on mobile viewports (`< 768px` / below `md`) with a standard slide out sidebar drawer toggled from the top header bar, including Core Workspace links, collapsible Vault Categories, Quick Actions, operator profile card, Escape/backdrop dismissal, and Sign Out controls.
+  * Extracted shared navigation categories and operator metadata resolution into [`src/utils/navigationProfile.ts`](src/utils/navigationProfile.ts) so mobile sidebar and desktop dock share identical counts and identity rules.
+* **Responsive Top Header & Laptop Dock Preservation ([`src/components/dashboard/TopNavbar.tsx`](src/components/dashboard/TopNavbar.tsx), [`src/components/common/CicrLogo.tsx`](src/components/common/CicrLogo.tsx), [`src/components/layout/MobileSidebar.tsx`](src/components/layout/MobileSidebar.tsx), [`src/components/layout/BottomNavbar.tsx`](src/components/layout/BottomNavbar.tsx), [`src/components/dashboard/UserDashboard.tsx`](src/components/dashboard/UserDashboard.tsx))**:
+  * Switched the mobile top bar (`< md`) to a normal full width fixed header with a hamburger menu trigger and hidden top bar brand logo on mobile viewports so the CICR logo displays cleanly inside the slide out [`MobileSidebar`](src/components/layout/MobileSidebar.tsx) drawer while keeping the floating top capsule header, CICR logo, and floating bottom expandable dock unchanged on laptop and larger viewports (`>= md`).
+  * Added eager in-memory preloading and multi-tier image fallback in [`src/components/common/CicrLogo.tsx`](src/components/common/CicrLogo.tsx) plus [`index.html`](index.html) preload hints and strict drawer flex overflow containment in [`src/components/layout/MobileSidebar.tsx`](src/components/layout/MobileSidebar.tsx).
+  * Integrated mobile hardware back button drawer dismissal and mobile viewport spacing inside [`src/components/dashboard/UserDashboard.tsx`](src/components/dashboard/UserDashboard.tsx).
+* **Dev Server Logging & SMTP Diagnostic Clarity ([`vite.config.ts`](vite.config.ts), [`scripts/dev-server.mjs`](scripts/dev-server.mjs), [`api/email.ts`](api/email.ts))**:
+  * Restricted esbuild `console`/`debugger` stripping strictly to production builds so local `npm run dev` SSR API error logs remain visible, replaced deprecated `url.parse()` in [`scripts/dev-server.mjs`](scripts/dev-server.mjs) with WHATWG `URL`, and added explicit SMTP authentication diagnostics when `EAUTH` (`535`) occurs on `/api/email`.
+
+***
+
 ## [2.18.58] : 2026-11-10
 
 ### Server & Database Enforced Inventory Catalog and Requisition RBAC

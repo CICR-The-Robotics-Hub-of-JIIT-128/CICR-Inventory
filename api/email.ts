@@ -248,8 +248,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(202).json({ sent: true });
   } catch (error) {
     console.error('SMTP delivery failed:', error);
+    const errCode = typeof (error as any)?.code === 'string' ? (error as any).code : '';
+    const errMsg = error instanceof Error ? error.message : '';
+    const isAuthFailure =
+      errCode === 'EAUTH' ||
+      /535\b|BadCredentials|Username and Password not accepted|Invalid login/i.test(errMsg);
     return res.status(502).json({
-      error: 'Email delivery failed.',
+      error: isAuthFailure
+        ? 'SMTP authentication failed. Update SMTP_PASS with a valid Google App Password.'
+        : 'Email delivery failed.',
     });
   } finally {
     try {

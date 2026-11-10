@@ -33,7 +33,7 @@ function extractJwtProjectRef(token: string): string {
 }
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
   // Forward only safe, public non-secret configuration into the client bundle
@@ -79,9 +79,13 @@ export default defineConfig(({ mode }) => {
       __CICR_ENV_AUTH_REDIRECT_URL__: JSON.stringify(configuredAuthRedirectUrl),
       __CICR_ENV_ALLOWED_ORIGINS__: JSON.stringify(configuredAllowedOrigins),
     },
-    esbuild: {
-      drop: ['console', 'debugger'],
-    },
+    ...(command === 'build'
+      ? {
+          esbuild: {
+            drop: ['console', 'debugger'],
+          },
+        }
+      : {}),
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),

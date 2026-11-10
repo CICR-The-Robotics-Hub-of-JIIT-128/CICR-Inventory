@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 
 import { useAuth } from '../../context/AuthContext';
 import { useInventory } from '../../context/InventoryContext';
 import { BottomNavbar, ActiveView } from '../layout/BottomNavbar';
+import { MobileSidebar } from '../layout/MobileSidebar';
 import { CartItem } from '../inventory/RequestCartModal';
 import { TopNavbar } from './TopNavbar';
 import { DashboardOverview } from './DashboardOverview';
@@ -92,6 +93,7 @@ export const UserDashboard: React.FC = () => {
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [selectedIssuePassReq, setSelectedIssuePassReq] = useState<BorrowRequest | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Filters in Component Vault
   const [searchQuery, setSearchQuery] = useState('');
@@ -160,6 +162,7 @@ export const UserDashboard: React.FC = () => {
     selectedIssuePassReq !== null;
 
   const isAnyModalOpenRef = useRef(isAnyModalOpen);
+  const mobileMenuOpenRef = useRef(mobileMenuOpen);
   const activeViewRef = useRef<ActiveView>(activeView);
   const viewHistoryRef = useRef<ActiveView[]>([]);
   const lastBackPressTimeRef = useRef<number>(0);
@@ -168,6 +171,10 @@ export const UserDashboard: React.FC = () => {
   useEffect(() => {
     isAnyModalOpenRef.current = isAnyModalOpen;
   }, [isAnyModalOpen]);
+
+  useEffect(() => {
+    mobileMenuOpenRef.current = mobileMenuOpen;
+  }, [mobileMenuOpen]);
 
   useEffect(() => {
     activeViewRef.current = activeView;
@@ -214,7 +221,18 @@ export const UserDashboard: React.FC = () => {
         return;
       }
 
-      // 1. If any modal is open, pressing back closes the modal and stays in the active view
+      // 1. Close mobile navigation drawer on back press before popping views
+      if (mobileMenuOpenRef.current) {
+        setMobileMenuOpen(false);
+        window.history.pushState(
+          { cicrApp: true, view: activeViewRef.current, depth: viewHistoryRef.current.length },
+          '',
+          cleanPath
+        );
+        return;
+      }
+
+      // 2. If any modal is open, pressing back closes the modal and stays in the active view
       if (isAnyModalOpenRef.current) {
         setCartModalOpen(false);
         setAddItemModalOpen(false);
@@ -986,10 +1004,18 @@ export const UserDashboard: React.FC = () => {
     : userIdentity.fullName || 'Member';
   const enrollmentNo = profile?.roll_number || profile?.enrollment_no || userIdentity.enrollmentNo || '';
   const roleName = isAdmin ? 'ADMIN' : 'MEMBER';
+  const pendingRequisitionBadges = isAdmin
+    ? requests.filter((r) => r.status === 'pending' || isReturnRequested(r)).length
+    : requests.filter(
+        (r) =>
+          (r.user_id === user?.id || r.user_email?.toLowerCase() === (user?.email || '').toLowerCase()) &&
+          (r.status === 'pending' || isReturnRequested(r))
+      ).length;
+  const mobileNavBadgeCount = pendingRequisitionBadges + (isAdmin ? pendingAccounts.length : 0);
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#07070a] text-slate-900 dark:text-slate-100 flex flex-col relative overflow-x-hidden selection:bg-blue-600 selection:text-white">
-      {/* 1. Top Floating Header Bar */}
+      {/* 1. Top Header Bar (Normal sticky full width bar on mobile, floating capsule on laptop) */}
       <TopNavbar
         activeView={activeView}
         setActiveView={handleNavigateView}
@@ -1003,10 +1029,13 @@ export const UserDashboard: React.FC = () => {
         onClearNotifications={handleClearNotifications}
         onDismissNotification={handleDismissNotification}
         lowReservesCount={lowReservesCount}
+        isMobileMenuOpen={mobileMenuOpen}
+        onToggleMobileMenu={() => setMobileMenuOpen((prev) => !prev)}
+        mobileBadgeCount={mobileNavBadgeCount}
       />
 
-      {/* 2. Main Workspace Body - Generous top spacing pt-24 sm:pt-28 md:pt-32 between floating navbar and hero section */}
-      <main className="flex-1 max-w-[1720px] w-full mx-auto px-3 sm:px-6 lg:px-8 xl:px-10 2xl:px-12 pt-24 sm:pt-28 md:pt-32 pb-36 sm:pb-44 space-y-8 animate-in fade-in duration-300">
+      {/* 2. Main Workspace Body - Compact spacing below normal bar on mobile, generous dock clearance on laptop */}
+      <main className="flex-1 max-w-[1720px] w-full mx-auto px-3 sm:px-6 lg:px-8 xl:px-10 2xl:px-12 pt-20 md:pt-32 pb-10 md:pb-40 space-y-8 animate-in fade-in duration-300">
         {/* VIEW 1: DASHBOARD */}
         {activeView === 'dashboard' && (
           <DashboardOverview
@@ -1089,7 +1118,18 @@ export const UserDashboard: React.FC = () => {
         )}
       </main>
 
-      {/* 3. Modern Bottom Docked Navbar */}
+      {/* 3. Mobile Slide Out Sidebar & Laptop Bottom Docked Navbar */}
+      <MobileSidebar
+        isOpen={mobileMenuOpen}
+        onClose={() => setMobileMenuOpen(false)}
+        activeView={activeView}
+        setActiveView={handleNavigateView}
+        activeCategory={categoryFilter}
+        onSelectCategory={(cat) => setCategoryFilter(cat)}
+        pendingAccountsCount={pendingAccounts.length}
+        lowReservesCount={lowReservesCount}
+      />
+
       <BottomNavbar
         activeView={activeView}
         setActiveView={handleNavigateView}

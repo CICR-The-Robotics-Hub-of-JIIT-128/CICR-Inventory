@@ -2,13 +2,13 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { useInventory } from '../../context/InventoryContext';
-import { isReturnRequested } from '../../types/inventory';
 import { motionTransitions } from '../../lib/motion-tokens';
 import {
-  extractIdentityFromEmail,
-  isDirtyOrPlaceholderName,
-  toCleanDisplayName,
-} from '../../lib/identity';
+  ActiveView,
+  VAULT_CATEGORY_ITEMS,
+  BUG_FEEDBACK_FORM_URL,
+  resolveNavigationOperatorMeta,
+} from '../../utils/navigationProfile';
 import {
   LayoutGrid,
   Boxes,
@@ -17,17 +17,11 @@ import {
   Code2,
   ChevronDown,
   LogOut,
-  Cpu,
-  Radio,
-  Compass,
-  Wrench,
-  Zap,
-  Key,
   Bug,
   ExternalLink,
 } from 'lucide-react';
 
-export type ActiveView = 'dashboard' | 'inventory' | 'review-requests' | 'logs' | 'developers';
+export type { ActiveView };
 
 interface BottomNavbarProps {
   activeView: ActiveView;
@@ -55,30 +49,8 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
   const [mobileExpanded, setMobileExpanded] = useState(false);
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
 
-  const rawEmail = profile?.email || user?.email || '';
-  const validProfileName =
-    profile?.full_name && !isDirtyOrPlaceholderName(profile.full_name, rawEmail)
-      ? profile.full_name
-      : '';
-  const metaNameCand =
-    (user?.user_metadata?.full_name as string) ||
-    (user?.user_metadata?.name as string) ||
-    '';
-  const extractedIdentity = extractIdentityFromEmail(rawEmail, {
-    ...(user?.user_metadata || {}),
-    full_name: validProfileName || metaNameCand || profile?.full_name,
-    enrollment_no:
-      profile?.roll_number ||
-      profile?.enrollment_no ||
-      (user?.user_metadata?.enrollment_no as string) ||
-      (user?.user_metadata?.roll_number as string),
-  });
-
-  const avatarSrc =
-    (profile?.avatar_url && !profile.avatar_url.startsWith('status:') ? profile.avatar_url : '') ||
-    (typeof user?.user_metadata?.avatar_url === 'string' ? user.user_metadata.avatar_url : '') ||
-    (typeof user?.user_metadata?.picture === 'string' ? user.user_metadata.picture : '') ||
-    '';
+  const meta = resolveNavigationOperatorMeta({ user, profile, isAdmin, requests });
+  const { rawEmail, avatarSrc, roleName, displayName, enrollmentNo, pendingCount } = meta;
 
   useEffect(() => {
     setAvatarLoadFailed(false);
@@ -86,22 +58,6 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
 
   const navContainerRef = useRef<HTMLDivElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const roleName = isAdmin ? 'ADMIN' : 'MEMBER';
-  const displayName =
-    profile?.full_name && !isDirtyOrPlaceholderName(profile.full_name, rawEmail)
-      ? toCleanDisplayName(profile.full_name)
-      : extractedIdentity.fullName || 'Member';
-  const enrollmentNo = (
-    profile?.roll_number ||
-    profile?.enrollment_no ||
-    extractedIdentity.enrollmentNo ||
-    ''
-  ).trim();
-
-  const pendingCount = isAdmin
-    ? requests.filter((r) => r.status === 'pending' || isReturnRequested(r)).length
-    : requests.filter((r) => (r.user_id === user?.id || r.user_email?.toLowerCase() === user?.email?.toLowerCase()) && (r.status === 'pending' || isReturnRequested(r))).length;
 
   // Dock is expanded when hovered (mouse), opened on tap (mobile), or when any menu is open
   const isExpanded = isHovered || mobileExpanded || submenuOpen || profileMenuOpen;
@@ -183,17 +139,10 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
     setSubmenuOpen(false);
   };
 
-  const categoryItems = [
-    { key: 'all', label: 'All Catalog', icon: Boxes },
-    { key: 'mcu', label: 'Microcontrollers', icon: Cpu },
-    { key: 'sensors', label: 'Sensors', icon: Radio },
-    { key: 'actuators', label: 'Actuators', icon: Compass },
-    { key: 'power', label: 'Power', icon: Zap },
-    { key: 'tools', label: 'Tools', icon: Wrench },
-  ];
+  const categoryItems = VAULT_CATEGORY_ITEMS;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 pointer-events-none select-none">
+    <div className="hidden md:block fixed bottom-0 left-0 right-0 z-50 pointer-events-none select-none">
       {/* Docked Centered Floating Navbar with Dynamic Hover Expand & Auto Collapse */}
       <nav className="relative flex flex-col items-center px-2 py-2 sm:p-3 pointer-events-none" ref={navContainerRef}>
         {/* Fluid Morphing Submenu Bar (Centered directly above the navbar dock) */}
@@ -585,7 +534,7 @@ export const BottomNavbar: React.FC<BottomNavbarProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            window.open('https://docs.google.com/forms/d/e/1FAIpQLScF-vaE7NEi-teLfHsB3FkIkW2ggAzRLV3nr7jM0rp1pP5w8g/viewform', '_blank');
+                            window.open(BUG_FEEDBACK_FORM_URL, '_blank');
                             setProfileMenuOpen(false);
                             setMobileExpanded(false);
                             setIsHovered(false);

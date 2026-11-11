@@ -4,7 +4,7 @@
 
 # CICR Inventory
 
-**Creative & Innovative Cell in Robotics - The Robotic Society **
+**Creative & Innovative Cell in Robotics - The Robotic Society**
 
 Track, reserve, and deploy microcontrollers, sensors, actuators, and power electronics from JIIT's robotics laboratory vault with a modern full stack web platform: **React 18 + TypeScript + Vite**, **Tailwind CSS**, **Supabase (PostgreSQL)** realtime engine, **Neon PostgreSQL** secondary backup failover, **Database Enforced Admin RBAC**, and **Real Time Requisition Telemetry**.
 
